@@ -41,9 +41,9 @@ Then open http://localhost:8000. Press `Ctrl + C` in Terminal to stop the server
    - Name: `tasterank`. Region: **London** (closest to you and your testers).
    - It asks for a database password: let it generate one and save it in your password manager. The website doesn't need it.
 2. Once it's ready, open **SQL Editor** → **New query**. Paste in everything from `supabase/setup.sql`, then press **Run**. You should see "Success". This creates the tables, the security rules and the 22 starter foods.
-3. Open **Project Settings** → **API Keys**. Copy:
-   - the **Project URL** (looks like `https://abcdxyz.supabase.co`) into `SUPABASE_URL`
-   - the **publishable** key (or, under "Legacy API keys", the **anon public** key) into `SUPABASE_ANON_KEY`
+3. Copy two values into `CONFIG`:
+   - **Project URL** (looks like `https://abcdxyz.supabase.co`) → `SUPABASE_URL`. Find it under **Project Settings** → **Data API**, or via the **Connect** button at the top of the dashboard.
+   - **Publishable key** (starts with `sb_publishable_`) → `SUPABASE_ANON_KEY`. Find it under **Project Settings** → **API Keys**. Never copy anything from the "Secret keys" section.
 4. Open **Authentication** → **URL Configuration**:
    - **Site URL:** `https://jujubevera.github.io/tasterank/`
    - **Redirect URLs:** add `https://jujubevera.github.io/tasterank/` and `http://localhost:8000/`
