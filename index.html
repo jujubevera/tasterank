@@ -25,19 +25,23 @@ body{font-family:Figtree,system-ui,-apple-system,sans-serif;background:var(--bg)
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 button:disabled{cursor:default;opacity:.6}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
 [hidden]{display:none!important}
 
 /* Header */
+.demo{background:var(--ink);color:#fff;text-align:center;font-size:13px;font-weight:600;padding:7px 16px}
 .bar{position:sticky;top:0;z-index:20;background:rgba(255,248,241,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 .bar-in{max-width:960px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:10px}
 .logo{font-weight:800;font-size:22px;letter-spacing:-.02em;background:none;border:0;padding:0;margin-right:auto}
 .logo span{color:var(--brand)}
-.btn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 16px;font-weight:600;font-size:15px;transition:background .15s,border-color .15s}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 16px;font-weight:600;font-size:15px;transition:background .15s,border-color .15s;display:inline-flex;align-items:center;justify-content:center;gap:8px}
 .btn:hover{border-color:#D8C8B8}
 .btn-primary{background:var(--brand);border-color:var(--brand);color:#fff}
 .btn-primary:hover{background:var(--brand-dark);border-color:var(--brand-dark)}
 .btn-block{width:100%;padding:13px 16px}
-.link{background:none;border:0;padding:0;color:var(--brand);font-weight:600}
+.btn-danger{color:#B3261E}
+.link{background:none;border:0;padding:0;color:var(--brand);font-weight:600;text-decoration:none;cursor:pointer}
+.mini-avatar{width:22px;height:22px;border-radius:50%;object-fit:cover}
 
 /* Layout */
 main{max-width:960px;margin:0 auto;padding:20px 16px 40px}
@@ -45,7 +49,9 @@ h1{font-size:clamp(26px,5vw,38px);line-height:1.1;letter-spacing:-.02em;margin:8
 h2{font-size:18px;margin:32px 0 12px}
 .sub{color:var(--muted);margin:0 0 20px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
-.foot{max-width:960px;margin:0 auto;padding:0 16px 40px;color:var(--muted);font-size:13px;text-align:center}
+.foot{max-width:960px;margin:0 auto;padding:0 16px 80px;color:var(--muted);font-size:13px;text-align:center}
+.foot a{color:inherit}
+.fab{position:fixed;right:16px;bottom:16px;z-index:30;box-shadow:var(--shadow)}
 
 /* Filters */
 .filters{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
@@ -100,7 +106,8 @@ h2{font-size:18px;margin:32px 0 12px}
 /* Profile */
 .profile{padding:22px}
 .p-head{display:flex;align-items:center;gap:14px}
-.avatar{width:60px;height:60px;border-radius:50%;background:var(--soft);display:grid;place-items:center;font-size:30px;flex:none}
+.avatar{width:60px;height:60px;border-radius:50%;background:var(--soft);display:grid;place-items:center;font-size:30px;flex:none;overflow:hidden}
+.avatar img{width:100%;height:100%;object-fit:cover}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:20px 0}
 .stat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px}
 .stat b{display:block;font-size:26px}
@@ -114,6 +121,7 @@ h2{font-size:18px;margin:32px 0 12px}
 @keyframes up{from{transform:translateY(24px);opacity:.4}to{transform:none;opacity:1}}
 .modal h3{margin:0 0 4px;font-size:21px;padding-right:36px}
 .modal p{margin:0 0 16px;color:var(--muted)}
+.modal .prose p{color:var(--ink);margin:0 0 10px;font-size:15px}
 .x{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:50%;border:0;background:var(--bg);font-size:20px;line-height:1;color:var(--muted)}
 .x:hover{background:var(--soft);color:var(--ink)}
 .faces{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:8px 0 18px}
@@ -121,18 +129,19 @@ h2{font-size:18px;margin:32px 0 12px}
 .face-btn span{font-size:30px;line-height:1}
 .face-btn.on{border-color:var(--brand);background:var(--soft);color:var(--ink)}
 .field{display:grid;gap:6px;margin-bottom:12px;font-weight:600;font-size:14px}
-.field input,.field select{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-weight:500;font-size:16px}
+.field input,.field select,.field textarea{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-weight:500;font-size:16px}
+.field textarea{resize:vertical;min-height:110px}
+.hint{font-weight:500;color:var(--muted);font-size:13px}
 .notice{background:var(--soft);border-radius:12px;padding:12px 14px;font-size:14px;margin:4px 0 16px}
-.sso{display:grid;gap:10px}
-.sso .btn{display:flex;align-items:center;justify-content:center;gap:10px}
 .fine{font-size:12px;color:var(--muted);text-align:center;margin-top:12px}
 .clist{list-style:none;padding:0;margin:10px 0;max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 .clist button{width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:11px 14px;display:flex;gap:10px}
 .clist li:last-child button{border-bottom:0}
 .clist button:hover{background:var(--bg)}
+.hp{position:absolute;left:-9999px}
 
 /* Toast */
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;font-weight:600;font-size:14px;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px);text-align:center}
+.toast{position:fixed;left:50%;bottom:72px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;font-weight:600;font-size:14px;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px);text-align:center}
 
 /* Tablet & desktop */
 @media (min-width:640px){
@@ -148,11 +157,12 @@ h2{font-size:18px;margin:32px 0 12px}
 </head>
 <body>
 
+<div class="demo" id="demo-bar" hidden>Demo mode: sample ratings, and anything you do is saved only on this device.</div>
 <header class="bar">
   <div class="bar-in">
-    <button class="logo" onclick="go('home')" aria-label="TasteRank home">Taste<span>Rank</span></button>
-    <button class="btn" onclick="openSubmit()">+ Add item</button>
-    <button class="btn btn-primary" id="me-btn" onclick="meClick()">Sign in</button>
+    <button class="logo" data-act="home" aria-label="TasteRank home">Taste<span>Rank</span></button>
+    <button class="btn" data-act="add">+ Add item</button>
+    <button class="btn btn-primary" id="me-btn" data-act="me">Sign in</button>
   </div>
 </header>
 
@@ -164,15 +174,15 @@ h2{font-size:18px;margin:32px 0 12px}
 
     <div class="filters">
       <label class="country-pick">Food from
-        <select id="country" onchange="S.country=this.value;save();renderHome()"></select>
+        <select id="country"></select>
       </label>
     </div>
     <div class="chips" id="cats"></div>
     <div style="height:14px"></div>
 
-    <ol class="board" id="board"></ol>
+    <ol class="board" id="board"><li class="card empty">Loading…</li></ol>
 
-    <div id="pending-wrap">
+    <div id="pending-wrap" hidden>
       <h2>Awaiting community approval</h2>
       <p class="sub" style="margin-top:-6px">New items go live once 5 people vote them in.</p>
       <div class="pending" id="pending"></div>
@@ -181,59 +191,58 @@ h2{font-size:18px;margin:32px 0 12px}
 
   <!-- DETAIL -->
   <section id="v-detail" hidden>
-    <button class="btn back" onclick="go('home')">← Back to rankings</button>
+    <button class="btn back" data-act="home">← Back to rankings</button>
     <div class="card detail" id="detail"></div>
   </section>
 
   <!-- PROFILE -->
   <section id="v-profile" hidden>
-    <button class="btn back" onclick="go('home')">← Back to rankings</button>
+    <button class="btn back" data-act="home">← Back to rankings</button>
     <div class="card profile" id="profile"></div>
   </section>
 </main>
 
 <footer class="foot">
-  Early prototype: ratings shown are sample data, and anything you do is saved only on this device.
-  <span id="fb-wrap" hidden>· <a class="link" id="fb-link" target="_blank" rel="noopener">Send feedback</a></span>
+  An early version: thanks for trying it! ·
+  Product photos from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> (CC BY-SA) ·
+  <button class="link" data-act="privacy" style="color:inherit;text-decoration:underline">Privacy</button>
 </footer>
+<button class="btn fab" id="fab" data-act="feedback" hidden>💬 Feedback</button>
 
 <!-- RATE -->
 <div class="modal-bg" id="m-rate" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rate-title">
-    <button class="x" aria-label="Close" onclick="closeM('m-rate')">×</button>
+    <button class="x" aria-label="Close" data-act="close">×</button>
     <h3 id="rate-title">How was it?</h3>
     <p id="rate-sub"></p>
     <div class="faces" id="faces"></div>
-    <button class="btn btn-primary btn-block" id="rate-save" onclick="saveRating()" disabled>Save rating</button>
+    <button class="btn btn-primary btn-block" id="rate-save" data-act="save-rating" disabled>Save rating</button>
   </div>
 </div>
 
 <!-- SIGN IN -->
 <div class="modal-bg" id="m-signin" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="signin-title">
-    <button class="x" aria-label="Close" onclick="closeM('m-signin')">×</button>
+    <button class="x" aria-label="Close" data-act="close">×</button>
     <h3 id="signin-title">Join TasteRank</h3>
-    <p>Sign in to rate food and add new finds.</p>
-    <div class="sso">
-      <button class="btn btn-block" onclick="signIn('Google')"><b style="color:#4285F4">G</b> Continue with Google</button>
-      <button class="btn btn-block" style="background:#000;color:#fff;border-color:#000" onclick="signIn('Apple')">Continue with Apple</button>
-    </div>
-    <div class="fine">Prototype only: no real account is created.</div>
+    <p>Sign in to rate food, approve new items and add your own finds.</p>
+    <button class="btn btn-block" data-act="sign-in"><b style="color:#4285F4">G</b> Continue with Google</button>
+    <div class="fine" id="signin-fine">We use your Google name on your profile, nothing else. <button class="link" data-act="privacy">Privacy</button></div>
   </div>
 </div>
 
 <!-- ONBOARDING -->
 <div class="modal-bg" id="m-onboard" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="onboard-title">
-    <button class="x" aria-label="Close" onclick="closeM('m-onboard')">×</button>
+    <button class="x" aria-label="Close" data-act="close">×</button>
     <h3 id="onboard-title">Where are you from?</h3>
-    <p>We'll use this to show how your taste compares.</p>
-    <div class="field"><input id="c-search" placeholder="Search countries…" oninput="renderCountryList()" aria-label="Search countries"></div>
+    <p>It goes on your profile, and once enough people have rated, we'll use it to compare tastes between countries.</p>
+    <div class="field"><input id="c-search" placeholder="Search countries…" aria-label="Search countries" autocomplete="off"></div>
     <ul class="clist" id="c-list"></ul>
-    <button class="link" onclick="$('#c-other').hidden=false;$('#c-other-in').focus()">My country isn't listed</button>
+    <button class="link" data-act="other-country">My country isn't listed</button>
     <div id="c-other" hidden style="margin-top:12px">
-      <div class="field"><input id="c-other-in" placeholder="Type your country" aria-label="Your country"></div>
-      <button class="btn btn-primary btn-block" onclick="pickHome($('#c-other-in').value.trim())">Continue</button>
+      <div class="field"><input id="c-other-in" placeholder="Type your country" aria-label="Your country" maxlength="60"></div>
+      <button class="btn btn-primary btn-block" data-act="other-continue">Continue</button>
     </div>
   </div>
 </div>
@@ -241,17 +250,20 @@ h2{font-size:18px;margin:32px 0 12px}
 <!-- SUBMIT -->
 <div class="modal-bg" id="m-submit" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="submit-title">
-    <button class="x" aria-label="Close" onclick="closeM('m-submit')">×</button>
+    <button class="x" aria-label="Close" data-act="close">×</button>
     <h3 id="submit-title">Add a food</h3>
     <p>Know something everyone should try (or avoid)?</p>
-    <form onsubmit="submitItem(event)">
-      <label class="field">Name<input id="s-name" required placeholder="e.g. Tunnock's Caramel Wafer"></label>
-      <label class="field">Brand<input id="s-brand" placeholder="e.g. Tunnock's"></label>
+    <form id="f-submit">
+      <label class="field">Name<input id="s-name" required maxlength="80" placeholder="e.g. Tunnock's Caramel Wafer"></label>
+      <label class="field">Brand<input id="s-brand" maxlength="60" placeholder="e.g. Tunnock's"></label>
       <label class="field">Country it's from<select id="s-country"></select></label>
       <label class="field">Category<select id="s-cat"></select></label>
       <label class="field">Emoji (optional)<input id="s-emoji" maxlength="4" placeholder="🍽️"></label>
-      <label class="field">Image link (optional)<input id="s-img" type="url" placeholder="https://images.openfoodfacts.org/…"></label>
-      <div class="notice">👥 To keep things accurate, new items go live once <b>5 community members</b> approve them. Your submission counts as the first vote.</div>
+      <label class="field">Photo link (optional)
+        <input id="s-img" type="url" maxlength="500" pattern="https://.*" placeholder="https://images.openfoodfacts.org/…">
+        <span class="hint">Find the product on <a class="link" href="https://world.openfoodfacts.org" target="_blank" rel="noopener">openfoodfacts.org</a>, right-click its photo and choose "Copy image address".</span>
+      </label>
+      <div class="notice">👥 To keep things accurate, new items go live once <b>5 people</b> approve them. Your submission counts as the first vote.</div>
       <button class="btn btn-primary btn-block" type="submit">Submit for review</button>
     </form>
   </div>
@@ -260,22 +272,62 @@ h2{font-size:18px;margin:32px 0 12px}
 <!-- SUGGEST CATEGORY -->
 <div class="modal-bg" id="m-suggest" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="suggest-title">
-    <button class="x" aria-label="Close" onclick="closeM('m-suggest')">×</button>
+    <button class="x" aria-label="Close" data-act="close">×</button>
     <h3 id="suggest-title">Suggest a category</h3>
     <p>Missing something? Tell us and we'll consider adding it.</p>
-    <form onsubmit="suggestCat(event)">
-      <label class="field">Category name<input id="sg-name" required placeholder="e.g. Instant noodles"></label>
+    <form id="f-suggest">
+      <label class="field">Category name<input id="sg-name" required maxlength="60" placeholder="e.g. Instant noodles"></label>
       <button class="btn btn-primary btn-block" type="submit">Send suggestion</button>
     </form>
   </div>
 </div>
 
+<!-- FEEDBACK -->
+<div class="modal-bg" id="m-feedback" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fb-title">
+    <button class="x" aria-label="Close" data-act="close">×</button>
+    <h3 id="fb-title">Tell us what you think</h3>
+    <p>TasteRank is brand new. Honest feedback decides what gets built next.</p>
+    <form id="f-feedback">
+      <label class="field">Would you use TasteRank? What's missing or confusing?<textarea id="fb-msg" required maxlength="3000"></textarea></label>
+      <label class="field">Your email (optional)<input id="fb-email" type="email" maxlength="120" placeholder="Only if you'd like a reply">
+      </label>
+      <label class="hp" aria-hidden="true">Leave this unticked<input type="checkbox" id="fb-bot" tabindex="-1"></label>
+      <button class="btn btn-primary btn-block" type="submit">Send feedback</button>
+    </form>
+  </div>
+</div>
+
+<!-- PRIVACY -->
+<div class="modal-bg" id="m-privacy" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="privacy-title">
+    <button class="x" aria-label="Close" data-act="close">×</button>
+    <h3 id="privacy-title">Privacy</h3>
+    <div class="prose">
+      <p><b>If you sign in</b>, we store your Google name, email address, home country, and the ratings and votes you give. Other people only ever see totals, never who rated what.</p>
+      <p><b>Visitor statistics</b> are counted with GoatCounter, which uses no cookies and doesn't track you across sites.</p>
+      <p><b>Your country</b> is guessed from your internet address (via country.is) to pick which foods to show first. It isn't stored.</p>
+      <p><b>Feedback</b> you send is emailed to the TasteRank team via Web3Forms.</p>
+      <p>You can delete your account and everything linked to it at any time from your profile.</p>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.115.0/dist/umd/supabase.min.js"></script>
 <script>
-/* ---------- Settings ---------- */
-/* Paste a feedback form link here (e.g. a Google Form) to show "Send feedback" in the footer. */
-const FEEDBACK_URL='';
+/* ============================================================
+   SETTINGS: paste your keys here (see SETUP.md).
+   All of these are safe to be public; none of them is a password.
+   Leave SUPABASE ones empty to run in demo mode (data saved on this device only).
+   ============================================================ */
+const CONFIG={
+  SUPABASE_URL:'',        // e.g. 'https://abcdxyz.supabase.co'
+  SUPABASE_ANON_KEY:'',   // Supabase → Project Settings → API keys → publishable / anon key
+  WEB3FORMS_KEY:'',       // from web3forms.com (feedback is emailed to you; your email stays private)
+  GOATCOUNTER_CODE:''     // e.g. 'tasterank' for tasterank.goatcounter.com
+};
 
 /* ---------- Constants ---------- */
 const FACES=[
@@ -283,223 +335,436 @@ const FACES=[
   {v:2,e:'😕',l:'Not for me'},{v:1,e:'🤢',l:'Yuck'}
 ];
 const CATEGORIES=['Chocolate & sweets','Crisps & snacks','Biscuits','Drinks','Spreads & sauces'];
-const COUNTRIES=[['United Kingdom','🇬🇧'],['Japan','🇯🇵'],['United States','🇺🇸'],['France','🇫🇷'],['Mexico','🇲🇽'],
- ['South Korea','🇰🇷'],['Germany','🇩🇪'],['Italy','🇮🇹'],['Spain','🇪🇸'],['India','🇮🇳'],['China','🇨🇳'],
- ['Australia','🇦🇺'],['Canada','🇨🇦'],['Brazil','🇧🇷'],['Netherlands','🇳🇱'],['Poland','🇵🇱'],['Turkey','🇹🇷'],
- ['Nigeria','🇳🇬'],['Philippines','🇵🇭'],['Thailand','🇹🇭'],['Vietnam','🇻🇳'],['Greece','🇬🇷'],['Portugal','🇵🇹'],
- ['Ireland','🇮🇪'],['Sweden','🇸🇪'],['Switzerland','🇨🇭'],['Belgium','🇧🇪'],['South Africa','🇿🇦'],['Ukraine','🇺🇦']];
-const APPROVAL_VOTES=5;
+const COUNTRIES=[['United Kingdom','GB'],['Japan','JP'],['United States','US'],['France','FR'],['Mexico','MX'],
+ ['South Korea','KR'],['Germany','DE'],['Italy','IT'],['Spain','ES'],['India','IN'],['China','CN'],
+ ['Australia','AU'],['Canada','CA'],['Brazil','BR'],['Netherlands','NL'],['Poland','PL'],['Turkey','TR'],
+ ['Nigeria','NG'],['Philippines','PH'],['Thailand','TH'],['Vietnam','VN'],['Greece','GR'],['Portugal','PT'],
+ ['Ireland','IE'],['Sweden','SE'],['Switzerland','CH'],['Belgium','BE'],['South Africa','ZA'],['Ukraine','UA']];
+const DEFAULT_COUNTRY='United Kingdom';
+const APPROVAL_VOTES=5; // keep in sync with supabase/setup.sql
 
-/* Sample data. r = number of ratings for scores [1,2,3,4,5] */
-const SEED_ITEMS=[
- {id:'uk1',name:'Dairy Milk',brand:'Cadbury',country:'United Kingdom',category:'Chocolate & sweets',emoji:'🍫',r:[12,20,60,310,840]},
- {id:'uk2',name:'Chocolate Digestives',brand:"McVitie's",country:'United Kingdom',category:'Biscuits',emoji:'🍪',r:[8,15,50,260,610]},
- {id:'uk3',name:'Yorkshire Tea',brand:'Taylors',country:'United Kingdom',category:'Drinks',emoji:'🍵',r:[10,12,40,190,520]},
- {id:'uk4',name:'Salt & Vinegar Crisps',brand:'Walkers',country:'United Kingdom',category:'Crisps & snacks',emoji:'🥔',r:[20,35,90,240,330]},
- {id:'uk5',name:'Marmite',brand:'Marmite',country:'United Kingdom',category:'Spreads & sauces',emoji:'🫙',r:[180,90,60,110,240]},
- {id:'uk6',name:'Jaffa Cakes',brand:"McVitie's",country:'United Kingdom',category:'Biscuits',emoji:'🍊',r:[10,20,70,230,400]},
- {id:'uk7',name:'Percy Pigs',brand:'Marks & Spencer',country:'United Kingdom',category:'Chocolate & sweets',emoji:'🐷',r:[6,10,40,180,420]},
- {id:'uk8',name:'English Mustard',brand:"Colman's",country:'United Kingdom',category:'Spreads & sauces',emoji:'🟡',r:[15,25,80,150,140]},
- {id:'jp1',name:'Matcha KitKat',brand:'Nestlé Japan',country:'Japan',category:'Chocolate & sweets',emoji:'🍵',r:[10,18,50,220,500]},
- {id:'jp2',name:'Pocky Chocolate',brand:'Glico',country:'Japan',category:'Biscuits',emoji:'🥢',r:[8,15,70,250,380]},
- {id:'jp3',name:'Jagariko',brand:'Calbee',country:'Japan',category:'Crisps & snacks',emoji:'🥔',r:[5,10,40,140,300]},
- {id:'jp4',name:'Ramune',brand:'Various',country:'Japan',category:'Drinks',emoji:'🫧',r:[12,30,90,160,180]},
- {id:'us1',name:"Peanut Butter Cups",brand:"Reese's",country:'United States',category:'Chocolate & sweets',emoji:'🥜',r:[15,20,60,220,520]},
- {id:'us2',name:'Goldfish Crackers',brand:'Pepperidge Farm',country:'United States',category:'Crisps & snacks',emoji:'🐟',r:[10,25,90,200,220]},
- {id:'us3',name:'Root Beer',brand:'A&W',country:'United States',category:'Drinks',emoji:'🥤',r:[60,70,90,110,90]},
- {id:'fr1',name:'Apricot Jam',brand:'Bonne Maman',country:'France',category:'Spreads & sauces',emoji:'🍑',r:[5,8,30,150,260]},
- {id:'fr2',name:'Petit Beurre',brand:'LU',country:'France',category:'Biscuits',emoji:'🧈',r:[6,15,60,150,170]},
- {id:'fr3',name:'Carambar',brand:'Carambar',country:'France',category:'Chocolate & sweets',emoji:'🍬',r:[10,20,70,120,110]},
- {id:'mx1',name:'Takis Fuego',brand:'Barcel',country:'Mexico',category:'Crisps & snacks',emoji:'🌶️',r:[30,25,60,150,260]},
- {id:'mx2',name:'Salsa Picante',brand:'Valentina',country:'Mexico',category:'Spreads & sauces',emoji:'🔥',r:[8,10,30,120,240]}
+/* Demo-mode sample data (live mode reads foods from Supabase). r = ratings for scores [1,2,3,4,5] */
+const OFF='https://images.openfoodfacts.org/images/products/';
+const DEMO_ITEMS=[
+ {id:1,name:'Dairy Milk',brand:'Cadbury',country:'United Kingdom',category:'Chocolate & sweets',emoji:'🍫',img:OFF+'96119341/front_en.20.400.jpg',r:[12,20,60,310,840]},
+ {id:2,name:'Chocolate Digestives',brand:"McVitie's",country:'United Kingdom',category:'Biscuits',emoji:'🍪',img:OFF+'500/016/818/8102/front_en.4.400.jpg',r:[8,15,50,260,610]},
+ {id:3,name:'Yorkshire Tea',brand:'Taylors',country:'United Kingdom',category:'Drinks',emoji:'🍵',img:OFF+'501/035/711/2061/front.8.400.jpg',r:[10,12,40,190,520]},
+ {id:4,name:'Salt & Vinegar Crisps',brand:'Walkers',country:'United Kingdom',category:'Crisps & snacks',emoji:'🥔',img:OFF+'500/032/801/6832/front_en.3.400.jpg',r:[20,35,90,240,330]},
+ {id:5,name:'Marmite',brand:'Marmite',country:'United Kingdom',category:'Spreads & sauces',emoji:'🫙',img:OFF+'50184453/front_en.78.400.jpg',r:[180,90,60,110,240]},
+ {id:6,name:'Jaffa Cakes',brand:"McVitie's",country:'United Kingdom',category:'Biscuits',emoji:'🍊',img:OFF+'500/016/800/2071/front.6.400.jpg',r:[10,20,70,230,400]},
+ {id:7,name:'Percy Pigs',brand:'Marks & Spencer',country:'United Kingdom',category:'Chocolate & sweets',emoji:'🐷',img:OFF+'00132589/front_de.60.400.jpg',r:[6,10,40,180,420]},
+ {id:8,name:'English Mustard',brand:"Colman's",country:'United Kingdom',category:'Spreads & sauces',emoji:'🟡',img:OFF+'000/005/014/7588/front_en.61.400.jpg',r:[15,25,80,150,140]},
+ {id:9,name:'Matcha KitKat',brand:'Nestlé',country:'Japan',category:'Chocolate & sweets',emoji:'🍵',img:OFF+'955/600/122/7539/front_en.13.400.jpg',r:[10,18,50,220,500]},
+ {id:10,name:'Pocky Chocolate',brand:'Glico',country:'Japan',category:'Biscuits',emoji:'🥢',img:OFF+'490/100/551/0357/front_en.3.400.jpg',r:[8,15,70,250,380]},
+ {id:11,name:'Jagariko',brand:'Calbee',country:'Japan',category:'Crisps & snacks',emoji:'🥔',img:OFF+'490/133/057/3492/front_en.3.400.jpg',r:[5,10,40,140,300]},
+ {id:12,name:'Ramune',brand:'Hatakosen',country:'Japan',category:'Drinks',emoji:'🫧',img:OFF+'490/249/400/8004/front_en.28.400.jpg',r:[12,30,90,160,180]},
+ {id:13,name:'Peanut Butter Cups',brand:"Reese's",country:'United States',category:'Chocolate & sweets',emoji:'🥜',img:OFF+'003/400/043/2899/front_en.3.400.jpg',r:[15,20,60,220,520]},
+ {id:14,name:'Goldfish Crackers',brand:'Pepperidge Farm',country:'United States',category:'Crisps & snacks',emoji:'🐟',img:OFF+'001/410/008/5485/front.12.400.jpg',r:[10,25,90,200,220]},
+ {id:15,name:'Root Beer',brand:'A&W',country:'United States',category:'Drinks',emoji:'🥤',img:OFF+'007/800/005/2459/front_en.3.400.jpg',r:[60,70,90,110,90]},
+ {id:16,name:'Apricot Jam',brand:'Bonne Maman',country:'France',category:'Spreads & sauces',emoji:'🍑',img:OFF+'360/858/082/3452/front_fr.72.400.jpg',r:[5,8,30,150,260]},
+ {id:17,name:'Petit Beurre',brand:'LU',country:'France',category:'Biscuits',emoji:'🧈',img:null,r:[6,15,60,150,170]},
+ {id:18,name:'Carambar',brand:'Carambar',country:'France',category:'Chocolate & sweets',emoji:'🍬',img:OFF+'366/434/631/0406/front_fr.24.400.jpg',r:[10,20,70,120,110]},
+ {id:19,name:'Takis Fuego',brand:'Barcel',country:'Mexico',category:'Crisps & snacks',emoji:'🌶️',img:OFF+'750/103/042/4536/front_es.14.400.jpg',r:[30,25,60,150,260]},
+ {id:20,name:'Salsa Picante',brand:'Valentina',country:'Mexico',category:'Spreads & sauces',emoji:'🔥',img:OFF+'009/733/900/0054/front.8.400.jpg',r:[8,10,30,120,240]},
+ {id:21,name:'Caramel Wafer',brand:"Tunnock's",country:'United Kingdom',category:'Biscuits',emoji:'🧇',img:OFF+'501/097/507/0095/front_en.28.400.jpg',status:'pending',votes:4},
+ {id:22,name:'Hello Panda',brand:'Meiji',country:'Japan',category:'Biscuits',emoji:'🐼',img:OFF+'888/807/710/2023/front_en.16.400.jpg',status:'pending',votes:2}
 ];
-const SEED_PENDING=[
- {id:'p1',name:'Caramel Wafer',brand:"Tunnock's",country:'United Kingdom',category:'Biscuits',emoji:'🧇',votes:3},
- {id:'p2',name:'Hello Panda',brand:'Meiji',country:'Japan',category:'Biscuits',emoji:'🐼',votes:2}
-];
 
-/* ---------- State (kept in this browser only) ---------- */
-const KEY='tasterank-proto-v1';
-function fresh(){return{items:JSON.parse(JSON.stringify(SEED_ITEMS)),pending:JSON.parse(JSON.stringify(SEED_PENDING)),
-  country:'United Kingdom',cat:'All',user:null,home:null,mine:{},voted:[]}}
-let S=fresh();
-try{const saved=JSON.parse(localStorage.getItem(KEY));if(saved)S=Object.assign(fresh(),saved)}catch(e){}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
-let current=null, picked=null, after=null, view='home';
-
-/* ---------- Helpers ---------- */
+/* ---------- Small helpers ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const flag=c=>(COUNTRIES.find(x=>x[0]===c)||[0,'🌍'])[1];
+const codeOf=name=>(COUNTRIES.find(c=>c[0]===name)||[])[1];
+const flag=name=>{const c=codeOf(name);return c?String.fromCodePoint(...[...c].map(ch=>127397+ch.charCodeAt(0))):'🌍'};
 const total=i=>i.r.reduce((a,b)=>a+b,0);
 const avg=i=>{const t=total(i);return t?i.r.reduce((s,n,k)=>s+n*(k+1),0)/t:0};
 const faceFor=a=>FACES.find(f=>f.v===Math.round(a))||FACES[2];
 const fmt=n=>n.toLocaleString('en-GB');
+/* Saved settings. Pass session=true for data that should last only until the tab closes.
+   Wrapped in try because some browsers block storage (e.g. private windows). */
+const store={
+  get(k,session){try{return JSON.parse((session?sessionStorage:localStorage).getItem(k))}catch(e){return null}},
+  set(k,v,session){try{(session?sessionStorage:localStorage).setItem(k,JSON.stringify(v))}catch(e){}},
+  del(k,session){try{(session?sessionStorage:localStorage).removeItem(k)}catch(e){}}
+};
 function thumb(it,big){
   const e=esc(it.emoji||'🍽️');
-  const inner=it.img?`<img src="${esc(it.img)}" alt="" data-e="${e}" onerror="this.parentNode.textContent=this.dataset.e">`:e;
+  const inner=it.img?`<img src="${esc(it.img)}" alt="" loading="lazy" data-e="${e}" onerror="this.replaceWith(this.dataset.e)">`:e;
   return `<div class="thumb${big?' big':''}">${inner}</div>`;
 }
-function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,2400)}
-function openM(id){$('#'+id).hidden=false}
-function closeM(id){$('#'+id).hidden=true}
-document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.hidden=true}));
-document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal-bg').forEach(m=>m.hidden=true)});
+function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,2600)}
+function oops(e){console.error(e);toast('Something went wrong. Please try again.')}
+function withTimeout(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))])}
 
-/* ---------- Navigation ----------
-   Each page has its own link (#/item/uk1, #/me), so the browser Back button works
-   and you can share a link straight to one item. */
+/* ============================================================
+   DATA LAYER: everything that reads or saves data goes through `api`.
+   Live mode uses Supabase (shared by everyone); demo mode uses this browser only.
+   ============================================================ */
+const LIVE=!!(CONFIG.SUPABASE_URL&&CONFIG.SUPABASE_ANON_KEY&&window.supabase);
+const sb=LIVE?window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{auth:{flowType:'pkce'}}):null;
+const userFrom=s=>s?{id:s.user.id,name:s.user.user_metadata?.full_name||s.user.email||'You',avatar:s.user.user_metadata?.avatar_url||null}:null;
+const must=({data,error})=>{if(error)throw error;return data};
+
+const liveApi={
+  async session(){return userFrom(must(await sb.auth.getSession()).session)},
+  async signIn(){must(await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}}))},
+  async signOut(){await sb.auth.signOut()},
+  async deleteAccount(){must(await sb.rpc('delete_me'));await sb.auth.signOut()},
+  async getHome(){const d=must(await sb.from('profiles').select('home_country').eq('id',me.id).maybeSingle());return d?.home_country||null},
+  async setHome(c){must(await sb.from('profiles').update({home_country:c}).eq('id',me.id))},
+  async load(){
+    items=must(await sb.rpc('item_list')).map(d=>({id:d.id,name:d.name,brand:d.brand,country:d.country,category:d.category,
+      emoji:d.emoji,img:d.image_url,status:d.status,r:[d.r1,d.r2,d.r3,d.r4,d.r5],votes:d.votes,mine:d.mine}));
+    if(!me){myRatings={};myVotes=new Set();return}
+    const [r,v]=await Promise.all([sb.from('ratings').select('item_id,score'),sb.from('votes').select('item_id')]);
+    myRatings=Object.fromEntries(must(r).map(x=>[x.item_id,x.score]));
+    myVotes=new Set(must(v).map(x=>x.item_id));
+  },
+  async rate(id,score){must(await sb.from('ratings').upsert({item_id:id,user_id:me.id,score,updated_at:new Date().toISOString()},{onConflict:'item_id,user_id'}))},
+  async vote(id){must(await sb.from('votes').insert({item_id:id,user_id:me.id}))},
+  async submit(p){must(await sb.from('items').insert({name:p.name,brand:p.brand,country:p.country,category:p.category,emoji:p.emoji,image_url:p.img}))},
+  async suggest(name){must(await sb.from('suggestions').insert({name}))}
+};
+
+/* Demo mode stores only what this person did; sample foods always come fresh from the code. */
+const DEMO_KEY='tasterank-demo-v2';
+const demo=()=>Object.assign({user:null,home:null,ratings:{},votes:[],items:[],suggestions:[]},store.get(DEMO_KEY)||{});
+const demoSave=d=>store.set(DEMO_KEY,d);
+const demoApi={
+  async session(){return demo().user},
+  async signIn(){const d=demo();d.user={id:'demo',name:'Demo user',avatar:null};demoSave(d)},
+  async signOut(){const d=demo();d.user=null;demoSave(d)},
+  async deleteAccount(){store.del(DEMO_KEY)},
+  async getHome(){return demo().home},
+  async setHome(c){const d=demo();d.home=c;demoSave(d)},
+  async load(){
+    const d=demo();
+    items=[...DEMO_ITEMS,...d.items].map(x=>({status:'live',votes:0,r:[0,0,0,0,0],...x,r:[...(x.r||[0,0,0,0,0])],mine:!!x.mine}));
+    for(const it of items){
+      const s=d.ratings[it.id];if(s)it.r[s-1]++;
+      if(d.votes.includes(it.id))it.votes++;
+      if(it.status==='pending'&&it.votes>=APPROVAL_VOTES)it.status='live';
+    }
+    myRatings=me?{...d.ratings}:{};myVotes=new Set(me?d.votes:[]);
+  },
+  async rate(id,score){const d=demo();d.ratings[id]=score;demoSave(d)},
+  async vote(id){const d=demo();if(!d.votes.includes(id))d.votes.push(id);demoSave(d)},
+  async submit(p){const d=demo(),id=Date.now();d.items.push({...p,id,status:'pending',votes:0,mine:true});d.votes.push(id);demoSave(d)},
+  async suggest(name){const d=demo();d.suggestions.push(name);demoSave(d)}
+};
+const api=LIVE?liveApi:demoApi;
+
+/* ---------- App state ---------- */
+let items=[], me=null, home=null, myRatings={}, myVotes=new Set();
+let loaded=false, detected=null;
+const prefs=Object.assign({country:null,cat:'All'},store.get('tasterank-prefs')||{});
+const savePrefs=()=>store.set('tasterank-prefs',prefs);
+let view='home', current=null, picked=null, pendingAfter=null, currentUrl=location.href;
+store.del('tasterank-proto-v1'); // data from the first prototype
+
+/* ---------- Visitor statistics (GoatCounter) ---------- */
+let lastTracked=null;
+function track(path,event){
+  try{
+    if(!window.goatcounter||!window.goatcounter.count)return;
+    if(!event){if(path===lastTracked)return;lastTracked=path}
+    window.goatcounter.count({path,event:!!event});
+  }catch(e){}
+}
+const pagePath=()=>'/'+(location.hash.replace(/^#\/?/,'')||'');
+if(CONFIG.GOATCOUNTER_CODE){
+  window.goatcounter={no_onload:true};
+  const s=document.createElement('script');
+  s.async=true;s.src='https://gc.zgo.at/count.js';
+  s.dataset.goatcounter=`https://${CONFIG.GOATCOUNTER_CODE}.goatcounter.com/count`;
+  s.onload=()=>track(pagePath());
+  document.head.appendChild(s);
+}
+
+/* ---------- Pop-ups: focus moves inside, Tab stays inside, Esc and the Back button close them ---------- */
+let openId=null, lastFocus=null;
+function openM(id){
+  if(openId&&openId!==id)$('#'+openId).hidden=true;
+  else if(!openId)lastFocus=document.activeElement;
+  openId=id;
+  const m=$('#'+id);m.hidden=false;
+  const first=m.querySelector('.face-btn,input:not([type=checkbox]),textarea,select,button:not(.x)');
+  (first||m.querySelector('button')).focus();
+}
+function closeM(){
+  if(!openId)return;
+  $('#'+openId).hidden=true;openId=null;
+  if(lastFocus&&document.contains(lastFocus))lastFocus.focus();
+  lastFocus=null;
+}
+document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)closeM()}));
+document.addEventListener('keydown',e=>{
+  if(!openId)return;
+  if(e.key==='Escape')return closeM();
+  if(e.key!=='Tab')return;
+  const els=[...$('#'+openId).querySelectorAll('button,input:not([tabindex="-1"]),select,textarea,a[href]')].filter(el=>!el.disabled&&el.offsetParent!==null);
+  if(!els.length)return;
+  const first=els[0],last=els[els.length-1];
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+});
+
+/* ---------- Navigation: each page has its own link (#/item/5, #/me) ---------- */
 function show(v,id){
   view=v;
   ['home','detail','profile'].forEach(x=>$('#v-'+x).hidden=x!==v);
   if(v==='home')renderHome();
   if(v==='detail'){current=id;renderDetail()}
   if(v==='profile')renderProfile();
-  window.scrollTo(0,0);
+  currentUrl=location.href;
+  track(pagePath());
 }
 function go(v,id){
-  const h=v==='detail'?'#/item/'+encodeURIComponent(id):v==='profile'?'#/me':'';
-  if(location.hash!==h)history.pushState(null,'',h||location.pathname+location.search);
-  show(v,id);
+  const h=v==='detail'?'#/item/'+id:v==='profile'?'#/me':'';
+  if(location.hash!==h)history.pushState(null,'',h||location.pathname);
+  show(v,id);window.scrollTo(0,0);
 }
 function route(){
-  const m=location.hash.match(/^#\/item\/(.+)$/), id=m&&decodeURIComponent(m[1]);
-  if(id&&S.items.some(i=>i.id===id))show('detail',id);
-  else if(location.hash==='#/me'&&S.user&&S.home)show('profile');
+  const m=location.hash.match(/^#\/item\/(\d+)$/), id=m&&Number(m[1]);
+  if(id&&items.some(i=>i.id===id&&i.status==='live'))show('detail',id);
+  else if(location.hash==='#/me'&&me&&home)show('profile');
   else show('home');
 }
-window.addEventListener('popstate',route);
-function renderHeader(){$('#me-btn').textContent=S.user?'👤 Profile':'Sign in'}
+window.addEventListener('popstate',()=>{
+  if(openId){closeM();history.pushState(null,'',currentUrl);return} // Back closes the pop-up instead of leaving the page
+  route();
+});
+const renderAll=()=>{renderHeader();show(view,current)};
 
-/* ---------- Sign-in gate ---------- */
-function needUser(fn){
-  if(S.user&&S.home)return fn();
-  after=fn;
-  if(!S.user)openM('m-signin');else openOnboard();
+/* ---------- Clicks: every button says what it does with data-act ---------- */
+const ACT={
+  home:()=>go('home'),
+  item:d=>go('detail',Number(d.id)),
+  cat:d=>{prefs.cat=d.cat;savePrefs();renderHome()},
+  add:()=>needUser('submit'),
+  suggest:()=>needUser('suggest'),
+  me:()=>needUser('profile'),
+  rate:()=>needUser('rate'),
+  vote:d=>needUser('vote',Number(d.id)),
+  face:d=>{picked=Number(d.v);renderFaces()},
+  'save-rating':saveRating,
+  close:closeM,
+  'sign-in':signIn,
+  'pick-home':d=>pickHome(d.country),
+  'other-country':()=>{$('#c-other').hidden=false;$('#c-other-in').focus()},
+  'other-continue':()=>pickHome($('#c-other-in').value.trim()),
+  'change-home':()=>{pendingAfter={name:'profile'};openOnboard()},
+  'home-board':homeBoard,
+  share:()=>share(),
+  'share-item':shareItem,
+  'sign-out':signOut,
+  'delete-account':deleteAccount,
+  'reset-demo':resetDemo,
+  feedback:()=>{track('feedback-open',true);openM('m-feedback')},
+  privacy:()=>openM('m-privacy')
+};
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');
+  if(!el||el.disabled)return;
+  const f=ACT[el.dataset.act];if(!f)return;
+  e.preventDefault();f(el.dataset);
+});
+$('#country').addEventListener('change',e=>{prefs.country=e.target.value;savePrefs();renderHome()});
+$('#c-search').addEventListener('input',renderCountryList);
+$('#f-submit').addEventListener('submit',submitItem);
+$('#f-suggest').addEventListener('submit',suggestCat);
+$('#f-feedback').addEventListener('submit',sendFeedback);
+
+/* ---------- Sign-in & onboarding ---------- */
+const AFTER={
+  rate:()=>openRate(),
+  submit:()=>openSubmit(),
+  suggest:()=>openM('m-suggest'),
+  profile:()=>go('profile'),
+  vote:id=>doVote(id)
+};
+function needUser(name,arg){
+  if(me&&home)return AFTER[name](arg);
+  if(me){pendingAfter={name,arg};return openOnboard()}
+  store.set('tasterank-after',{name,arg,hash:location.hash},true); // survives the trip to Google and back
+  openM('m-signin');
 }
-function signIn(provider){
-  S.user={provider};save();closeM('m-signin');renderHeader();
-  if(!S.home)openOnboard();else runAfter();
+async function signIn(){
+  track('sign-in',true);
+  try{await api.signIn()}catch(e){return oops(e)}
+  if(!LIVE)await afterSignIn(); // live mode leaves for Google and comes back to start()
+}
+async function afterSignIn(){
+  me=await api.session();
+  const next=store.get('tasterank-after',true);store.del('tasterank-after',true);
+  if(!me){renderAll();return}
+  home=await api.getHome();
+  await api.load();
+  closeM();renderHeader();
+  if(next&&next.hash&&next.hash!==location.hash)history.replaceState(null,'',next.hash);
+  route();
+  if(!home){pendingAfter=next;openOnboard()}
+  else if(next&&AFTER[next.name])AFTER[next.name](next.arg);
 }
 function openOnboard(){$('#c-search').value='';$('#c-other').hidden=true;renderCountryList();openM('m-onboard')}
 function renderCountryList(){
   const q=$('#c-search').value.toLowerCase();
-  $('#c-list').innerHTML=COUNTRIES.filter(c=>c[0].toLowerCase().includes(q))
-    .map(c=>`<li><button onclick="pickHome('${esc(c[0])}')"><span>${c[1]}</span>${esc(c[0])}</button></li>`).join('')
+  const list=COUNTRIES.map(c=>c[0]).sort((a,b)=>(codeOf(b)===detected)-(codeOf(a)===detected)||a.localeCompare(b));
+  $('#c-list').innerHTML=list.filter(c=>c.toLowerCase().includes(q))
+    .map(c=>`<li><button data-act="pick-home" data-country="${esc(c)}"><span>${flag(c)}</span>${esc(c)}</button></li>`).join('')
     ||'<li style="padding:12px 14px;color:var(--muted)">No match. Try "My country isn\'t listed" below.</li>';
 }
-function pickHome(c){
+async function pickHome(c){
   if(!c)return;
-  const first=!S.home;S.home=c;save();closeM('m-onboard');
-  toast(first?'Welcome to TasteRank!':'Home country updated');runAfter();
+  const first=!home;
+  try{await api.setHome(c)}catch(e){return oops(e)}
+  home=c;closeM();toast(first?'Welcome to TasteRank!':'Home country updated');
+  const f=pendingAfter;pendingAfter=null;
+  if(f&&AFTER[f.name])AFTER[f.name](f.arg);else renderAll();
 }
-function runAfter(){const f=after;after=null;if(f)f();else renderAll()}
-function meClick(){needUser(()=>go('profile'))}
+function renderHeader(){
+  const b=$('#me-btn');
+  b.innerHTML=me?(me.avatar?`<img class="mini-avatar" src="${esc(me.avatar)}" alt="" referrerpolicy="no-referrer"> Profile`:'👤 Profile'):'Sign in';
+}
+
+/* ---------- Starting country: last choice, else where you are (from your internet address), else UK ---------- */
+async function detectCountry(){
+  try{const r=await withTimeout(fetch('https://api.country.is/'),1500);detected=(await r.json()).country||null}catch(e){}
+  if(!detected){const m=(navigator.language||'').match(/-([A-Za-z]{2})$/);detected=m?m[1].toUpperCase():null}
+}
+function boardCountry(countries){
+  const guess=(COUNTRIES.find(c=>c[1]===detected)||[])[0];
+  return [prefs.country,guess,DEFAULT_COUNTRY].find(c=>c&&countries.includes(c))||countries[0];
+}
 
 /* ---------- Home ---------- */
 function renderHome(){
-  const countries=[...new Set([...S.items,...S.pending].map(i=>i.country))].sort();
-  if(!countries.includes(S.country))S.country=countries[0];
-  $('#country').innerHTML=countries.map(c=>`<option value="${esc(c)}"${c===S.country?' selected':''}>${flag(c)} ${esc(c)}</option>`).join('');
-  $('#cats').innerHTML=['All',...CATEGORIES].map(c=>`<button class="chip${c===S.cat?' on':''}" onclick="S.cat='${esc(c)}';save();renderHome()">${esc(c)}</button>`).join('')
-    +`<button class="chip ghost" onclick="needUser(()=>openM('m-suggest'))">+ Suggest a category</button>`;
+  const board=$('#board');
+  if(!loaded){board.innerHTML='<li class="card empty">Loading…</li>';return}
+  const countries=[...new Set(items.map(i=>i.country))].sort();
+  const country=boardCountry(countries);
+  $('#country').innerHTML=countries.map(c=>`<option value="${esc(c)}"${c===country?' selected':''}>${flag(c)} ${esc(c)}</option>`).join('');
+  $('#cats').innerHTML=['All',...CATEGORIES].map(c=>`<button class="chip${c===prefs.cat?' on':''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')
+    +`<button class="chip ghost" data-act="suggest">+ Suggest a category</button>`;
 
-  const list=S.items.filter(i=>i.country===S.country&&(S.cat==='All'||i.category===S.cat))
-    .sort((a,b)=>avg(b)-avg(a)||total(b)-total(a));
-  $('#board').innerHTML=list.length?list.map((it,k)=>{
+  const list=items.filter(i=>i.status==='live'&&i.country===country&&(prefs.cat==='All'||i.category===prefs.cat))
+    .sort((a,b)=>avg(b)-avg(a)||total(b)-total(a)||a.name.localeCompare(b.name));
+  board.innerHTML=list.length?list.map((it,k)=>{
     const a=avg(it),t=total(it);
-    return `<li><button class="row" onclick="go('detail','${it.id}')">
-      <span class="rank${k<3?' top':''}">${k+1}</span>${thumb(it)}
+    return `<li><button class="row" data-act="item" data-id="${it.id}">
+      <span class="rank${t&&k<3?' top':''}">${t?k+1:'–'}</span>${thumb(it)}
       <span class="info"><div class="name">${esc(it.name)}</div><div class="meta">${esc(it.brand)} · ${esc(it.category)}</div></span>
-      <span class="score">${t?`<div class="face">${faceFor(a).e}</div><div class="num">${a.toFixed(1)}</div><div class="cnt">${fmt(t)} ratings</div>`:'<div class="cnt">No ratings yet</div>'}</span>
+      <span class="score">${t?`<div class="face">${faceFor(a).e}</div><div class="num">${a.toFixed(1)}</div><div class="cnt">${fmt(t)} rating${t===1?'':'s'}</div>`:'<div class="cnt">No ratings yet</div>'}</span>
     </button></li>`}).join('')
-    :`<li class="card empty">Nothing here yet. <button class="link" onclick="openSubmit()">Add the first one</button></li>`;
+    :`<li class="card empty">Nothing here yet. <button class="link" data-act="add">Add the first one</button></li>`;
 
-  const pend=S.pending.filter(p=>p.country===S.country);
+  const pend=items.filter(p=>p.status==='pending'&&p.country===country);
   $('#pending-wrap').hidden=!pend.length;
   $('#pending').innerHTML=pend.map(p=>{
-    const voted=S.voted.includes(p.id);
+    const voted=myVotes.has(p.id);
     return `<div class="card prow">${thumb(p)}
       <div class="info"><div class="name">${esc(p.name)}</div><div class="meta">${esc(p.brand)} · ${p.votes}/${APPROVAL_VOTES} votes</div>
-      <div class="progress"><i style="width:${p.votes/APPROVAL_VOTES*100}%"></i></div></div>
-      <button class="btn${voted?'':' btn-primary'}" ${voted?'disabled':''} onclick="needUser(()=>vote('${p.id}'))">${voted?'Voted ✓':'Approve'}</button>
+      <div class="progress"><i style="width:${Math.min(p.votes/APPROVAL_VOTES,1)*100}%"></i></div></div>
+      <button class="btn${voted?'':' btn-primary'}" ${voted?'disabled':''} data-act="vote" data-id="${p.id}">${voted?'Voted ✓':'Approve'}</button>
     </div>`}).join('');
 }
-function vote(id){
-  const p=S.pending.find(x=>x.id===id);if(!p||S.voted.includes(id))return renderHome();
-  p.votes++;S.voted.push(id);
-  if(p.votes>=APPROVAL_VOTES){
-    S.pending=S.pending.filter(x=>x.id!==id);
-    S.items.push({id:p.id,name:p.name,brand:p.brand,country:p.country,category:p.category,emoji:p.emoji,img:p.img,r:[0,0,0,0,0]});
-    toast(`${p.name} is now live 🎉`);
-  }else toast('Thanks for voting!');
-  save();renderHome();
+async function doVote(id){
+  if(myVotes.has(id))return renderHome();
+  try{await api.vote(id);await api.load()}catch(e){return oops(e)}
+  track('vote',true);
+  const it=items.find(i=>i.id===id);
+  toast(it&&it.status==='live'?`${it.name} is now live 🎉`:'Thanks for voting!');
+  renderHome();
 }
 
 /* ---------- Detail ---------- */
 function renderDetail(){
-  const it=S.items.find(i=>i.id===current);if(!it)return go('home');
-  const a=avg(it),t=total(it),mine=S.mine[it.id];
+  const it=items.find(i=>i.id===current&&i.status==='live');if(!it)return go('home');
+  const a=avg(it),t=total(it),mine=myRatings[it.id];
   const bars=FACES.map(f=>{const n=it.r[f.v-1],pct=t?Math.round(n/t*100):0;
     return `<div class="bar-row"><span>${f.e}</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span class="pct">${pct}%</span></div>`}).join('');
+  const mf=FACES.find(f=>f.v===mine);
   $('#detail').innerHTML=`
     <div class="detail-head">${thumb(it,true)}
       <div><h1>${esc(it.name)}</h1><div class="meta">${esc(it.brand)} · ${flag(it.country)} ${esc(it.country)} · ${esc(it.category)}</div></div>
     </div>
-    <div class="avg">${t?`<span class="face">${faceFor(a).e}</span><span><span class="num">${a.toFixed(1)}</span> <span class="meta">/ 5 from ${fmt(t)} ratings</span></span>`:'<span class="meta">No ratings yet. Be the first!</span>'}</div>
+    <div class="avg">${t?`<span class="face">${faceFor(a).e}</span><span><span class="num">${a.toFixed(1)}</span> <span class="meta">/ 5 from ${fmt(t)} rating${t===1?'':'s'}</span></span>`:'<span class="meta">No ratings yet. Be the first!</span>'}</div>
     <div class="bars">${bars}</div>
-    ${mine?`<div class="mine">Your rating: ${FACES.find(f=>f.v===mine).e} ${FACES.find(f=>f.v===mine).l}</div>`:''}
+    ${mf?`<div class="mine">Your rating: ${mf.e} ${mf.l}</div>`:''}
     <div class="detail-actions">
-      <button class="btn btn-primary btn-block" onclick="needUser(openRate)">${mine?'Change my rating':'Rate this'}</button>
-      <button class="btn btn-block" onclick="shareItem()">Share this item</button>
+      <button class="btn btn-primary btn-block" data-act="rate">${mf?'Change my rating':'Rate this'}</button>
+      <button class="btn btn-block" data-act="share-item">Share this item</button>
     </div>`;
 }
 
 /* ---------- Rating ---------- */
 function openRate(){
-  const it=S.items.find(i=>i.id===current);picked=S.mine[current]||null;
+  const it=items.find(i=>i.id===current);if(!it)return;
+  picked=myRatings[current]||null;
   $('#rate-sub').textContent=`${it.brand} ${it.name}`;
   renderFaces();openM('m-rate');
 }
 function renderFaces(){
-  $('#faces').innerHTML=FACES.map(f=>`<button class="face-btn${picked===f.v?' on':''}" onclick="picked=${f.v};renderFaces()" aria-label="${f.l}" aria-pressed="${picked===f.v}"><span>${f.e}</span>${f.l}</button>`).join('');
+  const focused=document.activeElement&&document.activeElement.dataset.v;
+  $('#faces').innerHTML=FACES.map(f=>`<button class="face-btn${picked===f.v?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${picked===f.v}"><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('');
+  if(focused){const b=$(`#faces [data-v="${focused}"]`);if(b)b.focus()}
   $('#rate-save').disabled=!picked;
 }
-function saveRating(){
-  const it=S.items.find(i=>i.id===current),old=S.mine[current];
-  if(old)it.r[old-1]--;
-  it.r[picked-1]++;S.mine[current]=picked;save();
-  closeM('m-rate');toast('Rating saved '+FACES.find(f=>f.v===picked).e);renderDetail();
+async function saveRating(){
+  const btn=$('#rate-save');btn.disabled=true;
+  try{await api.rate(current,picked);await api.load()}catch(e){btn.disabled=false;return oops(e)}
+  track('rate',true);
+  closeM();toast('Rating saved '+FACES.find(f=>f.v===picked).e);renderDetail();
 }
 
-/* ---------- Submit & suggest ---------- */
+/* ---------- Submit, suggest & feedback ---------- */
 function openSubmit(){
-  needUser(()=>{
-    $('#s-country').innerHTML=COUNTRIES.map(c=>`<option${c[0]===S.country?' selected':''}>${esc(c[0])}</option>`).join('');
-    $('#s-cat').innerHTML=CATEGORIES.map(c=>`<option>${esc(c)}</option>`).join('');
-    openM('m-submit');
-  });
+  const country=$('#country').value||DEFAULT_COUNTRY;
+  $('#s-country').innerHTML=COUNTRIES.map(c=>`<option${c[0]===country?' selected':''}>${esc(c[0])}</option>`).join('');
+  $('#s-cat').innerHTML=CATEGORIES.map(c=>`<option>${esc(c)}</option>`).join('');
+  openM('m-submit');
 }
-function submitItem(e){
+async function submitItem(e){
   e.preventDefault();
-  const p={id:'p'+Date.now(),name:$('#s-name').value.trim(),brand:$('#s-brand').value.trim(),
-    country:$('#s-country').value,category:$('#s-cat').value,emoji:$('#s-emoji').value.trim()||'🍽️',
-    img:$('#s-img').value.trim()||undefined,votes:1,mine:true};
+  const p={name:$('#s-name').value.trim(),brand:$('#s-brand').value.trim(),country:$('#s-country').value,
+    category:$('#s-cat').value,emoji:$('#s-emoji').value.trim()||'🍽️',img:$('#s-img').value.trim()||null};
   if(!p.name)return;
-  S.pending.push(p);S.voted.push(p.id);S.country=p.country;S.cat='All';save();
-  e.target.reset();closeM('m-submit');go('home');toast(`Submitted! It needs ${APPROVAL_VOTES-1} more votes to go live.`);
+  const btn=e.target.querySelector('[type=submit]');btn.disabled=true;
+  try{await api.submit(p);await api.load()}catch(err){btn.disabled=false;return oops(err)}
+  btn.disabled=false;track('submit',true);
+  prefs.country=p.country;prefs.cat='All';savePrefs();
+  e.target.reset();closeM();go('home');toast(`Submitted! It needs ${APPROVAL_VOTES-1} more votes to go live.`);
 }
-function suggestCat(e){e.preventDefault();e.target.reset();closeM('m-suggest');toast('Thanks! We’ll review your suggestion.')}
+async function suggestCat(e){
+  e.preventDefault();
+  const name=$('#sg-name').value.trim();if(!name)return;
+  try{await api.suggest(name)}catch(err){return oops(err)}
+  track('suggest',true);
+  e.target.reset();closeM();toast('Thanks! Your suggestion has been sent.');
+}
+async function sendFeedback(e){
+  e.preventDefault();
+  const message=$('#fb-msg').value.trim();if(!message)return;
+  const btn=e.target.querySelector('[type=submit]');btn.disabled=true;
+  try{
+    const r=await fetch('https://api.web3forms.com/submit',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
+      body:JSON.stringify({access_key:CONFIG.WEB3FORMS_KEY,subject:'TasteRank feedback',from_name:'TasteRank',
+        message,email:$('#fb-email').value.trim()||undefined,page:location.href,
+        signed_in:me?'yes':'no',home_country:home||'',botcheck:$('#fb-bot').checked})});
+    const j=await r.json();if(!j.success)throw new Error(j.message||'Feedback not sent');
+  }catch(err){btn.disabled=false;return oops(err)}
+  btn.disabled=false;track('feedback-sent',true);
+  e.target.reset();closeM();toast('Thank you! Your feedback has been sent.');
+}
 
 /* ---------- Profile ---------- */
 function renderProfile(){
-  if(!S.user||!S.home)return go('home');
-  const rated=Object.keys(S.mine).map(id=>S.items.find(i=>i.id===id)).filter(Boolean);
+  if(!me||!home)return go('home');
+  const rated=items.filter(i=>myRatings[i.id]);
   const cats=new Set(rated.map(i=>i.category));
-  const mySubs=S.pending.filter(p=>p.mine);
+  const mySubs=items.filter(p=>p.mine&&p.status==='pending');
   $('#profile').innerHTML=`
-    <div class="p-head"><div class="avatar">😋</div>
-      <div><h1 style="font-size:24px;margin:0">My taste</h1><div class="meta">Home country: ${flag(S.home)} ${esc(S.home)} · <button class="link" onclick="after=renderProfile;openOnboard()">change</button></div></div>
+    <div class="p-head"><div class="avatar">${me.avatar?`<img src="${esc(me.avatar)}" alt="" referrerpolicy="no-referrer">`:'😋'}</div>
+      <div><h1 style="font-size:24px;margin:0">${esc(me.name)}</h1><div class="meta">Home country: ${flag(home)} ${esc(home)} · <button class="link" data-act="change-home">change</button></div></div>
     </div>
     <div class="stats">
       <div class="stat"><b>${rated.length}</b><span>items rated</span></div>
@@ -507,36 +772,68 @@ function renderProfile(){
       <div class="stat"><b>${mySubs.length}</b><span>submissions pending</span></div>
     </div>
     <div class="actions">
-      <button class="btn btn-primary" onclick="homeBoard()">${flag(S.home)} My country's leaderboard</button>
-      <button class="btn" onclick="share()">Share TasteRank</button>
+      <button class="btn btn-primary" data-act="home-board">${flag(home)} My country's leaderboard</button>
+      <button class="btn" data-act="share">Share TasteRank</button>
     </div>
     <h2>My ratings</h2>
-    ${rated.length?`<ul class="history">${rated.map(it=>`<li><button class="row" onclick="go('detail','${it.id}')">${thumb(it)}
+    ${rated.length?`<ul class="history">${rated.map(it=>`<li><button class="row" data-act="item" data-id="${it.id}">${thumb(it)}
       <span class="info"><div class="name">${esc(it.name)}</div><div class="meta">${flag(it.country)} ${esc(it.brand)}</div></span>
-      <span class="score"><div class="face">${FACES.find(f=>f.v===S.mine[it.id]).e}</div></span></button></li>`).join('')}</ul>`
-      :`<div class="card empty">You haven't rated anything yet. <button class="link" onclick="go('home')">Find something to rate</button></div>`}
+      <span class="score"><div class="face">${FACES.find(f=>f.v===myRatings[it.id]).e}</div></span></button></li>`).join('')}</ul>`
+      :`<div class="card empty">You haven't rated anything yet. <button class="link" data-act="home">Find something to rate</button></div>`}
     <div style="margin-top:28px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
-      <button class="btn" onclick="signOut()">Sign out</button>
-      <button class="link" style="color:var(--muted)" onclick="resetDemo()">Reset demo data</button>
+      <button class="btn" data-act="sign-out">Sign out</button>
+      ${LIVE?'<button class="link btn-danger" data-act="delete-account">Delete my account</button>':'<button class="link" style="color:var(--muted)" data-act="reset-demo">Reset demo data</button>'}
     </div>`;
 }
 function homeBoard(){
-  if([...S.items,...S.pending].some(i=>i.country===S.home)){S.country=S.home;S.cat='All';save();go('home')}
-  else toast(`No ${S.home} items yet. Add the first one!`);
+  if(items.some(i=>i.country===home)){prefs.country=home;prefs.cat='All';savePrefs();go('home')}
+  else toast(`No ${home} items yet. Add the first one!`);
 }
-function shareItem(){const it=S.items.find(i=>i.id===current);if(it)share(`${it.brand} ${it.name} on TasteRank`)}
+function shareItem(){const it=items.find(i=>i.id===current);if(it)share(`${it.brand} ${it.name} on TasteRank`)}
 async function share(text){
   const data={title:'TasteRank',text:text||'Find out which food is worth bringing home.',url:location.href};
   try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(location.href);toast('Link copied')}}catch(e){}
 }
-/* Sign-in is pretend, so signing out keeps this browser's ratings (they're already counted in the totals). */
-function signOut(){S.user=null;save();renderHeader();go('home');toast('Signed out')}
-function resetDemo(){if(confirm('Reset all demo data in this browser?')){S=fresh();save();renderHeader();go('home')}}
+async function signedOut(msg){
+  me=null;home=null;
+  try{await api.load()}catch(e){}
+  renderHeader();go('home');toast(msg);
+}
+async function signOut(){try{await api.signOut()}catch(e){}signedOut('Signed out')}
+async function deleteAccount(){
+  if(!confirm("Delete your account, ratings and votes? This can't be undone."))return;
+  try{await api.deleteAccount()}catch(e){return oops(e)}
+  signedOut('Your account has been deleted');
+}
+async function resetDemo(){if(confirm('Reset all demo data in this browser?')){await api.deleteAccount();signedOut('Demo data reset')}}
 
 /* ---------- Start ---------- */
-function renderAll(){renderHeader();show(view,current)}
-if(FEEDBACK_URL){$('#fb-link').href=FEEDBACK_URL;$('#fb-wrap').hidden=false}
-renderHeader();route();
+async function start(){
+  $('#demo-bar').hidden=LIVE;
+  $('#fab').hidden=!CONFIG.WEB3FORMS_KEY;
+  if(!LIVE)$('#signin-fine').textContent='Demo mode: no real account is created.';
+  if(CONFIG.SUPABASE_URL&&!window.supabase)toast("Couldn't reach the TasteRank server. Showing demo data.");
+  const geo=detectCountry();
+  const params=new URLSearchParams(location.search);
+  try{
+    if(params.has('error_description'))toast('Sign-in was cancelled or failed. Please try again.');
+    me=await api.session();
+    if(params.has('code')||params.has('error'))history.replaceState(null,'',location.pathname+location.hash); // tidy the address bar after Google sign-in
+    if(me)home=await api.getHome();
+    await api.load();
+  }catch(e){console.error(e);$('#board').innerHTML='<li class="card empty">Couldn\'t load foods. Check your connection and refresh.</li>';return}
+  if(!prefs.country)await geo; // only wait for the guess when it decides what to show
+  loaded=true;renderHeader();
+  if(me&&store.get('tasterank-after',true))await afterSignIn();
+  else{route();if(me&&!home)openOnboard()}
+  if(LIVE)sb.auth.onAuthStateChange((event,session)=>setTimeout(async()=>{ // e.g. signed out in another tab
+    const u=userFrom(session);
+    if((u&&u.id)===(me&&me.id))return;
+    if(!u)return signedOut('Signed out');
+    me=u;home=await api.getHome();await api.load();renderAll();
+  },0));
+}
+start();
 </script>
 </body>
 </html>
