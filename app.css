@@ -53,7 +53,6 @@ button:disabled{cursor:default;opacity:.6}
 .btn-block{width:100%;padding:13px 16px}
 .btn-danger{color:var(--danger)}
 .link{background:none;border:0;padding:0;color:var(--primary);font-weight:700;text-decoration:none;cursor:pointer}
-.mini-avatar{width:22px;height:22px;border-radius:50%;object-fit:cover}
 
 /* Layout */
 main{max-width:960px;margin:0 auto;padding:20px 16px 40px}

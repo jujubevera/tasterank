@@ -7,7 +7,7 @@
 const CONFIG={
   SUPABASE_URL:'https://odhqfbfgxdvpsdoykafy.supabase.co',
   SUPABASE_ANON_KEY:'sb_publishable_DgUNWQ4tsRpyaOrvPq-YcQ_jUr4bDm-',   // publishable key: safe to be public
-  WEB3FORMS_KEY:'e8ee254f-15cf-486b-9704-6c890a2c2075',   // web3forms.com: feedback is emailed to you; your email stays private
+  WEB3FORMS_KEY:'e8ee254f-15cf-486b-9704-6c890a2c2075',   // web3forms.com: feedback is emailed to the address this key was made for; it never appears on the site
   GOATCOUNTER_CODE:'tasterank'   // stats at https://tasterank.goatcounter.com
 };
 
@@ -83,7 +83,9 @@ function withTimeout(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeou
    ============================================================ */
 const LIVE=!!(CONFIG.SUPABASE_URL&&CONFIG.SUPABASE_ANON_KEY&&window.supabase);
 const sb=LIVE?window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{auth:{flowType:'pkce'}}):null;
-const userFrom=s=>s?{id:s.user.id,name:s.user.user_metadata?.full_name||s.user.email||'You',avatar:s.user.user_metadata?.avatar_url||null}:null;
+/* People are known only by their random user ID: TasteRank never shows or saves their Google name, email or photo */
+const userFrom=s=>s?{id:s.user.id}:null;
+const tasterId=id=>'#'+String(id).replace(/-/g,'').slice(0,6).toUpperCase();
 const must=({data,error})=>{if(error)throw error;return data};
 
 const liveApi={
@@ -113,7 +115,7 @@ const demo=()=>Object.assign({user:null,home:null,ratings:{},votes:[],items:[],s
 const demoSave=d=>store.set(DEMO_KEY,d);
 const demoApi={
   async session(){return demo().user},
-  async signIn(){const d=demo();d.user={id:'demo',name:'Demo user',avatar:null};demoSave(d)},
+  async signIn(){const d=demo();d.user={id:'demo'};demoSave(d)},
   async signOut(){const d=demo();d.user=null;demoSave(d)},
   async deleteAccount(){store.del(DEMO_KEY)},
   async getHome(){return demo().home},
@@ -307,7 +309,7 @@ async function pickHome(c){
 }
 function renderHeader(){
   const b=$('#me-btn');
-  b.innerHTML=me?(me.avatar?`<img class="mini-avatar" src="${esc(me.avatar)}" alt="" referrerpolicy="no-referrer">`:'👤')+'<span class="hide-sm">Profile</span>':'Sign in';
+  b.innerHTML=me?'👤<span class="hide-sm">Profile</span>':'Sign in';
   if(me)b.setAttribute('aria-label','Profile');else b.removeAttribute('aria-label');
 }
 
@@ -448,8 +450,8 @@ function renderProfile(){
   const cats=new Set(rated.map(i=>i.category));
   const mySubs=items.filter(p=>p.mine&&p.status==='pending');
   $('#profile').innerHTML=`
-    <div class="p-head"><div class="avatar">${me.avatar?`<img src="${esc(me.avatar)}" alt="" referrerpolicy="no-referrer">`:'😋'}</div>
-      <div><h1 style="font-size:24px;margin:0">${esc(me.name)}</h1><div class="meta">Home country: ${flag(home)} ${esc(home)} · <button class="link" data-act="change-home">change</button></div></div>
+    <div class="p-head"><div class="avatar" aria-hidden="true">😋</div>
+      <div><h1 style="font-size:24px;margin:0">Your profile</h1><div class="meta">Taster ID ${esc(tasterId(me.id))} · Home country: ${flag(home)} ${esc(home)} · <button class="link" data-act="change-home">change</button></div></div>
     </div>
     <div class="stats">
       <div class="stat"><b>${rated.length}</b><span>items rated</span></div>

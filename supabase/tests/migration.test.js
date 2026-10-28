@@ -158,6 +158,15 @@ ok('upload into your own folder allowed',!(await as(2,`insert into storage.objec
 ok('upload into someone else\'s folder refused',!!(await as(2,`insert into storage.objects(bucket_id,name) values ('product-photos','${U(3)}/a.jpg')`)).err);
 ok('signed out can\'t upload',!!(await as(null,`insert into storage.objects(bucket_id,name) values ('product-photos','x/a.jpg')`)).err);
 
+// ---- Migration 003: no Google names in TasteRank's own tables ----
+await db.query("update public.profiles set display_name='User 1' where id=$1",[U(1)]);
+try{await db.exec(fs.readFileSync(R+'migrate-003-no-names.sql','utf8'));await db.exec(fs.readFileSync(R+'migrate-003-no-names.sql','utf8'));ok('migration 003 runs (twice) without errors',true)}catch(e){ok('migration 003 runs (twice) without errors',false,e.message)}
+ok('profiles no longer has a name column',(await q(`select count(*)::int n from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='display_name'`))[0].n===0);
+await db.query('insert into auth.users(id,raw_user_meta_data) values ($1,$2)',[U(99),{full_name:'New Person',email:'new@example.com'}]);
+const np=(await q('select * from public.profiles where id=$1',[U(99)]))[0];
+ok('a new sign-in still gets a profile, with no name in it',np&&!JSON.stringify(np).includes('New Person'),JSON.stringify(np));
+ok('people can still set their home country',!(await as(99,`update public.profiles set home_country='United Kingdom' where id='${U(99)}'`)).err);
+
 // ---- Deleting an account ----
 await as(11,`select public.delete_me()`);
 ok('delete account removes their flavour ratings',(await q(`select count(*)::int n from public.flavour_ratings where user_id=$1`,[U(11)]))[0].n===0);

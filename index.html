@@ -110,7 +110,7 @@ try{if(JSON.parse(localStorage.getItem('tasterank-theme'))==='dark')document.doc
     <h3 id="signin-title">Join TasteRank</h3>
     <p>Sign in to rate food, approve new items and add your own finds.</p>
     <button class="btn btn-block" data-act="sign-in"><b style="color:var(--google)">G</b> Continue with Google</button>
-    <div class="fine" id="signin-fine">We use your Google name on your profile, nothing else. <button class="link" data-act="privacy">Privacy</button></div>
+    <div class="fine" id="signin-fine">Google only signs you in. On TasteRank you're a random taster ID, never your name. <button class="link" data-act="privacy">Privacy</button></div>
   </div>
 </div>
 
@@ -187,11 +187,12 @@ try{if(JSON.parse(localStorage.getItem('tasterank-theme'))==='dark')document.doc
     <button class="x" aria-label="Close" data-act="close">×</button>
     <h3 id="privacy-title">Privacy</h3>
     <div class="prose">
-      <p><b>If you sign in</b>, we store your Google name, email address, home country, and the ratings and votes you give, in our Supabase database. Other people only ever see totals, never who rated what.</p>
-      <p><b>Visitor statistics</b> are counted with GoatCounter, which uses no cookies and doesn't track you across sites.</p>
-      <p><b>Your country</b> is guessed from your internet address (via country.is) to pick which foods to show first. It isn't stored.</p>
-      <p><b>Feedback</b> you send is emailed to the TasteRank team via Web3Forms.</p>
-      <p><b>Other services:</b> the page loads its font from Google Fonts, its database code from jsDelivr, and product photos from Open Food Facts. Like any website, they see your internet address when your browser fetches these files.</p>
+      <p><b>If you sign in</b> with Google, TasteRank gives you a random user ID. Your home country, ratings and approvals are saved against that ID, never your name. Other people only ever see totals, never who rated what.</p>
+      <p><b>Your Google details:</b> so you can sign in again, our sign-in service keeps the email address, name and profile photo Google shares when you sign in. TasteRank doesn't show them, share them or use them to contact you.</p>
+      <p><b>Visitor statistics</b> are counted without cookies and without tracking you across sites.</p>
+      <p><b>Your country</b> is guessed from your internet address to pick which snacks to show first. It isn't stored.</p>
+      <p><b>Feedback</b> you send is emailed to the TasteRank team. Add your email only if you'd like a reply.</p>
+      <p><b>Product photos</b> come from Open Food Facts, which sees your internet address when your browser loads them.</p>
       <p>You can delete your account and everything linked to it at any time from your profile.</p>
     </div>
   </div>
