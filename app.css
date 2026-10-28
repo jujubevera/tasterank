@@ -196,6 +196,53 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .fine{font-size:12px;color:var(--muted);text-align:center;margin-top:12px}
 .hp{position:absolute;left:-9999px}
 
+/* Adding a snack */
+.modal-add{max-width:480px}
+.flow-top{display:flex;align-items:center;gap:12px;margin:0 44px 12px 0;min-height:44px}
+.flow-top .link{min-height:44px;color:var(--accent-text)}
+.steps{display:flex;flex:1;gap:5px;align-items:center;font-size:12px;font-weight:800;color:var(--muted)}
+.steps i{display:block;height:5px;flex:1;border-radius:9px;background:var(--line)}
+.steps i.on{background:var(--primary)}
+.steps span{white-space:nowrap;margin-left:4px}
+.match{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:9px 10px;margin-bottom:8px}
+.match .nm{font-weight:800;font-size:14px;line-height:1.25}
+.nomatch{display:grid;justify-items:center;text-align:center;gap:4px;padding:6px 0 14px}
+.nomatch svg{width:104px;height:104px}
+.nomatch b{font-size:17px}
+.pgroup{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px;align-items:center}
+.chips.wrap{flex-wrap:wrap;overflow:visible;-webkit-mask-image:none;mask-image:none;margin:0;padding:4px 0}
+.suggest-link{display:block;margin:2px 0 14px;min-height:44px;color:var(--accent-text)}
+.kind-sum{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--hint);border-radius:12px;padding:8px 12px;font-size:14px;font-weight:800;margin-bottom:14px;min-height:44px}
+.short-meta{margin:-2px 0 14px}
+.short-meta .link{min-height:44px;color:var(--accent-text)}
+.details-top{display:flex;gap:12px;align-items:flex-start}
+.brand-field{flex:1;min-width:0;margin-bottom:6px}
+#brand-help{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.upload{position:relative;flex:none;width:84px;height:84px;margin-top:22px;border:2px dashed var(--line);border-radius:14px;background:var(--surface);display:grid;place-items:center;align-content:center;gap:2px;font-size:12px;font-weight:800;color:var(--accent-text);text-align:center;line-height:1.2;cursor:pointer;overflow:hidden}
+.upload:focus-within{outline:3px solid var(--primary);outline-offset:2px}
+.upload .cam{font-size:24px;line-height:1}
+.upload .optional{font-size:10.5px}
+.upload.has-photo{border-style:solid;background:var(--tile)}
+.upload.has-photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.upload .change{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);background:var(--surface);color:var(--accent-text);border-radius:999px;padding:0 8px;font-size:11px}
+.newtag{display:inline-block;font-size:12.5px;font-weight:800;color:var(--accent-text);background:var(--soft);border-radius:999px;padding:5px 10px}
+.optional{font-weight:600;color:var(--muted);text-transform:none;letter-spacing:0}
+.faces.sm .face-btn{padding:8px 0;min-height:44px}
+.faces.sm .face-btn span{font-size:24px;height:24px}
+.rule{font-size:13px;color:var(--muted);margin:2px 0 12px}
+.rule::before{content:"ⓘ ";font-weight:900;color:var(--primary)}
+.hint.center{text-align:center}
+.thanks,.moment{display:grid;justify-items:center;text-align:center;gap:8px;padding-top:6px}
+.thanks svg,.moment svg{width:112px;height:112px}
+.thanks h3,.moment h3{padding:0!important;margin:0}
+.thanks .btn-block+.btn-block,.moment .btn-block+.btn-block{margin-top:0}
+@media (prefers-reduced-motion:no-preference){.burst{animation:burst .5s ease-out}}
+@keyframes burst{from{transform:scale(.6) rotate(-8deg);opacity:0}60%{transform:scale(1.12) rotate(3deg);opacity:1}to{transform:none}}
+.pend-acts{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.seg-kind{grid-template-columns:1fr;border-radius:14px;margin-bottom:14px}
+.seg-kind button{border-radius:10px;text-align:left;padding:0 12px}
+.sr-only{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
 /* Toast */
 .toast{position:fixed;left:50%;bottom:88px;pointer-events:none;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:999px;font-weight:800;font-size:14px;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px);text-align:center}
 /* While a pop-up is open, show messages at the top so they never cover its buttons */

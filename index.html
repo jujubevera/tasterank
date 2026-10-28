@@ -53,7 +53,18 @@ try{if(JSON.parse(localStorage.getItem('tasterank-theme'))==='dark')document.doc
       <rect x="3" y="48" width="7" height="3.2" rx="1" fill="#7EB2DD" transform="rotate(65 6.5 49.6)"/>
       <circle cx="6" cy="72" r="2" fill="#C94A5A"/>
       <rect x="12" y="88" width="7" height="3.2" rx="1" style="fill:var(--conf,#445E93)" transform="rotate(15 15.5 89.6)"/>
-    </g></symbol></defs></svg>
+    </g></symbol><symbol id="crisp-confused" viewBox="0 0 100 100"><use href="#crisp-body"/>
+    <ellipse cx="32.5" cy="61" rx="5" ry="3" fill="#FCB0B3" opacity=".7"/><ellipse cx="67.5" cy="61" rx="5" ry="3" fill="#FCB0B3" opacity=".7"/>
+    <circle cx="40.5" cy="51.5" r="6.5" fill="#FFFFFF" stroke="#3A5080" stroke-width="1.6"/><circle cx="59.5" cy="51.5" r="6.5" fill="#FFFFFF" stroke="#3A5080" stroke-width="1.6"/>
+    <circle cx="40.5" cy="51.5" r="2" fill="#3A5080"/><circle cx="59.5" cy="51.5" r="2" fill="#3A5080"/>
+    <path d="M36.5 41.8 L43.5 41" stroke="#3A5080" stroke-width="2" stroke-linecap="round"/><path d="M56.5 41 L63.5 41.8" stroke="#3A5080" stroke-width="2" stroke-linecap="round"/>
+    <path d="M46.8 62.5 L53.2 62.5" stroke="#3A5080" stroke-width="2.2" stroke-linecap="round"/>
+    <g aria-hidden="true"><line x1="50.0" y1="6.2" x2="50.0" y2="1.8" stroke-width="3" stroke-linecap="round" opacity="1.00" style="stroke:var(--conf,#445E93)"/><line x1="53.4" y1="7.6" x2="56.5" y2="4.5" stroke-width="3" stroke-linecap="round" opacity="0.89" style="stroke:var(--conf,#445E93)"/><line x1="54.8" y1="11.0" x2="59.2" y2="11.0" stroke-width="3" stroke-linecap="round" opacity="0.78" style="stroke:var(--conf,#445E93)"/><line x1="53.4" y1="14.4" x2="56.5" y2="17.5" stroke-width="3" stroke-linecap="round" opacity="0.67" style="stroke:var(--conf,#445E93)"/><line x1="50.0" y1="15.8" x2="50.0" y2="20.2" stroke-width="3" stroke-linecap="round" opacity="0.56" style="stroke:var(--conf,#445E93)"/><line x1="46.6" y1="14.4" x2="43.5" y2="17.5" stroke-width="3" stroke-linecap="round" opacity="0.45" style="stroke:var(--conf,#445E93)"/><line x1="45.2" y1="11.0" x2="40.8" y2="11.0" stroke-width="3" stroke-linecap="round" opacity="0.34" style="stroke:var(--conf,#445E93)"/></g></symbol><symbol id="crisp-sad" viewBox="0 0 100 100"><use href="#crisp-body"/>
+    <ellipse cx="33.5" cy="60" rx="5.5" ry="3.2" fill="#FCB0B3" opacity=".7"/><ellipse cx="66.5" cy="60" rx="5.5" ry="3.2" fill="#FCB0B3" opacity=".7"/>
+    <path d="M37.5 47.5 L45 44.8" stroke="#3A5080" stroke-width="2.2" stroke-linecap="round"/><path d="M62.5 47.5 L55 44.8" stroke="#3A5080" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="42" cy="52.5" r="2.7" fill="#3A5080"/><circle cx="58" cy="52.5" r="2.7" fill="#3A5080"/>
+    <path d="M45.5 62 Q50 57.8 54.5 62" stroke="#3A5080" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+    <path d="M38.5 56 Q35.8 60.2 38.5 62 Q41.2 60.2 38.5 56 Z" fill="#7EB2DD"/></symbol></defs></svg>
 
 <div class="demo" id="demo-bar" hidden>Demo mode: sample ratings, and anything you do is saved only on this device.</div>
 <header class="bar">
@@ -123,12 +134,36 @@ try{if(JSON.parse(localStorage.getItem('tasterank-theme'))==='dark')document.doc
   </div>
 </div>
 
-<!-- ADD (coming in the next update) -->
-<div class="modal-bg" id="m-soon" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="soon-title">
+<!-- ADD A SNACK (filled in by app.js: find it → what kind → details → sent) -->
+<div class="modal-bg" id="m-add" hidden>
+  <div class="modal modal-add" role="dialog" aria-modal="true" aria-labelledby="add-title">
     <button class="x" aria-label="Close" data-act="close">×</button>
-    <div class="crispy-done"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><div><h3 id="soon-title">Adding snacks is coming soon</h3><p id="soon-text">For now, rate the ones already here. Missing a brand? Tell us with Send feedback in the menu.</p></div></div>
-    <button class="btn btn-primary btn-block" data-act="close">OK</button>
+    <div id="add-body"></div>
+  </div>
+</div>
+
+<!-- SUGGEST A PRODUCT OR VARIANT -->
+<div class="modal-bg" id="m-suggest" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="suggest-title">
+    <button class="x" aria-label="Close" data-act="close-suggest">×</button>
+    <h3 id="suggest-title">Suggest a product or variant</h3>
+    <p>The kinds of snack and their variants are kept tidy by hand, so the same thing never ends up in two rankings. Tell us what's missing.</p>
+    <form id="f-suggest">
+      <div class="seg seg-kind" role="radiogroup" aria-label="What are you suggesting?">
+        <button type="button" data-act="suggest-kind" data-kind="variant" aria-pressed="true">A variant (e.g. Prawn cocktail)</button>
+        <button type="button" data-act="suggest-kind" data-kind="product" aria-pressed="false">A product (e.g. Popcorn)</button>
+      </div>
+      <label class="field">What's missing?<input id="sg-text" required maxlength="120" autocomplete="off"></label>
+      <button class="btn btn-primary btn-block" type="submit">Send suggestion</button>
+    </form>
+  </div>
+</div>
+
+<!-- YOUR SUBMISSION WENT LIVE / CLOSED -->
+<div class="modal-bg" id="m-moment" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="moment-title">
+    <button class="x" aria-label="Close" data-act="close">×</button>
+    <div id="moment-body"></div>
   </div>
 </div>
 

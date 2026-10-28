@@ -26,6 +26,8 @@ const faceFor=a=>FACES.find(f=>f.v===Math.round(Math.round(a*10)/10))||FACES[2];
 const fmt=n=>Number(n||0).toLocaleString('en-GB');
 const plural=(n,w)=>`${fmt(n)} ${w}${n===1?'':'s'}`;
 const score1=a=>Number(a).toFixed(1);
+/* Names compared the way the database does: ignoring capitals, curly apostrophes, "&" vs "and" and extra spaces */
+const norm=t=>String(t||'').toLowerCase().replace(/[\u2018\u2019]/g,"'").replace(/&/g,' and ').replace(/\s+/g,' ').trim();
 /* Saved settings. Pass session=true for data that should last only until the tab closes.
    Wrapped in try because some browsers block storage (e.g. private windows). */
 const store={
@@ -101,7 +103,7 @@ const DEMO={
   ]
 };
 const DEMO_KEY='tasterank-demo-v3';
-const demoState=()=>Object.assign({user:null,ratings:{},approvals:[],home:0},store.get(DEMO_KEY)||{});
+const demoState=()=>Object.assign({user:null,ratings:{},approvals:[],home:0,added:[],extra:{},planned:{}},store.get(DEMO_KEY)||{});
 const demoSave=d=>store.set(DEMO_KEY,d);
 store.del('tasterank-demo-v2'); // demo data from the earlier foods version
 const demoApi={
@@ -113,15 +115,16 @@ const demoApi={
 };
 /* The same rules as the database functions, worked out from the sample data */
 const D={
-  brandId:name=>[...new Set(DEMO.items.map(i=>i.b))].indexOf(name)+1,
+  all:()=>[...DEMO.items,...(demoState().added||[])],   // the sample items plus anything added on this device
+  brandId:name=>[...new Set(D.all().map(i=>i.b))].indexOf(name)+1,
   local:(kind,id,c)=>DEMO.local[`${kind}:${id}:${c}`],
   product:(id,c)=>D.local('product',id,c)||DEMO.products.find(p=>p.id===id).name,
   variant:(id,c)=>D.local('variant',id,c)||DEMO.variants.find(v=>v.id===id).name,
   title:(id,c)=>D.local('title',id,c)||DEMO.variants.find(v=>v.id===id).title,
-  approvals:(it,st)=>it.approvals+(st.approvals.includes(it.id)?1:0),
+  approvals:(it,st)=>it.approvals+(st.approvals.includes(it.id)?1:0)+(st.extra[it.id]||0),
   live:(it,st)=>!it.pending||D.approvals(it,st)>=DEMO.settings.approval_votes,
   totals(c,st){
-    return DEMO.items.filter(i=>i.c===c&&D.live(i,st)).map(i=>{
+    return D.all().filter(i=>i.c===c&&D.live(i,st)).map(i=>{
       const r=[...i.r],mine=st.user?st.ratings[i.id]:null;if(mine)r[mine-1]++;
       const total=r.reduce((a,b)=>a+b,0);
       return {id:i.id,product_id:i.p,variant_id:i.v,brand_id:D.brandId(i.b),brand:i.b,pack_name:i.pack,image_url:i.img||null,image_path:null,
@@ -150,8 +153,9 @@ const DEMO_RPC={
       variant:D.variant(p_variant,p_country),country:{id:pl.id,name:pl.name,short_name:pl.short_name,flag:pl.flag},
       variants:DEMO.variants.filter(v=>v.product_id===p_product&&t.some(x=>x.variant_id===v.id)).map(v=>({id:v.id,name:D.variant(v.id,p_country),title:D.title(v.id,p_country)})),
       items:t.filter(x=>x.product_id===p_product&&x.variant_id===p_variant).map(x=>({...x,brand_variants:t.filter(y=>y.brand_id===x.brand_id&&y.product_id===p_product).length})).sort(D.order),
-      pending:DEMO.items.filter(i=>i.pending&&!D.live(i,st)&&i.c===p_country&&i.p===p_product&&i.v===p_variant).map(i=>({id:i.id,brand:i.b,pack_name:i.pack,image_url:i.img||null,image_path:null,
-        emoji:p.emoji,approvals:D.approvals(i,st),approved:st.approvals.includes(i.id),mine:false,days_left:i.days_left}))};
+      // demo: Approve stays clickable, and each extra click counts as another person, so the live moment can be tried alone
+      pending:D.all().filter(i=>i.pending&&!D.live(i,st)&&!i.closed&&i.c===p_country&&i.p===p_product&&i.v===p_variant).map(i=>({id:i.id,brand:i.b,pack_name:i.pack,image_url:i.img||null,image_path:null,
+        emoji:p.emoji,approvals:D.approvals(i,st),approved:false,mine:!!i.mine,days_left:i.days_left})).sort((a,b)=>b.mine-a.mine||b.approvals-a.approvals)};
   },
   brand_view({p_brand,p_product,p_country},st){
     const t=D.totals(p_country,st).filter(x=>x.product_id===p_product),pl=DEMO.places.find(x=>x.id===p_country);
@@ -159,10 +163,10 @@ const DEMO_RPC={
       const peers=t.filter(y=>y.variant_id===x.variant_id),ranked=peers.filter(y=>y.ranked).sort(D.order);
       return {...x,variant:D.variant(x.variant_id,p_country),ranking_title:D.title(x.variant_id,p_country),place_in_ranking:x.ranked?ranked.findIndex(y=>y.id===x.id)+1:null,ranking_size:peers.length};
     }).sort(D.order);
-    return {brand:DEMO.items.find(i=>D.brandId(i.b)===p_brand).b,product:D.product(p_product,p_country),country:{id:pl.id,short_name:pl.short_name,flag:pl.flag},items};
+    return {brand:D.all().find(i=>D.brandId(i.b)===p_brand).b,product:D.product(p_product,p_country),country:{id:pl.id,short_name:pl.short_name,flag:pl.flag},items};
   },
   next_to_rate({p_item,p_from_brand_view},st){
-    const it=DEMO.items.find(i=>i.id===p_item);if(!it)return {kind:'done'};
+    const it=D.all().find(i=>i.id===p_item);if(!it)return {kind:'done'};
     const t=D.totals(it.c,st),unrated=t.filter(x=>!x.my_score&&x.id!==p_item);
     const same=unrated.filter(x=>x.product_id===it.p&&x.variant_id===it.v).sort((a,b)=>(b.total<10)-(a.total<10)||a.total-b.total||a.id-b.id)[0];
     const brand=unrated.filter(x=>x.product_id===it.p&&x.brand_id===D.brandId(it.b)&&x.variant_id!==it.v).sort((a,b)=>a.total-b.total||a.id-b.id)[0];
@@ -177,13 +181,38 @@ const DEMO_RPC={
   rate_item({p_item,p_score},st){st.ratings[p_item]=p_score;demoSave(st);return Object.keys(st.ratings).length},
   unrate_item({p_item},st){delete st.ratings[p_item];demoSave(st);return Object.keys(st.ratings).length},
   approve_item({p_item},st){
-    const it=DEMO.items.find(i=>i.id===p_item);
-    if(!st.approvals.includes(p_item)){st.approvals.push(p_item);demoSave(st)}
+    const it=D.all().find(i=>i.id===p_item);
+    if(!st.approvals.includes(p_item)&&!it.mine)st.approvals.push(p_item);else st.extra[p_item]=(st.extra[p_item]||0)+1;
+    if(D.live(it,st)&&st.planned[p_item]&&!st.ratings[p_item]){st.ratings[p_item]=st.planned[p_item];delete st.planned[p_item]} // "Tried it?" becomes a real rating
+    demoSave(st);
     return {approvals:D.approvals(it,st),status:D.live(it,st)?'live':'pending'};
   },
+  search_items({q},st){
+    const words=norm(q).split(' ').filter(Boolean);if(norm(q).length<2)return [];
+    return D.all().filter(i=>!i.closed&&words.every(w=>norm(`${i.b} ${i.pack} ${D.product(i.p,i.c)} ${D.variant(i.v,i.c)} ${D.title(i.v,i.c)}`).includes(w))).slice(0,20).map(i=>{
+      const pl=DEMO.places.find(x=>x.id===i.c);
+      return {id:i.id,pack_name:i.pack,brand:i.b,status:D.live(i,st)?'live':'pending',product_id:i.p,variant_id:i.v,country_id:i.c,country:pl.short_name,flag:pl.flag,
+        ranking_title:D.title(i.v,i.c),image_url:i.img||null,image_path:null,emoji:DEMO.products.find(p=>p.id===i.p).emoji};
+    }).sort((a,b)=>(b.status==='live')-(a.status==='live')||a.pack_name.localeCompare(b.pack_name));
+  },
+  catalogue({p_country}){return DEMO.categories.map(c=>({id:c.id,name:c.name,products:DEMO.products.filter(p=>p.category_id===c.id).map(p=>({id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,
+    variants:DEMO.variants.filter(v=>v.product_id===p.id).map(v=>({id:v.id,name:D.variant(v.id,p_country),title:D.title(v.id,p_country)}))}))}))},
+  brand_suggest({q},st){const k=norm(q);return [...new Set(D.all().filter(i=>D.live(i,st)).map(i=>i.b))].filter(b=>k&&norm(b).includes(k)).sort((a,b)=>norm(b).startsWith(k)-norm(a).startsWith(k)||a.localeCompare(b)).slice(0,8).map(b=>({id:D.brandId(b),name:b}))},
+  submit_item({p_product,p_variant,p_country,p_brand_name,p_pack_name,p_score,p_demo_image},st){
+    const dup=D.all().find(i=>!i.closed&&i.p===p_product&&i.v===p_variant&&i.c===p_country&&norm(i.b)===norm(p_brand_name));
+    if(dup)throw Object.assign(new Error('Already here'),{code:'23505',details:String(dup.id)});
+    const brand=D.all().map(i=>i.b).find(b=>norm(b)===norm(p_brand_name))||p_brand_name.trim().replace(/\s+/g,' ');
+    const id=Date.now();
+    st.added.push({id,c:p_country,p:p_product,v:p_variant,b:brand,pack:p_pack_name,img:p_demo_image||null,r:[0,0,0,0,0],pending:true,approvals:1,days_left:30,mine:true});
+    if(p_score)st.planned[id]=p_score;
+    demoSave(st);return id;
+  },
+  suggest_catalogue(){return null},
+  my_submissions(_,st){return (st.added||[]).map(i=>({id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,variant_id:i.v,country_id:i.c,
+    status:i.closed?'closed':D.live(i,st)?'live':'pending',approvals:D.approvals(i,st)}))},
   my_profile(_,st){return st.user?{taster_id:'#DEMO00',home_place:{id:0,level:'unknown',name:'Unknown'},rated:Object.keys(st.ratings).length,
-    rankings_helped:new Set(Object.keys(st.ratings).map(id=>{const i=DEMO.items.find(x=>x.id==id);return i&&`${i.p}-${i.v}-${i.c}`})).size}:null},
-  my_ratings(_,st){return Object.entries(st.ratings).map(([id,score])=>{const i=DEMO.items.find(x=>x.id==id);if(!i)return null;
+    rankings_helped:new Set(Object.keys(st.ratings).map(id=>{const i=D.all().find(x=>x.id==id);return i&&`${i.p}-${i.v}-${i.c}`})).size}:null},
+  my_ratings(_,st){return Object.entries(st.ratings).map(([id,score])=>{const i=D.all().find(x=>x.id==id);if(!i)return null;
     const pl=DEMO.places.find(p=>p.id===i.c);return {item_id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,variant_id:i.v,country_id:i.c,flag:pl.flag,
       ranking_title:D.title(i.v,i.c),score,image_url:i.img||null,image_path:null,emoji:DEMO.products.find(p=>p.id===i.p).emoji}}).filter(Boolean)},
   my_rating_count(_,st){return Object.keys(st.ratings).length}
@@ -292,7 +321,7 @@ const ACT={
   unrate:removeRating,
   next:nextStep,
   'sheet-second':sheetSecond,
-  approve:d=>needUser({name:'approve',item:+d.id}),
+  approve:d=>needUser({name:'approve',item:+d.id,brand:d.brand,mine:d.mine==='1'}),
   'share-ranking':()=>page&&share(`Which ${page.title.toLowerCase()} wins? Vote on TasteRank`),
   share:()=>share(),
   add:openAdd,
@@ -310,7 +339,7 @@ const ACT={
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');
   if(!el||el.disabled)return;
-  const f=ACT[el.dataset.act];if(!f)return;
+  const f=ACT[el.dataset.act]||ADD_ACT[el.dataset.act];if(!f)return;
   e.preventDefault();f(el.dataset);
 });
 $('#country').addEventListener('change',e=>{prefs.country=e.target.value;prefs.cat='all';savePrefs();renderHome()});
@@ -320,7 +349,8 @@ $('#f-feedback').addEventListener('submit',sendFeedback);
 const AFTER={
   profile:()=>go({v:'profile'}),
   rate:a=>openRate(a.item,a.from),
-  approve:a=>doApprove(a.item)
+  approve:a=>doApprove(a.item,a.brand,a.mine),
+  add:a=>startAdd()
 };
 function needUser(a){
   if(me)return AFTER[a.name](a);
@@ -341,6 +371,7 @@ async function afterSignIn(){
   if(next&&next.hash&&next.hash!==location.hash)history.replaceState(null,'',next.hash);
   await route();
   if(me&&next&&AFTER[next.name])AFTER[next.name](next);
+  else checkMoments();
 }
 async function loadProfile(){try{profile=me?await rpc('my_profile'):null}catch(e){profile=null}}
 function renderHeader(){
@@ -350,19 +381,235 @@ function renderHeader(){
   if(me)b.setAttribute('aria-label','Profile');else b.removeAttribute('aria-label');
 }
 
-/* ---------- The floating + (adding arrives in the next update) ---------- */
+/* ---------- The floating +: add a snack (from home) or a brand to the ranking you're on ---------- */
 function setFab(){
   const f=$('#add-fab');
   f.hidden=view==='profile';
   f.setAttribute('aria-label',view==='ranking'&&page?`Add a brand to ${page.title}`:'Add a snack');
 }
-function openAdd(){
-  track('add-open',true);
-  $('#soon-text').textContent=view==='ranking'&&page
-    ?`Soon you'll be able to add a brand to ${page.title} here. For now, tell us what's missing with Send feedback in the menu.`
-    :'For now, rate the ones already here. Missing a brand? Tell us with Send feedback in the menu.';
-  openM('m-soon');
+function openAdd(){needUser({name:'add'})}  // a declaration, so the click map above can use it
+
+/* ---------- Adding: find it → what kind → the details → sent. From a ranking, straight to the details. ---------- */
+let add=null, searchTimer=null, brandTimer=null;
+const catalogues={};
+const titleCase=t=>String(t||'').replace(/(^|\s)([a-z])/g,(m,s,c)=>s+c.toUpperCase()).replace(/ And /g,' and ');
+async function loadCatalogue(c){return catalogues[c]||(catalogues[c]=await rpc('catalogue',{p_country:c}))}
+function kindNames(){ // local names of the chosen product and variant
+  const cat=catalogues[add.country]||[],p=cat.flatMap(c=>c.products).find(x=>x.id===add.product),v=p&&p.variants.find(x=>x.id===add.variant);
+  return {product:p?p.name:'',variant:v?v.name:'',title:v?v.title:'',category:(cat.find(c=>c.products.includes(p))||{}).name||''};
 }
+async function startAdd(prefill){
+  track('add-open',true);
+  const fromRanking=!prefill&&view==='ranking'&&page&&page.kind==='ranking';
+  const c=fromRanking?page.country.id:(prefill?prefill.country:homeCountry().id);
+  add={mode:fromRanking?'short':'full',step:fromRanking||prefill?'details':'find',country:c,q:'',results:null,
+    product:fromRanking?page.route.product:prefill?prefill.product:null,variant:fromRanking?page.route.variant:prefill?prefill.variant:null,
+    brand:prefill?prefill.brand:'',pack:prefill?prefill.pack:'',packEdited:!!prefill,score:null,photo:null,existing:[],error:null,sending:false};
+  try{await loadCatalogue(c);if(add.step==='details')await loadExisting()}catch(e){return oops(e)}
+  renderAdd();openM('m-add');
+}
+async function loadExisting(){ // what's already in that ranking, for the "Already here" check
+  const r=await rpc('ranking',{p_product:add.product,p_variant:add.variant,p_country:add.country});
+  add.ranking=r;
+  add.existing=r?[...r.items.map(i=>({...i,live:true})),...r.pending.map(i=>({...i,live:false}))]:[];
+}
+const stepBar=n=>`<div class="flow-top"><button class="link" data-act="${n===1?'close':'add-back'}">${n===1?'Cancel':'← Back'}</button><div class="steps" aria-label="Step ${n} of 3">${[1,2,3].map(k=>`<i${k<=n?' class="on"':''}></i>`).join('')}<span>${n} of 3</span></div></div>`;
+function renderAdd(){
+  const b=$('#add-body'),cp=placeBy('id',add.country)||{flag:'',name:'',short_name:''};
+  if(add.step==='find'){
+    b.innerHTML=`${stepBar(1)}<h3 id="add-title">What snack is it?</h3>
+      <div class="field"><input id="add-q" type="search" placeholder="Brand or name, e.g. Walkers salt" aria-label="Search all snacks" autocomplete="off" value="${esc(add.q)}"></div>
+      <div id="add-results"></div>`;
+    renderResults();setTimeout(()=>$('#add-q')?.focus(),0);return;
+  }
+  if(add.step==='kind'){
+    const cat=catalogues[add.country]||[],prod=cat.flatMap(c=>c.products).find(p=>p.id===add.product);
+    b.innerHTML=`${stepBar(2)}<h3 id="add-title">What kind of snack?</h3>
+      <label class="field"><span class="lab">Sold in</span><select id="add-country">${places.map(p=>`<option value="${p.id}"${p.id===add.country?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('')}</select></label>
+      <div class="field"><span class="lab">Product</span>${cat.map(c=>`<div class="pgroup"><span class="meta">${esc(c.name)}</span><div class="chips wrap">${c.products.map(p=>
+        `<button class="chip${p.id===add.product?' on':''}" aria-pressed="${p.id===add.product}" data-act="add-product" data-id="${p.id}">${esc(p.name)}</button>`).join('')}</div></div>`).join('')}</div>
+      ${prod?`<div class="field"><span class="lab">Variant</span><div class="chips wrap">${prod.variants.map(v=>
+        `<button class="chip${v.id===add.variant?' on':''}" aria-pressed="${v.id===add.variant}" data-act="add-variant" data-id="${v.id}">${esc(v.name)}</button>`).join('')}</div></div>`:''}
+      <button class="link suggest-link" data-act="suggest-open">Not listed? Suggest a product or variant</button>
+      <button class="btn btn-primary btn-block" data-act="add-next"${add.product&&add.variant?'':' disabled'}>Next</button>`;
+    return;
+  }
+  if(add.step==='details'){
+    const k=kindNames(),short=add.mode==='short';
+    b.innerHTML=`${short?`<h3 id="add-title">Add a brand to ${esc(k.title)}</h3><div class="meta short-meta">${cp.flag} ${esc(cp.name)} · <button class="link" data-act="add-search-all">Search all snacks instead</button></div>`
+        :`${stepBar(3)}<div class="kind-sum"><span>${cp.flag} · ${esc(k.product)} · ${esc(k.variant)}</span><button class="link" data-act="add-change">Change</button></div><h3 id="add-title" class="sr-only">The details</h3>`}
+      <div class="details-top">
+        <label class="upload${add.photo?' has-photo':''}">${add.photo?`<img src="${add.photo.url}" alt="Your photo">`:'<span class="cam" aria-hidden="true">📷</span>Add photo<span class="optional">optional</span>'}
+          <input type="file" id="add-photo" accept="image/*" class="sr-only"></label>
+        <div class="field brand-field"><span class="lab">Brand</span><input id="add-brand" value="${esc(add.brand)}" maxlength="60" autocomplete="off" aria-describedby="brand-help"><div id="brand-help"></div></div>
+      </div>
+      <div id="add-dup"></div>
+      <div id="add-rest">
+        <label class="field"><span class="lab">Name on the pack</span><input id="add-pack" value="${esc(add.pack)}" maxlength="120" autocomplete="off"></label>
+        <div class="field"><span class="lab">Tried it? <span class="optional">(optional)</span></span><div class="faces sm">${FACES.map(f=>
+          `<button class="face-btn${add.score===f.v?' on':''}" aria-pressed="${add.score===f.v}" aria-label="${f.l}" data-act="add-face" data-v="${f.v}"><span aria-hidden="true">${f.e}</span></button>`).join('')}</div></div>
+        <p class="rule">Goes live once ${settings.approval_votes} people approve it. Yours counts as the first.</p>
+        <div id="add-error"></div>
+        <button class="btn btn-primary btn-block" id="add-send" data-act="add-send">Send for approval</button>
+      </div>`;
+    renderBrandHelp();setTimeout(()=>{if(!add.brand)$('#add-brand')?.focus()},0);return;
+  }
+  if(add.step==='sent'){
+    const left=settings.approval_votes-1,k=kindNames();
+    b.innerHTML=`<div class="thanks"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg>
+      <h3 id="add-title">Thanks! ${esc(add.sentName)} is waiting for approval</h3>
+      <p>It needs ${left} more approval${left===1?'':'s'} to go live. Share it, and friends who know it can approve it.</p>
+      <button class="btn btn-primary btn-block" data-act="add-share">Share the link</button>
+      <button class="btn btn-block" data-act="add-done">Back to ${esc(k.title)}</button></div>`;
+  }
+}
+function renderResults(){
+  const el=$('#add-results');if(!el)return;
+  const q=add.q.trim();
+  if(norm(q).length<2){el.innerHTML=`<p class="hint">Search first, so nothing gets added twice. Each country's version is separate.</p>`;return}
+  if(!add.results){el.innerHTML='<p class="hint">Searching…</p>';return}
+  if(!add.results.length){
+    el.innerHTML=`<div class="nomatch"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-confused"/></svg><b>Hmm… no match for that snack.</b><span class="meta">Add it, and I'll put it to the vote.</span></div>
+      <button class="btn btn-primary btn-block" data-act="add-new">Add "${esc(q)}" →</button>`;return;
+  }
+  el.innerHTML=add.results.map(x=>`<div class="match">${thumb(x,'sm')}<div><div class="nm">${esc(x.pack_name)}</div><div class="meta">${x.flag} ${esc(x.country)} · ${esc(x.ranking_title)}${x.status==='pending'?' · waiting for approval':''}</div></div>
+      <button class="btn${x.status==='live'?' btn-primary':''}" data-act="add-open-match" data-id="${x.id}" data-cc="${esc((placeBy('id',x.country_id)||{}).code||'')}" data-product="${x.product_id}" data-variant="${x.variant_id}">${x.status==='live'?'Rate':'See it'}</button></div>`).join('')
+    +`<p class="hint">Each country's version is separate. Pick the one sold where you had it.</p><button class="btn btn-block" data-act="add-new">Not here? Add it</button>`;
+}
+async function runSearch(){
+  const q=add.q.trim(),k=norm(q);
+  if(k.length<2){add.results=null;return renderResults()}
+  try{const r=await rpc('search_items',{q});if(add&&add.q.trim()===q){add.results=r;renderResults();track(r.length?'add-search-match':'add-no-match',true)}}catch(e){console.error(e)}
+}
+async function renderBrandHelp(){
+  const help=$('#brand-help'),dup=$('#add-dup'),rest=$('#add-rest');if(!help)return;
+  const k=norm(add.brand);
+  const match=k&&add.existing.find(x=>norm(x.brand)===k);
+  if(match){ // one item per brand, variant and country
+    const t=kindNames(),cp=placeBy('id',add.country);
+    help.innerHTML='';rest.hidden=true;track('add-duplicate',true);
+    dup.innerHTML=`<div class="alert"><b>Already here</b><span>${esc(match.brand)} already has ${esc(t.variant.toLowerCase())} ${esc(t.product.toLowerCase())} in the ${esc(cp.short_name)}.</span>
+      <div class="match">${thumb(match,'sm')}<div><div class="nm">${esc(match.pack_name)}</div><div class="meta">${match.live?(match.total?plural(match.total,'rating'):'No ratings yet'):`${match.approvals} of ${settings.approval_votes} approvals`}</div></div>
+        <button class="btn btn-primary" data-act="add-open-match" data-id="${match.id}" data-cc="${cp.code}" data-product="${add.product}" data-variant="${add.variant}">${match.live?'Rate it':'See it'}</button></div></div>
+      <p class="hint center">Is yours a different range, like Walkers Max? Type that as the brand.</p>`;
+    return;
+  }
+  dup.innerHTML='';rest.hidden=false;
+  if(!k){help.innerHTML='';return}
+  let sugg=[];try{sugg=await rpc('brand_suggest',{q:add.brand})}catch(e){}
+  if(norm(add.brand)!==k)return; // typing moved on
+  const exact=sugg.find(s=>norm(s.name)===k);
+  help.innerHTML=(exact?'':`<span class="newtag">＋ New brand: ${esc(add.brand.trim())}</span>`)
+    +sugg.filter(s=>norm(s.name)!==k).slice(0,4).map(s=>`<button class="chip" data-act="add-brand-pick" data-name="${esc(s.name)}">${esc(s.name)}</button>`).join('');
+}
+function setBrand(v){
+  add.brand=v;
+  if(!add.packEdited){const k=kindNames();add.pack=v.trim()?`${v.trim()} ${titleCase(k.variant)} ${k.product}`:'';const p=$('#add-pack');if(p)p.value=add.pack}
+  clearTimeout(brandTimer);brandTimer=setTimeout(renderBrandHelp,200);
+}
+async function shrinkPhoto(file){ // max 800 px on the long side, JPEG, never over 1 MB
+  const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('Couldn\'t read that photo. Try another one.'));i.src=URL.createObjectURL(file)});
+  const k=Math.min(1,800/Math.max(img.naturalWidth,img.naturalHeight)),c=document.createElement('canvas');
+  c.width=Math.round(img.naturalWidth*k);c.height=Math.round(img.naturalHeight*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+  URL.revokeObjectURL(img.src);
+  let q=.8,blob;do{blob=await new Promise(r=>c.toBlob(r,'image/jpeg',q));q-=.15}while(blob&&blob.size>1e6&&q>.3);
+  if(!blob||blob.size>1e6)throw new Error('That photo is too big. Try another one.');
+  return {blob,url:URL.createObjectURL(blob),dataUrl:LIVE?null:c.toDataURL('image/jpeg',.6)};
+}
+async function uploadPhoto(blob){
+  const path=`${me.id}/${(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2))}.jpg`;
+  must(await sb.storage.from('product-photos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'31536000',upsert:false}));
+  return path;
+}
+async function sendAdd(){
+  if(!add||add.sending)return;
+  const brand=add.brand.trim(),err=$('#add-error'),btn=$('#add-send');
+  if(!brand){err.innerHTML='<p class="sheet-error" role="alert">Add the brand first.</p>';return $('#add-brand').focus()}
+  add.sending=true;btn.disabled=true;btn.textContent='Sending…';err.innerHTML='';
+  try{
+    let path=null;
+    if(add.photo&&LIVE){path=await uploadPhoto(add.photo.blob);track('photo-upload',true)}
+    const args={p_product:add.product,p_variant:add.variant,p_country:add.country,p_brand_name:brand,p_pack_name:add.pack.trim()||null,p_image_path:path,p_score:add.score};
+    if(!LIVE&&add.photo)args.p_demo_image=add.photo.dataUrl;
+    await rpc('submit_item',args);
+  }catch(e){
+    add.sending=false;btn.disabled=false;btn.textContent='Send for approval';
+    if(e.code==='23505'){try{await loadExisting()}catch(x){}return renderBrandHelp()} // someone added it a moment ago
+    console.error(e);err.innerHTML=`<div class="sheet-error" role="alert"><b>It didn't send.</b> Please try again.<small>${esc(e.message||e)}</small></div>`;return;
+  }
+  track('add-sent',true);
+  add.sentName=add.pack.trim()||brand;add.step='sent';add.sending=false;homeData=null;
+  renderAdd();$('#m-add .btn-primary')?.focus();
+  if(view==='ranking')refresh();
+}
+const ADD_ACT={
+  'add-back':()=>{add.step=add.step==='details'?'kind':'find';renderAdd()},
+  'add-new':()=>{add.step='kind';renderAdd()},
+  'add-product':d=>{add.product=+d.id;const p=(catalogues[add.country]||[]).flatMap(c=>c.products).find(x=>x.id===add.product);add.variant=p&&p.variants.length===1?p.variants[0].id:null;renderAdd()},
+  'add-variant':d=>{add.variant=+d.id;renderAdd()},
+  'add-next':async()=>{try{await loadExisting()}catch(e){return oops(e)}add.step='details';renderAdd()},
+  'add-change':()=>{add.step='kind';renderAdd()},
+  'add-search-all':()=>{add.mode='full';add.step='find';renderAdd()},
+  'add-face':d=>{add.score=add.score===+d.v?null:+d.v;document.querySelectorAll('#add-body .face-btn').forEach(b=>{const on=+b.dataset.v===add.score;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)})},
+  'add-brand-pick':d=>{$('#add-brand').value=d.name;setBrand(d.name)},
+  'add-send':sendAdd,
+  'add-open-match':async d=>{closeM();await go({v:'ranking',cc:d.cc,product:+d.product,variant:+d.variant});if(page&&page.items.some(i=>i.id===+d.id))needUser({name:'rate',item:+d.id,from:'ranking'})},
+  'add-share':()=>{const k=kindNames();share(`Know ${add.sentName}? Help it onto TasteRank: approve it in ${k.title}.`)},
+  'add-done':async()=>{const c=placeBy('id',add.country);closeM();await go({v:'ranking',cc:c.code,product:add.product,variant:add.variant})},
+  'suggest-open':()=>{$('#sg-text').value='';openM('m-suggest')},
+  'suggest-kind':d=>document.querySelectorAll('[data-act="suggest-kind"]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.kind===d.kind)),
+  'close-suggest':()=>openM('m-add')
+};
+document.addEventListener('input',e=>{
+  if(!add)return;
+  if(e.target.id==='add-q'){add.q=e.target.value;add.results=null;renderResults();clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,250)}
+  if(e.target.id==='add-brand')setBrand(e.target.value);
+  if(e.target.id==='add-pack'){add.pack=e.target.value;add.packEdited=true}
+});
+document.addEventListener('change',async e=>{
+  if(!add)return;
+  if(e.target.id==='add-country'){add.country=+e.target.value;try{await loadCatalogue(add.country)}catch(x){return oops(x)}
+    if(!(catalogues[add.country]||[]).flatMap(c=>c.products).some(p=>p.id===add.product)){add.product=null;add.variant=null}renderAdd()}
+  if(e.target.id==='add-photo'&&e.target.files[0]){
+    try{add.photo=await shrinkPhoto(e.target.files[0])}catch(x){$('#add-error').innerHTML=`<p class="sheet-error" role="alert">${esc(x.message)}</p>`;return}
+    const tile=$('#add-body .upload');tile.classList.add('has-photo');tile.querySelector('img,.cam')?.remove();
+    tile.innerHTML=`<img src="${add.photo.url}" alt="Your photo"><span class="change">Change</span>`+tile.querySelector('input').outerHTML;
+  }
+});
+$('#f-suggest').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const text=$('#sg-text').value.trim();if(!text)return;
+  const kind=$('[data-act="suggest-kind"][aria-pressed="true"]').dataset.kind;
+  try{await rpc('suggest_catalogue',{p_kind:kind,p_text:text})}catch(err){return oops(err)}
+  track('suggest-catalogue',true);
+  openM('m-add');toast('Thanks! We\'ll take a look.');
+});
+
+/* ---------- Your submissions: "it's live!" or "not this time", each shown once ---------- */
+async function checkMoments(){
+  if(!me||openId)return;
+  let subs;try{subs=await rpc('my_submissions')}catch(e){return}
+  const key='tasterank-moments-'+me.id,seen=new Set(store.get(key)||[]);
+  const m=subs.find(x=>(x.status==='live'||x.status==='closed')&&!seen.has(x.id));
+  if(!m||openId)return;
+  seen.add(m.id);store.set(key,[...seen]);
+  const live=m.status==='live',n=settings.approval_votes;
+  moment=m;
+  $('#moment-body').innerHTML=live
+    ?`<div class="moment"><svg class="burst" viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-joy"/></svg><h3 id="moment-title">${esc(m.pack_name)} is live!</h3>
+      <p>${n} people approved it. Be the first to rate it.</p>
+      <button class="btn btn-primary btn-block" data-act="moment-rate">Rate it now</button><button class="btn btn-block" data-act="close">Later</button></div>`
+    :`<div class="moment"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-sad"/></svg><h3 id="moment-title">Not this time</h3>
+      <p>${esc(m.pack_name)} didn't get ${n} approvals in ${settings.close_after_days} days. You can send it in again; it starts afresh.</p>
+      <button class="btn btn-primary btn-block" data-act="moment-again">Add it again</button><button class="btn btn-block" data-act="close">OK</button></div>`;
+  openM('m-moment');
+  if(live)toast('🎉 Your snack went live');
+}
+let moment=null;
+Object.assign(ADD_ACT,{
+  'moment-rate':async()=>{const m=moment,c=placeBy('id',m.country_id);closeM();await go({v:'ranking',cc:c.code,product:m.product_id,variant:m.variant_id});needUser({name:'rate',item:m.id,from:'ranking'})},
+  'moment-again':async()=>{const m=moment;closeM();startAdd({country:m.country_id,product:m.product_id,variant:m.variant_id,brand:m.brand,pack:m.pack_name})}
+});
 
 /* ---------- Starting country: last choice, else where you are (from your internet address), else UK ---------- */
 async function detectCountry(){
@@ -445,14 +692,16 @@ function pendCard(p){
   return `<div class="pend${p.mine?' mine':''}">${thumb(p,'sm')}
     <div class="in"><div class="bn">${esc(p.brand)}${p.mine?' <span class="mine">· added by you</span>':''}</div><div class="pk">${esc(p.pack_name)}</div>
       <div class="meta">${p.approvals} of ${n} approvals${p.mine?` · closes in ${p.days_left} days`:''}</div><div class="prog"><i style="width:${w}%"></i></div></div>
-    ${p.mine?'<button class="btn" data-act="share-ranking">Share</button>'
-      :p.approved?'<button class="btn" disabled>Approved ✓</button>':`<button class="btn btn-primary" data-act="approve" data-id="${p.id}">Approve</button>`}
+    <div class="pend-acts">${p.mine?'<button class="btn" data-act="share-ranking">Share</button>':''}
+      ${p.mine&&LIVE?'':p.approved?'<button class="btn" disabled>Approved ✓</button>'
+        :`<button class="btn btn-primary" data-act="approve" data-id="${p.id}" data-brand="${esc(p.brand)}" data-mine="${p.mine?1:''}">${p.mine?'Approve (demo)':'Approve'}</button>`}</div>
   </div>`;
 }
-async function doApprove(id){
-  try{const r=await rpc('approve_item',{p_item:id});track('approve-item',true);
-    toast(r.status==='live'?'🎉 It\'s live!':`Thanks! ${r.approvals} of ${settings.approval_votes} approvals`)}catch(e){return oops(e)}
-  homeData=null;refresh();
+async function doApprove(id,brand,mine){
+  let r;try{r=await rpc('approve_item',{p_item:id});track('approve-item',true)}catch(e){return oops(e)}
+  toast(r.status==='live'?`🎉 ${brand||'It'} is live`:`Thanks! ${r.approvals} of ${settings.approval_votes} approvals`);
+  homeData=null;await refresh();
+  if(r.status==='live'&&mine)checkMoments();
 }
 
 /* ---------- Brand view ---------- */
@@ -697,6 +946,7 @@ async function start(){
   renderHeader();
   if(me&&store.get('tasterank-after',true))await afterSignIn();
   else await route();
+  checkMoments();
   if(LIVE)sb.auth.onAuthStateChange((event,session)=>setTimeout(async()=>{ // e.g. signed out in another tab
     const u=userFrom(session);
     if((u&&u.id)===(me&&me.id))return;
