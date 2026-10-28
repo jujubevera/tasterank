@@ -5,3 +5,6 @@ design/
 
 # macOS folder metadata
 .DS_Store
+
+# Internal review reports
+reviews/
