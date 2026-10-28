@@ -19,7 +19,7 @@
 <meta name="twitter:description" content="Snack flavours from every country, rated by people who've tried them.">
 <meta name="twitter:image" content="https://tasterank.app/assets/share-image.png">
 <meta name="theme-color" content="#FEF6E4" id="theme-color">
-<script>/* Light unless the visitor picked dark with the switch at the bottom of the page */
+<script>/* Light unless the visitor picked dark in settings (gear icon, top right) */
 try{if(JSON.parse(localStorage.getItem('tasterank-theme'))==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="assets/favicon.ico" sizes="48x48">
@@ -29,7 +29,7 @@ try{if(JSON.parse(localStorage.getItem('tasterank-theme'))==='dark')document.doc
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-/* Colour tokens: Fiesta Fun (light, the default) and warm cocoa (dark, chosen with the switch in the footer). Every colour in this file comes from here. See design/DESIGN.md section 6. */
+/* Colour tokens: Fiesta Fun (light, the default) and warm cocoa (dark, chosen in the settings panel under the gear icon). Every colour in this file comes from here. See design/DESIGN.md section 6. */
 :root{
   color-scheme:light;
   --bg:#FEF6E4; --surface:#FFFFFF; --ink:#1E2A47; --muted:#56627F; --line:#F3E1BB;
@@ -62,7 +62,7 @@ button:disabled{cursor:default;opacity:.6}
 /* Header */
 .demo{background:var(--ink);color:var(--bg);text-align:center;font-size:13px;font-weight:700;padding:7px 16px}
 .bar{position:sticky;top:0;z-index:20;background:var(--bg);background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
-.bar-in{max-width:960px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:8px}
+.bar-in{position:relative;max-width:960px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:8px}
 .logo{display:flex;align-items:center;gap:6px;min-height:44px;font-weight:900;font-size:21px;letter-spacing:-.03em;background:none;border:0;padding:0;margin-right:auto;color:var(--ink);border-radius:8px}
 .logo b{color:var(--accent-text);font-weight:900}
 .logo svg{width:30px;height:30px;flex:none}
@@ -70,6 +70,14 @@ button:disabled{cursor:default;opacity:.6}
 .btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:9px 16px;min-height:44px;font-weight:700;font-size:15px;transition:background .15s,border-color .15s,filter .15s;display:inline-flex;align-items:center;justify-content:center;gap:8px}
 .btn:hover{border-color:var(--primary)}
 .bar .btn{padding:8px 14px;font-size:14px;white-space:nowrap}
+.bar .icon-btn{width:44px;padding:0;flex:none;color:var(--muted)}
+.bar .icon-btn:hover,.bar .icon-btn[aria-expanded="true"]{color:var(--ink)}
+.icon-btn svg{width:22px;height:22px}
+.pop{position:absolute;top:calc(100% + 6px);right:16px;z-index:40;width:240px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px}
+.pop-label{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px}
+.seg button{border:0;background:none;color:var(--ink);border-radius:999px;min-height:40px;font-weight:700;font-size:14px}
+.seg button[aria-pressed="true"]{background:var(--primary);color:var(--on-primary)}
 .btn-primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
 .btn-primary:hover{filter:brightness(.92)}
 .btn-block{width:100%;padding:13px 16px}
@@ -85,7 +93,6 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
 .foot{max-width:960px;margin:0 auto;padding:0 16px 80px;color:var(--muted);font-size:13px;text-align:center}
 .foot a{color:inherit}
-.theme-btn{display:flex;margin:0 auto 14px}
 .fab{position:fixed;right:16px;bottom:16px;z-index:30;box-shadow:var(--shadow)}
 
 /* Filters */
@@ -179,6 +186,17 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 /* Toast */
 .toast{position:fixed;left:50%;bottom:72px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:999px;font-weight:800;font-size:14px;z-index:60;box-shadow:var(--shadow);max-width:calc(100% - 32px);text-align:center}
 
+/* Narrow phones: tighter header so logo, + Add, Sign in and the gear fit down to 360 px */
+@media (max-width:419px){
+  .bar-in{padding:10px 12px;gap:6px}
+  .logo{font-size:19px}
+  .logo svg{width:26px;height:26px}
+  .bar .btn{padding:8px 12px}
+  .bar .icon-btn{padding:0}
+  .hide-sm{display:none}
+  .pop{right:12px}
+}
+
 /* Tablet & desktop */
 @media (min-width:640px){
   .filters{flex-direction:row;align-items:center;justify-content:space-between}
@@ -199,8 +217,16 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 <header class="bar">
   <div class="bar-in">
     <button class="logo" data-act="home" aria-label="TasteRank home"><svg viewBox="0 0 100 100" aria-hidden="true"><path class="crisp-outline" d="M86.1 48.8 L86.1 50.9 L86.0 53.0 L86.1 55.1 L86.1 57.2 L85.9 59.2 L85.6 61.1 L85.1 63.0 L84.5 64.8 L83.8 66.6 L82.9 68.2 L81.9 69.8 L80.8 71.4 L79.5 72.8 L78.2 74.2 L76.8 75.5 L75.2 76.7 L73.6 77.8 L71.9 78.8 L70.1 79.7 L68.2 80.5 L66.3 81.2 L64.3 81.8 L62.3 82.3 L60.2 82.7 L58.1 83.0 L55.9 83.2 L53.7 83.2 L51.5 83.1 L49.3 83.1 L47.0 83.2 L44.8 83.2 L42.7 83.1 L40.6 82.8 L38.5 82.5 L36.5 82.0 L34.5 81.5 L32.6 80.8 L30.8 80.0 L29.0 79.1 L27.4 78.2 L25.8 77.1 L24.2 76.0 L22.8 74.8 L21.5 73.5 L20.3 72.1 L19.2 70.6 L18.2 69.1 L17.3 67.5 L16.6 65.8 L16.0 64.1 L15.5 62.3 L15.1 60.5 L14.9 58.6 L14.8 56.7 L14.9 54.7 L14.9 52.7 L14.8 50.7 L15.0 48.7 L15.2 46.8 L15.6 45.0 L16.1 43.2 L16.8 41.4 L17.6 39.7 L18.5 38.1 L19.6 36.5 L20.7 35.0 L21.9 33.5 L23.3 32.1 L24.7 30.8 L26.3 29.6 L27.9 28.4 L29.6 27.4 L31.4 26.4 L33.2 25.5 L35.2 24.7 L37.1 24.0 L39.2 23.4 L41.3 22.9 L43.4 22.5 L45.6 22.2 L47.8 22.1 L50.0 22.0 L52.2 21.8 L54.5 21.8 L56.6 21.9 L58.8 22.1 L60.9 22.5 L63.0 23.0 L65.0 23.5 L67.0 24.2 L68.9 25.0 L70.7 25.9 L71.0 26.4 L71.0 26.7 L71.0 27.0 L71.0 27.3 L71.0 27.6 L71.0 27.9 L71.1 28.3 L71.1 28.6 L71.1 28.9 L71.2 29.2 L71.3 29.5 L71.3 29.8 L71.4 30.1 L71.5 30.4 L71.6 30.7 L71.7 31.0 L71.8 31.3 L71.9 31.6 L72.0 31.9 L72.2 32.2 L72.3 32.4 L72.5 32.7 L72.6 33.0 L72.8 33.3 L72.9 33.5 L73.1 33.8 L73.3 34.1 L73.5 34.3 L73.7 34.6 L73.9 34.8 L74.1 35.0 L74.3 35.3 L74.5 35.5 L74.7 35.7 L75.0 35.9 L75.2 36.1 L75.4 36.3 L75.7 36.5 L75.9 36.7 L76.2 36.9 L76.5 37.1 L76.7 37.2 L77.0 37.4 L77.3 37.5 L77.6 37.7 L77.8 37.8 L78.1 38.0 L78.4 38.1 L78.7 38.2 L79.0 38.3 L79.3 38.4 L79.6 38.5 L79.9 38.6 L80.2 38.7 L80.5 38.7 L80.8 38.8 L81.1 38.9 L81.4 38.9 L81.7 38.9 L82.1 39.0 L82.2 39.1 L82.2 39.3 L82.1 39.5 L82.1 39.7 L82.1 40.0 L82.0 40.2 L82.0 40.5 L82.0 40.7 L82.0 40.9 L82.0 41.2 L82.0 41.4 L82.0 41.6 L82.0 41.9 L82.1 42.1 L82.1 42.3 L82.1 42.6 L82.2 42.8 L82.2 43.0 L82.3 43.3 L82.3 43.5 L82.4 43.7 L82.5 43.9 L82.6 44.2 L82.7 44.4 L82.7 44.6 L82.8 44.8 L82.9 45.0 L83.1 45.2 L83.2 45.4 L83.3 45.6 L83.4 45.8 L83.5 46.0 L83.7 46.2 L83.8 46.4 L84.0 46.6 L84.1 46.8 L84.3 47.0 L84.4 47.1 L84.6 47.3 L84.7 47.5 L84.9 47.6 L85.1 47.8 L85.3 47.9 L85.5 48.1 L85.6 48.2 L85.8 48.4 L86.0 48.5 Z" fill="#FCECC9" stroke-linejoin="round"/><ellipse cx="33.5" cy="59" rx="6" ry="3.5" fill="#FCB0B3"/><ellipse cx="66.5" cy="59" rx="6" ry="3.5" fill="#FCB0B3"/><circle cx="42" cy="52" r="2.9" fill="#3A5080"/><circle cx="58" cy="52" r="2.9" fill="#3A5080"/><path d="M45.5 58.5 Q50 62.5 54.5 58.5" stroke="#3A5080" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg><span>Taste<b>Rank</b></span></button>
-    <button class="btn" data-act="add">+ Add item</button>
+    <button class="btn" data-act="add">+ Add</button>
     <button class="btn btn-primary" id="me-btn" data-act="me">Sign in</button>
+    <button class="btn icon-btn" id="settings-btn" data-act="settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-pop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <div class="pop" id="settings-pop" role="group" aria-labelledby="settings-label" hidden>
+      <p class="pop-label" id="settings-label">Appearance</p>
+      <div class="seg">
+        <button data-act="set-theme" data-theme="light" aria-pressed="true">☀️ Light</button>
+        <button data-act="set-theme" data-theme="dark" aria-pressed="false">🌙 Dark</button>
+      </div>
+    </div>
   </div>
 </header>
 
@@ -241,7 +267,6 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 </main>
 
 <footer class="foot">
-  <button class="btn theme-btn" id="theme-btn" data-act="theme"></button>
   An early version: thanks for trying it! ·
   Product photos from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> (CC BY-SA) ·
   <button class="link" data-act="privacy" style="color:inherit;text-decoration:underline">Privacy</button>
@@ -600,7 +625,8 @@ const ACT={
   'reset-demo':resetDemo,
   feedback:()=>{track('feedback-open',true);openM('m-feedback')},
   privacy:()=>openM('m-privacy'),
-  theme:toggleTheme
+  settings:()=>showSettings($('#settings-pop').hidden),
+  'set-theme':d=>setTheme(d.theme)
 };
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');
@@ -663,7 +689,8 @@ async function pickHome(c){
 }
 function renderHeader(){
   const b=$('#me-btn');
-  b.innerHTML=me?(me.avatar?`<img class="mini-avatar" src="${esc(me.avatar)}" alt="" referrerpolicy="no-referrer"> Profile`:'👤 Profile'):'Sign in';
+  b.innerHTML=me?(me.avatar?`<img class="mini-avatar" src="${esc(me.avatar)}" alt="" referrerpolicy="no-referrer">`:'👤')+'<span class="hide-sm">Profile</span>':'Sign in';
+  if(me)b.setAttribute('aria-label','Profile');else b.removeAttribute('aria-label');
 }
 
 /* ---------- Starting country: last choice, else where you are (from your internet address), else UK ---------- */
@@ -850,14 +877,22 @@ async function resetDemo(){if(confirm('Reset all demo data in this browser?')){a
 /* ---------- Light / dark switch (light is the default; the choice is saved on this device) ---------- */
 function renderTheme(){
   const dark=document.documentElement.dataset.theme==='dark';
-  $('#theme-btn').textContent=dark?'☀️ Light mode':'🌙 Dark mode';
+  document.querySelectorAll('[data-act="set-theme"]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.theme===(dark?'dark':'light')));
   $('#theme-color').content=dark?'#1C1416':'#FEF6E4';
 }
-function toggleTheme(){
-  const next=document.documentElement.dataset.theme==='dark'?'light':'dark';
-  if(next==='dark')document.documentElement.dataset.theme='dark';else delete document.documentElement.dataset.theme;
-  store.set('tasterank-theme',next);track('theme-'+next,true);renderTheme();
+function setTheme(t){
+  if((document.documentElement.dataset.theme||'light')===t)return;
+  if(t==='dark')document.documentElement.dataset.theme='dark';else delete document.documentElement.dataset.theme;
+  store.set('tasterank-theme',t);track('theme-'+t,true);renderTheme();
 }
+/* Settings panel under the gear: closes on a click elsewhere or Escape */
+function showSettings(open){
+  $('#settings-pop').hidden=!open;
+  $('#settings-btn').setAttribute('aria-expanded',open);
+  if(open)$('#settings-pop [aria-pressed="true"]').focus();
+}
+document.addEventListener('click',e=>{if(!$('#settings-pop').hidden&&!e.target.closest('#settings-pop,#settings-btn'))showSettings(false)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#settings-pop').hidden){showSettings(false);$('#settings-btn').focus()}});
 
 /* ---------- Start ---------- */
 async function start(){
