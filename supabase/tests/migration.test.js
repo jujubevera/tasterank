@@ -1,4 +1,5 @@
-// Tests supabase/setup.sql + migrate-002-flavours.sql on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–004 on an in-memory Postgres with a small Supabase stand-in.
+// Part 1 checks 002 and 003; part 2 (part004, at the bottom) starts a fresh database and checks 004.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
 const {PGlite}=require('@electric-sql/pglite');
@@ -6,11 +7,8 @@ const fs=require('fs');
 const R=require('path').join(__dirname,'..')+'/';
 const U=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 let pass=0,fail=0;
-const ok=(name,cond,extra='')=>{if(cond){pass++;console.log('PASS ',name)}else{fail++;console.log('FAIL ',name,extra)}};
-(async()=>{
-const db=new PGlite();
-// ---- Minimal Supabase stand-in: roles, auth.users, auth.uid(), storage, default grants ----
-await db.exec(`
+// Minimal Supabase stand-in: roles, auth.users, auth.uid(), storage, default grants
+const STUB=`
 create role anon nologin; create role authenticated nologin;
 create schema auth; create schema storage;
 create table auth.users(id uuid primary key, raw_user_meta_data jsonb default '{}');
@@ -25,7 +23,12 @@ grant all on storage.objects to anon, authenticated;
 alter default privileges in schema public grant all on tables to anon, authenticated;
 alter default privileges in schema public grant all on functions to anon, authenticated;
 alter default privileges in schema public grant all on sequences to anon, authenticated;
-`);
+`;
+const ok=(name,cond,extra='')=>{if(cond){pass++;console.log('PASS ',name)}else{fail++;console.log('FAIL ',name,extra)}};
+(async()=>{
+const db=new PGlite();
+// ---- Minimal Supabase stand-in: roles, auth.users, auth.uid(), storage, default grants ----
+await db.exec(STUB);
 await db.exec(fs.readFileSync(R+'setup.sql','utf8'));
 // ---- Data as it might be on the live site: users, ratings, approvals, one user-submitted food ----
 for(let i=1;i<=20;i++) await db.query('insert into auth.users(id,raw_user_meta_data) values ($1,$2)',[U(i),{full_name:'User '+i}]);
@@ -172,5 +175,148 @@ await as(11,`select public.delete_me()`);
 ok('delete account removes their flavour ratings',(await q(`select count(*)::int n from public.flavour_ratings where user_id=$1`,[U(11)]))[0].n===0);
 ok('…but keeps products they sent in (without their name)',(await q(`select count(*)::int n from public.products where submitted_by is null and name='Quavers'`))[0].n===0 || true);
 
+await part004();
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail?1:0);
 })().catch(e=>{console.error(e);process.exit(1)});
+
+// ================= Part 2: migration 004 (brand-against-brand) on a fresh database =================
+async function part004(){
+console.log('\n---- Migration 004 ----');
+const db=new PGlite();
+await db.exec(STUB);
+for(const f of ['setup.sql','migrate-002-flavours.sql','migrate-003-no-names.sql']) await db.exec(fs.readFileSync(R+f,'utf8'));
+for(let i=1;i<=30;i++) await db.query('insert into auth.users(id,raw_user_meta_data) values ($1,$2)',[U(i),{}]);
+const q=async(s,p)=>(await db.query(s,p)).rows;
+const as=async(who,sql,params)=>{
+  await db.exec(`set role ${who?'authenticated':'anon'}`);
+  await db.query(`select set_config('request.jwt.claim.sub',$1,false)`,[who?U(who):'']);
+  try{return {rows:(await db.query(sql,params)).rows}}catch(e){return {err:e.message,detail:e.detail}}finally{await db.exec('reset role')}
+};
+const one=async(who,sql,params)=>{const r=await as(who,sql,params);if(r.err)throw new Error(sql+': '+r.err);return Object.values(r.rows[0])[0]};
+const denied=x=>!!x.err&&/permission denied/.test(x.err);
+const mig=fs.readFileSync(R+'migrate-004-brands.sql','utf8');
+
+// Safety check: refuses to run if migration 002's tables hold real activity
+{
+  const db3=new PGlite(); await db3.exec(STUB);
+  for(const f of ['setup.sql','migrate-002-flavours.sql','migrate-003-no-names.sql']) await db3.exec(fs.readFileSync(R+f,'utf8'));
+  await db3.query('insert into auth.users(id) values ($1)',[U(1)]);
+  await db3.query(`insert into public.flavour_ratings(flavour_id,user_id,score) select id,$1,5 from public.flavours where status='live' limit 1`,[U(1)]);
+  let err=null; try{await db3.exec(mig)}catch(e){err=e.message; await db3.exec('rollback')}
+  ok('004 refuses to run when migration 002 tables hold real ratings',/real people/.test(err||''),err);
+  ok('…and changes nothing (old items table not renamed)',(await db3.query(`select to_regclass('public.legacy_items') r`)).rows[0].r===null);
+}
+
+try{await db.exec(mig);ok('migration 004 runs without errors',true)}catch(e){ok('migration 004 runs without errors',false,e.message);return}
+const counts=async()=>(await q(`select (select count(*) from public.places)::int places,(select count(*) from public.brands)::int brands,(select count(*) from public.items)::int items,(select count(*) from public.variants)::int variants`))[0];
+const c1=await counts();
+ok('seeded: 18 places, 32 brands, 48 items, 6 variants',c1.places===18&&c1.brands===32&&c1.items===48&&c1.variants===6,JSON.stringify(c1));
+try{await db.exec(mig);ok('running 004 again works',true)}catch(e){ok('running 004 again works',false,e.message)}
+ok('…and changes nothing',JSON.stringify(await counts())===JSON.stringify(c1));
+ok('migration 002 tables are gone',(await q(`select to_regclass('public.flavours') f, to_regclass('public.product_votes') v`))[0].f===null);
+ok('old foods kept as legacy_items (22 rows)',(await q('select count(*)::int n from public.legacy_items'))[0].n===22);
+ok('old site still lists foods (item_list)',(await as(null,'select count(*)::int n from public.item_list()')).rows[0].n===22);
+ok('old site can still rate',!(await as(1,`insert into public.ratings(item_id,user_id,score) values (1,'${U(1)}',4)`)).err);
+for(const u of [2,3,4,5,6]) await as(u,`insert into public.votes(item_id,user_id) values (21,'${U(u)}')`);
+ok('old site approvals still promote (trigger reads legacy_items)',(await q('select status from public.legacy_items where id=21'))[0].status==='live');
+ok('old "add a food" form is refused rather than writing to the new items table',!!(await as(1,`insert into public.items(product_id,variant_id,brand_id,country_id,pack_name) values (1,1,1,1,'x')`)).err);
+
+// ---- Security ----
+for(const t of ['places','categories','products','variants','local_names','brands','items','item_ratings','rating_events','approvals','planned_ratings','catalogue_suggestions'])
+  ok(`signed out: can't read ${t}`,denied(await as(null,`select * from public.${t} limit 1`)));
+ok('signed in: can\'t read ratings directly',denied(await as(1,'select * from public.item_ratings')));
+ok('signed out: can\'t rate, approve, add, suggest or set a place',denied(await as(null,'select public.rate_item(1,5)'))&&denied(await as(null,'select public.approve_item(1)'))&&denied(await as(null,`select public.submit_item(3,4,1,'X')`))&&denied(await as(null,`select public.suggest_catalogue('product','x')`))&&denied(await as(null,'select public.set_home_place(1)')));
+ok('nobody can call internal steps',denied(await as(1,'select public.promote_item(1)'))&&denied(await as(1,'select * from public.item_totals(1)')));
+
+// ---- Reading ----
+const places=await one(null,'select public.place_list()');
+ok('place_list: 5 countries, UK has 12 regions, Unknown hidden',places.length===5&&places[0].regions.length===12&&!places.some(p=>p.name==='Unknown'));
+const home=await one(null,'select public.home_rankings(1)');
+ok('UK home: 4 rankings, no winners yet',home.length===4&&home.every(r=>r.top===null),JSON.stringify(home.map(r=>r.title)));
+ok('UK titles are the hand-written ones',['Milk chocolate bars','Toffee','Salt & vinegar crisps','Cheese & onion crisps'].every(t=>home.some(r=>r.title===t)));
+const sv=await one(null,'select public.ranking(3,4,1)');
+ok('UK salt & vinegar crisps: 5 brands, chips for its 2 variants',sv.items.length===5&&sv.variants.length===2,JSON.stringify(sv.variants));
+ok('ranking never names raters or submitters',!/submitted_by|user_id/.test(JSON.stringify(sv)));
+const jp=await one(null,'select public.ranking(3,6,4)'), jpt=await one(null,'select public.ranking(2,2,4)');
+ok('Japan uses local names (うすしお, Milk caramel, Potato chips)',jp.title==='Lightly salted potato chips (うすしお)'&&jpt.title==='Milk caramel'&&jp.product==='Potato chips',jp.title+' / '+jpt.title);
+ok('US crisps are "chips"',(await one(null,'select public.ranking(3,4,2)')).title==='Salt & vinegar chips');
+const cat=await one(null,'select public.catalogue(4)');
+ok('catalogue: 3 visible categories with local names',cat.length===3&&cat[2].products[0].name==='Potato chips');
+const s1=await one(null,`select public.search_items('kettle')`);
+ok('search "kettle" finds the UK, US and Australian ones',['🇬🇧','🇺🇸','🇦🇺'].every(f=>s1.some(x=>x.flag===f)),JSON.stringify(s1.map(x=>x.pack_name)));
+ok('search ignores "&" vs "and"',(await one(null,`select public.search_items('salt and vinegar walkers')`)).some(x=>x.pack_name==='Walkers Salt & Vinegar Crisps'));
+ok('search "zzz" finds nothing',(await one(null,`select public.search_items('zzz')`)).length===0);
+ok('brand_suggest "walk" offers Walkers and Walker\'s Nonsuch',(await one(null,`select public.brand_suggest('walk')`)).length===2);
+ok('no brand cards yet (needs 5 variants)',(await one(null,'select public.brand_cards(1)')).length===0);
+
+// ---- Rating ----
+const id=async(pack)=>(await q('select id from public.items where pack_name=$1',[pack]))[0].id;
+const walkersSV=await id('Walkers Salt & Vinegar Crisps'), walkersCO=await id('Walkers Cheese & Onion Crisps');
+await as(1,'select public.set_home_place(105)');
+const r1=await one(1,`select public.rate_item(${walkersSV},5)`), r2=await one(1,`select public.rate_item(${walkersSV},3)`);
+ok('changing a rating doesn\'t double-count',r1===1&&r2===1&&(await q('select count(*)::int n from public.item_ratings where item_id=$1',[walkersSV]))[0].n===1);
+ok('…but both are kept in the rating history',(await q('select count(*)::int n from public.rating_events where item_id=$1',[walkersSV]))[0].n===2);
+ok('each rating copies where the rater lives (North West)',(await q('select rater_place_id p from public.item_ratings where item_id=$1',[walkersSV]))[0].p===105);
+ok('no place set → Unknown',await (async()=>{await as(2,`select public.rate_item(${walkersSV},4)`);return (await q('select rater_place_id p from public.item_ratings where user_id=$1',[U(2)]))[0].p===0})());
+ok('score must be 1–5',!!(await as(1,`select public.rate_item(${walkersSV},6)`)).err);
+for(let u=3;u<=9;u++) await as(u,`select public.rate_item(${walkersSV},5)`);  // users 1–9: 9 ratings
+ok('9 ratings: no winner yet',(await one(null,'select public.home_rankings(1)')).find(r=>r.variant_id===4).top===null);
+await as(10,`select public.rate_item(${walkersSV},5)`);
+const top=(await one(null,'select public.home_rankings(1)')).find(r=>r.variant_id===4).top;
+ok('10th rating: Walkers becomes the winner',top&&top.brand==='Walkers'&&top.ratings===10,JSON.stringify(top));
+ok('ranking marks it ranked, others not',(await one(null,'select public.ranking(3,4,1)')).items.filter(i=>i.ranked).length===1);
+const prof=await one(1,'select public.my_profile()');
+ok('my_profile: taster ID and North West',/^#[0-9A-F]{6}$/.test(prof.taster_id)&&prof.home_place.name==='North West'&&prof.home_place.country_name==='United Kingdom',JSON.stringify(prof));
+
+// ---- What "Next" suggests ----
+let n=await one(12,`select public.next_to_rate(${walkersSV},false)`);
+ok('next: another brand in the same ranking, least-rated first',n.kind==='item'&&n.id!==walkersSV&&n.short_label!=='Walkers',JSON.stringify(n));
+n=await one(12,`select public.next_to_rate(${walkersSV},true)`);
+ok('from a brand view: another Walkers variant first',n.kind==='item'&&n.id===walkersCO&&n.short_label==='Cheese & onion',JSON.stringify(n));
+for(const p of (await one(null,'select public.ranking(3,4,1)')).items) await as(12,`select public.rate_item(${p.id},4)`);
+await as(12,`select public.rate_item(${walkersCO},4)`);
+n=await one(12,`select public.next_to_rate(${walkersSV},false)`);
+ok('ranking done and Walkers done → a nearby ranking (Cheese & onion crisps)',n.kind==='ranking'&&n.title==='Cheese & onion crisps',JSON.stringify(n));
+for(const p of (await one(null,'select public.ranking(3,5,1)')).items) await as(12,`select public.rate_item(${p.id},4)`);
+n=await one(12,`select public.next_to_rate(${walkersSV},false)`);
+ok('everything nearby rated → done',n.kind==='done',JSON.stringify(n));
+const walkersBrand=(await q('select brand_id from public.items where id=$1',[walkersSV]))[0].brand_id;
+const bv=await one(null,`select public.brand_view(${walkersBrand},3,1)`);
+ok('brand view: Walkers has 2 crisps, with their place in each ranking',bv.items.length===2&&bv.items[0].place_in_ranking===1&&bv.items[0].ranking_size===5,JSON.stringify(bv.items.map(i=>[i.variant,i.place_in_ranking,i.ranking_size])));
+
+// ---- Adding and approving ----
+const gw=await as(13,`select public.submit_item(3,4,1,'Golden Wonder',null,null,5) id`);
+ok('send in Golden Wonder salt & vinegar (existing brand)',!gw.err,gw.err); const gwId=gw.rows[0].id;
+ok('pack name filled in when left empty',(await q('select pack_name from public.items where id=$1',[gwId]))[0].pack_name==='Golden Wonder Salt & vinegar Crisps');
+const ty=await as(13,`select public.submit_item(3,4,1,'Tyrrells','Tyrrells Cider Vinegar & Sea Salt',null,4) id`);
+const tyId=ty.rows[0].id;
+ok('a new brand starts pending',(await q(`select status from public.brands where name='Tyrrells'`))[0].status==='pending');
+const dup=await as(14,`select public.submit_item(3,4,1,'walkers')`);
+ok('duplicate brand + variant + country → "Already here" with the existing id',/Already here/.test(dup.err||'')&&String(dup.detail)===String(walkersSV),dup.err+' '+dup.detail);
+ok('variant must belong to the product',!!(await as(14,`select public.submit_item(3,1,1,'X')`)).err);
+ok('photo must be in your own folder',/own folder/.test((await as(14,`select public.submit_item(3,4,1,'Seabrook',null,'${U(3)}/a.jpg')`)).err||''));
+ok('pending items show under the ranking with approvals',(await one(13,'select public.ranking(3,4,1)')).pending.some(p=>p.id===tyId&&p.mine&&p.approvals===1));
+ok('can\'t rate a pending item',/can't be rated/.test((await as(14,`select public.rate_item(${tyId},5)`)).err||''));
+await as(14,`select public.approve_item(${tyId})`);
+ok('approving twice doesn\'t count twice',(await one(14,`select public.approve_item(${tyId})`)).approvals===2);
+for(const u of [15,16]) await as(u,`select public.approve_item(${tyId})`);
+ok('4 approvals: still pending',(await q('select status from public.items where id=$1',[tyId]))[0].status==='pending');
+await as(17,`select public.approve_item(${tyId})`);
+ok('5th approval: item goes live',(await q('select status from public.items where id=$1',[tyId]))[0].status==='live');
+ok('…its new brand goes live with it',(await q(`select status from public.brands where name='Tyrrells'`))[0].status==='live');
+ok('…and the "Tried it?" face becomes a real rating',(await q('select score from public.item_ratings where item_id=$1 and user_id=$2',[tyId,U(13)]))[0]?.score===4);
+ok('my_submissions shows it live',(await one(13,'select public.my_submissions()')).some(x=>x.id===tyId&&x.status==='live'));
+await db.query(`update public.items set created_at=now()-interval '31 days' where id=$1`,[gwId]);
+ok('31-day-old pending item reads as closed',(await one(13,'select public.my_submissions()')).find(x=>x.id===gwId).status==='closed');
+ok('…can\'t be approved',/isn't waiting/.test((await as(18,`select public.approve_item(${gwId})`)).err||''));
+ok('…and can be sent in again',!(await as(13,`select public.submit_item(3,4,1,'Golden Wonder')`)).err);
+for(let k=0;k<10;k++) await as(19,`select public.submit_item(3,5,1,'Brand ${k}')`);
+ok('11th waiting item is refused',/waiting for approval/.test((await as(19,`select public.submit_item(3,5,1,'Brand 99')`)).err||''));
+ok('suggest a variant',!(await as(19,`select public.suggest_catalogue('variant','Prawn cocktail')`)).err&&(await q('select count(*)::int n from public.catalogue_suggestions'))[0].n===1);
+ok('visitors can\'t change submission dates',!!(await as(13,`update public.items set created_at=now()+interval '1 year'`)).err);
+
+// ---- Deleting an account ----
+await as(12,'select public.delete_me()');
+const left=(await q(`select (select count(*) from public.item_ratings where user_id=$1)::int r,(select count(*) from public.rating_events where user_id=$1)::int e,(select count(*) from public.approvals where user_id=$1)::int a`,[U(12)]))[0];
+ok('deleting an account removes its ratings, history and approvals',left.r===0&&left.e===0&&left.a===0,JSON.stringify(left));
+}
