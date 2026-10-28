@@ -7,7 +7,7 @@
 const CONFIG={
   SUPABASE_URL:'https://odhqfbfgxdvpsdoykafy.supabase.co',
   SUPABASE_ANON_KEY:'sb_publishable_DgUNWQ4tsRpyaOrvPq-YcQ_jUr4bDm-',   // publishable key: safe to be public
-  WEB3FORMS_KEY:'e8ee254f-15cf-486b-9704-6c890a2c2075',   // web3forms.com: feedback is emailed to the address this key was made for; it never appears on the site
+  WEB3FORMS_KEY:'4637aa3c-88ac-43ec-9392-3527b640dc82',   // web3forms.com: feedback is emailed to the address this key was made for; it never appears on the site
   GOATCOUNTER_CODE:'tasterank'   // stats at https://tasterank.goatcounter.com
 };
 
