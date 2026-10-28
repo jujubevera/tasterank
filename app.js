@@ -399,6 +399,8 @@ function kindNames(){ // local names of the chosen product and variant
   return {product:p?p.name:'',variant:v?v.name:'',title:v?v.title:'',category:(cat.find(c=>c.products.includes(p))||{}).name||''};
 }
 async function startAdd(prefill){
+  // a saved copy of the old page can be paired with this newer code for a few minutes after an update: reload once to match
+  if(!$('#add-body')){if(!store.get('tasterank-reloaded',true)){store.set('tasterank-reloaded',1,true);toast('TasteRank was just updated. Reloading…');setTimeout(()=>location.reload(),900)}else oops(new Error('Add pop-up missing'));return}
   track('add-open',true);
   const fromRanking=!prefill&&view==='ranking'&&page&&page.kind==='ranking';
   const c=fromRanking?page.country.id:(prefill?prefill.country:homeCountry().id);
