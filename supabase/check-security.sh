@@ -28,6 +28,7 @@ if call place_list '{}' | grep -q '"regions"'; then
   check "nobody signed out can read items directly" "$(get 'items?select=id&limit=1')" 'permission denied'
   check "signed out can't rate"               "$(call rate_item '{"p_item":1,"p_score":5}')" 'permission denied'
   check "signed out can't approve"            "$(call approve_item '{"p_item":1}')" 'permission denied'
+  check "signed out can't remove a rating"    "$(call unrate_item '{"p_item":1}')" 'permission denied|Could not find'
   check "signed out can't add an item"        "$(call submit_item '{"p_product":3,"p_variant":4,"p_country":1,"p_brand_name":"X"}')" 'permission denied'
   check "signed out can't suggest"            "$(call suggest_catalogue '{"p_kind":"product","p_text":"X"}')" 'permission denied'
   check "signed out can't set a home place"   "$(call set_home_place '{"p_place":1}')" 'permission denied'

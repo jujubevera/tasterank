@@ -175,6 +175,7 @@ const DEMO_RPC={
     return near?{kind:'ranking',product_id:near.product_id,variant_id:near.variant_id,title:D.title(near.variant_id,it.c)}:{kind:'done'};
   },
   rate_item({p_item,p_score},st){st.ratings[p_item]=p_score;demoSave(st);return Object.keys(st.ratings).length},
+  unrate_item({p_item},st){delete st.ratings[p_item];demoSave(st);return Object.keys(st.ratings).length},
   approve_item({p_item},st){
     const it=DEMO.items.find(i=>i.id===p_item);
     if(!st.approvals.includes(p_item)){st.approvals.push(p_item);demoSave(st)}
@@ -288,6 +289,7 @@ const ACT={
   rate:d=>needUser({name:'rate',item:+d.id,from:view}),
   face:d=>saveRating(+d.v),
   'edit-rating':()=>{sheet.editing=true;renderSheet()},
+  unrate:removeRating,
   next:nextStep,
   'sheet-second':sheetSecond,
   approve:d=>needUser({name:'approve',item:+d.id}),
@@ -508,7 +510,9 @@ function renderSheet(){
   const body=$('#rate-body');
   if(sheet.editing){
     body.innerHTML=`<div class="faces">${FACES.map(f=>`<button class="face-btn${it.my_score===f.v?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${it.my_score===f.v}"><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
-      <div class="help">Tap a face. It saves straight away.</div>`;
+      ${sheet.error?`<div class="sheet-error" role="alert"><b>Your rating didn't save.</b> Please try again.<small>${esc(sheet.error)}</small></div>`
+        :'<div class="help">Tap a face. It saves straight away.</div>'}
+      ${it.my_score?'<button class="link remove-rating" data-act="unrate">Remove my rating</button>':''}`;
     return;
   }
   const f=FACES.find(x=>x.v===it.my_score),n=sheet.next;
@@ -536,14 +540,26 @@ async function loadNext(){
 async function saveRating(v){
   if(!sheet||!me)return;
   const it=sheet.it,first=!it.my_score;
-  try{const n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n}catch(e){return oops(e)}
+  // a failed save stays visible in the sheet (with the reason), instead of a message that disappears
+  try{const n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n}
+  catch(e){console.error(e);sheet.error=e.message||String(e);renderSheet();return}
   track('rate-item',true);
-  it.my_score=v;sheet.editing=false;sheet.next=null;renderSheet();
+  it.my_score=v;sheet.editing=false;sheet.error=null;sheet.next=null;renderSheet();
   homeData=null;
   await refresh();                      // the page behind updates its counts, "You" tag and winner
   const fresh=itemFromPage(it.id);if(fresh&&sheet&&sheet.it.id===it.id)sheet.it={...fresh,my_score:v};
   if(sheet)await loadNext();
   if(first&&!profile&&me)await loadProfile();
+}
+async function removeRating(){
+  if(!sheet||!me)return;
+  const it=sheet.it;
+  try{const n=await rpc('unrate_item',{p_item:it.id});if(profile)profile.rated=n}
+  catch(e){console.error(e);sheet.error=e.message||String(e);renderSheet();return}
+  track('unrate-item',true);
+  it.my_score=null;sheet.editing=true;sheet.error=null;sheet.next=null;renderSheet();toast('Rating removed');
+  $('#m-rate .face-btn')?.focus();
+  homeData=null;await refresh();
 }
 async function nextStep(){
   const n=sheet&&sheet.next;if(!n)return;

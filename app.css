@@ -178,6 +178,9 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .item-name{font-size:16px!important;line-height:1.25!important;margin:2px 0 0!important;padding:0!important}
 .ver{display:inline-block;white-space:nowrap;background:var(--soft);color:var(--ink);border-radius:999px;padding:0 7px;font-weight:800}
 .help{font-size:13px;color:var(--muted);text-align:center;margin-top:-6px}
+.sheet-error{background:var(--soft);border-radius:12px;padding:10px 12px;font-size:14px;margin-top:-4px}
+.sheet-error small{display:block;color:var(--muted);font-size:12px;margin-top:4px;word-break:break-word}
+.remove-rating{display:block;margin:12px auto 0;min-height:44px;color:var(--danger)}
 .saved{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--hint);border-radius:12px;padding:8px 12px;font-size:14px;font-weight:700;margin-bottom:12px;min-height:44px}
 #rate-body .btn-block+.btn-block{margin-top:8px}
 .done-line{font-size:14px;font-weight:800;text-align:center;margin:0 0 10px}

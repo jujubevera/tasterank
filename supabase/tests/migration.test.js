@@ -284,6 +284,18 @@ const walkersBrand=(await q('select brand_id from public.items where id=$1',[wal
 const bv=await one(null,`select public.brand_view(${walkersBrand},3,1)`);
 ok('brand view: Walkers has 2 crisps, with their place in each ranking',bv.items.length===2&&bv.items[0].place_in_ranking===1&&bv.items[0].ranking_size===5,JSON.stringify(bv.items.map(i=>[i.variant,i.place_in_ranking,i.ranking_size])));
 
+// ---- Migration 005: removing a rating ----
+const mig5=fs.readFileSync(R+'migrate-005-remove-rating.sql','utf8');
+try{await db.exec(mig5);await db.exec(mig5);ok('migration 005 runs (twice) without errors',true)}catch(e){ok('migration 005 runs (twice) without errors',false,e.message)}
+const before=(await q('select count(*)::int n from public.item_ratings where item_id=$1',[walkersSV]))[0].n;
+const left5=await one(3,`select public.unrate_item(${walkersSV})`);
+ok('remove a rating: it\'s gone and the count of your ratings goes down',left5===0&&(await q('select count(*)::int n from public.item_ratings where item_id=$1',[walkersSV]))[0].n===before-1);
+ok('…the history keeps a "removed" entry',(await q('select count(*)::int n from public.rating_events where item_id=$1 and user_id=$2 and score is null',[walkersSV,U(3)]))[0].n===1);
+ok('removing a rating you never gave does nothing',(await one(3,`select public.unrate_item(${walkersSV})`))===0&&(await q('select count(*)::int n from public.rating_events where user_id=$1 and score is null',[U(3)]))[0].n===1);
+ok('signed out can\'t remove ratings',denied(await as(null,`select public.unrate_item(${walkersSV})`)));
+await as(3,`select public.rate_item(${walkersSV},5)`);
+ok('…and you can rate it again afterwards',(await q('select score from public.item_ratings where item_id=$1 and user_id=$2',[walkersSV,U(3)]))[0]?.score===5);
+
 // ---- Adding and approving ----
 const gw=await as(13,`select public.submit_item(3,4,1,'Golden Wonder',null,null,5) id`);
 ok('send in Golden Wonder salt & vinegar (existing brand)',!gw.err,gw.err); const gwId=gw.rows[0].id;

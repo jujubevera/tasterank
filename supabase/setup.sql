@@ -1,6 +1,6 @@
 -- TasteRank database setup
 -- Fresh install: paste this whole file into Supabase → SQL Editor → New query and press Run, then do the same with
--- migrate-002-flavours.sql, migrate-003-no-names.sql and migrate-004-brands.sql, in that order. Together they give the same database as the live project.
+-- migrate-002-flavours.sql, migrate-003-no-names.sql, migrate-004-brands.sql and migrate-005-remove-rating.sql, in that order. Together they give the same database as the live project.
 -- (This file creates the original foods tables. Migration 002 added products and flavours; 004 replaces them with the
 -- brand-against-brand structure and renames the original `items` table to `legacy_items`.)
 --
