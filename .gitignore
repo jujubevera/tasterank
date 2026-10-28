@@ -8,3 +8,7 @@ design/
 
 # Internal review reports
 reviews/
+
+# Test tools installed locally
+node_modules/
+package-lock.json
