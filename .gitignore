@@ -1,6 +1,7 @@
 # Private notes: never publish
 context.md
 SETUP.md
+design/
 
 # macOS folder metadata
 .DS_Store
