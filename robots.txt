@@ -1,0 +1,5 @@
+# Everything on TasteRank may be crawled.
+User-agent: *
+Allow: /
+
+Sitemap: https://tasterank.app/sitemap.xml

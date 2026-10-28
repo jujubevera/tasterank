@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Pages Google can list. Rankings live after a "#" in the address (#/r/gb/3/4), which Google treats as the
+     home page, so they can't be listed separately until they get real addresses. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://tasterank.app/</loc>
+    <lastmod>2026-10-28</lastmod>
+  </url>
+  <url>
+    <loc>https://tasterank.app/privacy.html</loc>
+    <lastmod>2026-10-28</lastmod>
+  </url>
+</urlset>
