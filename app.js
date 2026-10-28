@@ -401,6 +401,7 @@ function kindNames(){ // local names of the chosen product and variant
 async function startAdd(prefill){
   // a saved copy of the old page can be paired with this newer code for a few minutes after an update: reload once to match
   if(!$('#add-body')){if(!store.get('tasterank-reloaded',true)){store.set('tasterank-reloaded',1,true);toast('TasteRank was just updated. Reloading…');setTimeout(()=>location.reload(),900)}else oops(new Error('Add pop-up missing'));return}
+  if(add&&!prefill&&add.step!=='sent'){renderAdd();openM('m-add');return} // closed by tapping outside: carry on where they left off
   track('add-open',true);
   const fromRanking=!prefill&&view==='ranking'&&page&&page.kind==='ranking';
   const c=fromRanking?page.country.id:(prefill?prefill.country:homeCountry().id);
@@ -415,7 +416,7 @@ async function loadExisting(){ // what's already in that ranking, for the "Alrea
   add.ranking=r;
   add.existing=r?[...r.items.map(i=>({...i,live:true})),...r.pending.map(i=>({...i,live:false}))]:[];
 }
-const stepBar=n=>`<div class="flow-top"><button class="link" data-act="${n===1?'close':'add-back'}">${n===1?'Cancel':'← Back'}</button><div class="steps" aria-label="Step ${n} of 3">${[1,2,3].map(k=>`<i${k<=n?' class="on"':''}></i>`).join('')}<span>${n} of 3</span></div></div>`;
+const stepBar=n=>`<div class="flow-top"><button class="link" data-act="${n===1?'add-cancel':'add-back'}">${n===1?'Cancel':'← Back'}</button><div class="steps" aria-label="Step ${n} of 3">${[1,2,3].map(k=>`<i${k<=n?' class="on"':''}></i>`).join('')}<span>${n} of 3</span></div></div>`;
 function renderAdd(){
   const b=$('#add-body'),cp=placeBy('id',add.country)||{flag:'',name:'',short_name:''};
   if(add.step==='find'){
@@ -453,8 +454,18 @@ function renderAdd(){
         <p class="rule">Goes live once ${settings.approval_votes} people approve it. Yours counts as the first.</p>
         <div id="add-error"></div>
         <button class="btn btn-primary btn-block" id="add-send" data-act="add-send">Send for approval</button>
+        <button class="link cancel-link" data-act="add-cancel">Cancel</button>
       </div>`;
     renderBrandHelp();setTimeout(()=>{if(!add.brand)$('#add-brand')?.focus()},0);return;
+  }
+  if(add.step==='suggested'){
+    const sg=add.suggested,what=add.pack||add.brand;
+    b.innerHTML=`<div class="thanks"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg>
+      <h3 id="add-title">Thanks! We'll look at adding "${esc(sg.text)}"${sg.kind==='variant'&&sg.productName?` to ${esc(sg.productName)}`:''}</h3>
+      <p>${what?`Once it's there, you'll be able to add ${esc(what)}. `:''}Kinds of snack and their variants are added by hand, so it may take a little while.</p>
+      <button class="btn btn-primary btn-block" data-act="add-cancel">Done</button>
+      <button class="btn btn-block" data-act="add-change">Choose from the list instead</button></div>`;
+    return;
   }
   if(add.step==='sent'){
     const left=settings.approval_votes-1,k=kindNames();
@@ -477,6 +488,21 @@ function renderResults(){
   el.innerHTML=add.results.map(x=>`<div class="match">${thumb(x,'sm')}<div><div class="nm">${esc(x.pack_name)}</div><div class="meta">${x.flag} ${esc(x.country)} · ${esc(x.ranking_title)}${x.status==='pending'?' · waiting for approval':''}</div></div>
       <button class="btn${x.status==='live'?' btn-primary':''}" data-act="add-open-match" data-id="${x.id}" data-cc="${esc((placeBy('id',x.country_id)||{}).code||'')}" data-product="${x.product_id}" data-variant="${x.variant_id}">${x.status==='live'?'Rate':'See it'}</button></div>`).join('')
     +`<p class="hint">Each country's version is separate. Pick the one sold where you had it.</p><button class="btn btn-block" data-act="add-new">Not here? Add it</button>`;
+}
+async function guessFromSearch(){
+  const t=add.q.trim();if(!t)return;
+  if(!add.pack){add.pack=/[A-Z]/.test(t)?t:titleCase(t);add.packEdited=true} // keep their own capitals if they used any
+  if(!add.brand){ // the longest known brand the text starts with: "Tony's Chocolonely Dark…" → Tony's Chocolonely
+    try{const bs=await rpc('brand_suggest',{q:t.split(/\s+/)[0]}),k=norm(t);
+      const hit=bs.filter(b=>k.startsWith(norm(b.name))).sort((a,b)=>b.name.length-a.name.length)[0];if(hit)add.brand=hit.name}catch(e){}
+  }
+  if(add.product)return;
+  const cat=catalogues[add.country]||[],k=norm(t),prods=cat.flatMap(c=>c.products);
+  const hits=prods.flatMap(p=>p.variants.filter(v=>!/^(original|regular)$/i.test(v.name)&&k.includes(norm(v.name))).map(v=>({p,v,both:k.includes(norm(p.name))})));
+  const pick=(hits.filter(h=>h.both).length===1?hits.filter(h=>h.both):hits.length===1?hits:[])[0];
+  if(pick){add.product=pick.p.id;add.variant=pick.v.id;return}
+  const ps=prods.filter(p=>k.includes(norm(p.name)));
+  if(ps.length===1)add.product=ps[0].id;
 }
 async function runSearch(){
   const q=add.q.trim(),k=norm(q);
@@ -546,8 +572,9 @@ async function sendAdd(){
 }
 const ADD_ACT={
   'add-back':()=>{add.step=add.step==='details'?'kind':'find';renderAdd()},
-  'add-new':()=>{add.step='kind';renderAdd()},
-  'add-product':d=>{add.product=+d.id;const p=(catalogues[add.country]||[]).flatMap(c=>c.products).find(x=>x.id===add.product);add.variant=p&&p.variants.length===1?p.variants[0].id:null;renderAdd()},
+  'add-new':async()=>{Object.assign(add,{product:null,variant:null,brand:'',pack:'',packEdited:false});await guessFromSearch();add.step='kind';renderAdd()}, // a fresh search starts fresh guesses
+  'add-cancel':()=>{add=null;closeM()},
+  'add-product':d=>{add.product=+d.id;add.variant=null;renderAdd()}, // never pick the variant for them, even when there's only one
   'add-variant':d=>{add.variant=+d.id;renderAdd()},
   'add-next':async()=>{try{await loadExisting()}catch(e){return oops(e)}add.step='details';renderAdd()},
   'add-change':()=>{add.step='kind';renderAdd()},
@@ -555,10 +582,10 @@ const ADD_ACT={
   'add-face':d=>{add.score=add.score===+d.v?null:+d.v;document.querySelectorAll('#add-body .face-btn').forEach(b=>{const on=+b.dataset.v===add.score;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)})},
   'add-brand-pick':d=>{$('#add-brand').value=d.name;setBrand(d.name)},
   'add-send':sendAdd,
-  'add-open-match':async d=>{closeM();await go({v:'ranking',cc:d.cc,product:+d.product,variant:+d.variant});if(page&&page.items.some(i=>i.id===+d.id))needUser({name:'rate',item:+d.id,from:'ranking'})},
+  'add-open-match':async d=>{add=null;closeM();await go({v:'ranking',cc:d.cc,product:+d.product,variant:+d.variant});if(page&&page.items.some(i=>i.id===+d.id))needUser({name:'rate',item:+d.id,from:'ranking'})},
   'add-share':()=>{const k=kindNames();share(`Know ${add.sentName}? Help it onto TasteRank: approve it in ${k.title}.`)},
   'add-done':async()=>{const c=placeBy('id',add.country);closeM();await go({v:'ranking',cc:c.code,product:add.product,variant:add.variant})},
-  'suggest-open':()=>{$('#sg-text').value='';openM('m-suggest')},
+  'suggest-open':()=>{$('#sg-text').value='';ADD_ACT['suggest-kind']({kind:add&&add.product?'variant':'product'});openM('m-suggest')},
   'suggest-kind':d=>document.querySelectorAll('[data-act="suggest-kind"]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.kind===d.kind)),
   'close-suggest':()=>openM('m-add')
 };
@@ -582,9 +609,15 @@ $('#f-suggest').addEventListener('submit',async e=>{
   e.preventDefault();
   const text=$('#sg-text').value.trim();if(!text)return;
   const kind=$('[data-act="suggest-kind"][aria-pressed="true"]').dataset.kind;
-  try{await rpc('suggest_catalogue',{p_kind:kind,p_text:text})}catch(err){return oops(err)}
+  // include what they were trying to add, so the suggestion makes sense on its own
+  const k=add?kindNames():{},cp=add&&placeBy('id',add.country);
+  const ctx=add?[add.pack||add.brand||add.q,cp&&cp.short_name,kind==='variant'&&k.product].filter(Boolean).join(' · '):'';
+  try{await rpc('suggest_catalogue',{p_kind:kind,p_text:(text+(ctx?` (for: ${ctx})`:'')).slice(0,120)})}catch(err){return oops(err)}
   track('suggest-catalogue',true);
-  openM('m-add');toast('Thanks! We\'ll take a look.');
+  if(!add)return closeM();
+  add.suggested={kind,text,productName:k.product};
+  if(kind==='variant')add.variant=null;else{add.product=null;add.variant=null}
+  add.step='suggested';renderAdd();openM('m-add');
 });
 
 /* ---------- Your submissions: "it's live!" or "not this time", each shown once ---------- */

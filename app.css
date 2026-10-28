@@ -211,6 +211,7 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .nomatch b{font-size:17px}
 .pgroup{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px;align-items:center}
 .chips.wrap{flex-wrap:wrap;overflow:visible;-webkit-mask-image:none;mask-image:none;margin:0;padding:4px 0}
+.cancel-link{display:block;margin:10px auto 0;min-height:44px;color:var(--muted)}
 .suggest-link{display:block;margin:2px 0 14px;min-height:44px;color:var(--accent-text)}
 .kind-sum{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--hint);border-radius:12px;padding:8px 12px;font-size:14px;font-weight:800;margin-bottom:14px;min-height:44px}
 .short-meta{margin:-2px 0 14px}
