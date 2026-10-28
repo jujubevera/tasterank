@@ -1,5 +1,5 @@
 # Keeps the free Supabase project from pausing (it pauses after 7 days without visits).
-# Every 3 days GitHub asks the database for the public food list, using the public key in app.js.
+# Every 3 days GitHub asks the database for the list of countries, using the public key in app.js.
 # Run it by hand: GitHub → Actions → Keep Supabase awake → Run workflow.
 name: Keep Supabase awake
 on:
@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Ask the database for the food list
+      - name: Ask the database for the list of countries
         run: |
           URL=$(grep -o "SUPABASE_URL:'[^']*'" app.js | cut -d"'" -f2)
           KEY=$(grep -o "sb_publishable_[A-Za-z0-9_-]*" app.js)
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/rest/v1/rpc/item_list" \
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/rest/v1/rpc/place_list" \
             -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{}')
           echo "Supabase answered $code"
           test "$code" = 200

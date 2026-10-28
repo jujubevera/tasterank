@@ -18,7 +18,6 @@ for t in ratings votes profiles suggestions; do
 done
 check "who submitted an item stays hidden" "$(get 'items?select=submitted_by&limit=1')" 'permission denied|does not exist'
 check "delete_me is locked to signed-in people" "$(rpc delete_me)" 'permission denied'
-check "the public list of foods still works" "$(rpc item_list)" '^\[{'
 
 # Brand-against-brand structure (migration 004). Skipped until the migration has been run.
 call(){ curl -s -X POST "$URL/rest/v1/rpc/$1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d "$2"; }
