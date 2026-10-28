@@ -502,7 +502,8 @@ function renderSheet(){
   if(!sheet)return;
   const it=sheet.it,home=profile&&profile.home_place,homeCountryId=home&&(home.country_id||null);
   $('#rate-thumb').outerHTML=thumb(it).replace('class="thumb"','class="thumb" id="rate-thumb"');
-  $('#rate-meta').innerHTML=`${esc(it.brand)} · ${esc(it.title)} · ${it.country.flag}${homeCountryId&&homeCountryId!==it.country.id?` <span class="ver">${it.country.flag} ${esc(placeBy('id',it.country.id)?.adjective||it.country.short_name)} version</span>`:''}`;
+  // country first, then the ranking, then the brand: "🇬🇧 UK · Milk chocolate bars · Cadbury"
+  $('#rate-meta').innerHTML=`${it.country.flag} ${esc(it.country.short_name)} · ${esc(it.title)} · ${esc(it.brand)}${homeCountryId&&homeCountryId!==it.country.id?` <span class="ver">${esc(placeBy('id',it.country.id)?.adjective||it.country.short_name)} version</span>`:''}`;
   $('#rate-title').textContent=it.pack_name;
   const body=$('#rate-body');
   if(sheet.editing){
