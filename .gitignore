@@ -12,3 +12,6 @@ reviews/
 # Test tools installed locally
 node_modules/
 package-lock.json
+
+# Persona test reports (simulated, internal)
+testing/

@@ -198,18 +198,25 @@ const DEMO_RPC={
   catalogue({p_country}){return DEMO.categories.map(c=>({id:c.id,name:c.name,products:DEMO.products.filter(p=>p.category_id===c.id).map(p=>({id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,
     variants:DEMO.variants.filter(v=>v.product_id===p.id).map(v=>({id:v.id,name:D.variant(v.id,p_country),title:D.title(v.id,p_country)}))}))}))},
   brand_suggest({q},st){const k=norm(q);return [...new Set(D.all().filter(i=>D.live(i,st)).map(i=>i.b))].filter(b=>k&&norm(b).includes(k)).sort((a,b)=>norm(b).startsWith(k)-norm(a).startsWith(k)||a.localeCompare(b)).slice(0,8).map(b=>({id:D.brandId(b),name:b}))},
-  submit_item({p_product,p_variant,p_country,p_brand_name,p_pack_name,p_score,p_demo_image},st){
+  submit_item({p_product,p_variant,p_country,p_brand_name,p_pack_name,p_score,p_image_url,p_demo_image},st){
     const dup=D.all().find(i=>!i.closed&&i.p===p_product&&i.v===p_variant&&i.c===p_country&&norm(i.b)===norm(p_brand_name));
     if(dup)throw Object.assign(new Error('Already here'),{code:'23505',details:String(dup.id)});
     const brand=D.all().map(i=>i.b).find(b=>norm(b)===norm(p_brand_name))||p_brand_name.trim().replace(/\s+/g,' ');
     const id=Date.now();
-    st.added.push({id,c:p_country,p:p_product,v:p_variant,b:brand,pack:p_pack_name,img:p_demo_image||null,r:[0,0,0,0,0],pending:true,approvals:1,days_left:30,mine:true});
+    st.added.push({id,c:p_country,p:p_product,v:p_variant,b:brand,pack:p_pack_name||`${brand} ${D.title(p_variant,p_country)}`,img:p_demo_image||p_image_url||null,r:[0,0,0,0,0],pending:true,approvals:1,days_left:30,mine:true});
     if(p_score)st.planned[id]=p_score;
     demoSave(st);return id;
   },
-  suggest_catalogue(){return null},
-  my_submissions(_,st){return (st.added||[]).map(i=>({id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,variant_id:i.v,country_id:i.c,
-    status:i.closed?'closed':D.live(i,st)?'live':'pending',approvals:D.approvals(i,st)}))},
+  submit_item_request({p_country,p_category,p_new_ranking,p_brand_name,p_pack_name,p_product,p_new_variant},st){ // waits for the owner's check, which demo mode never does
+    const same=DEMO.variants.find(v=>norm(D.title(v.id,p_country))===norm(p_new_ranking)||norm(v.title)===norm(p_new_ranking));
+    if(same)throw new Error(`${D.title(same.id,p_country)} is already a ranking. Pick it from the list.`);
+    const id='r'+Date.now();
+    (st.requests=st.requests||[]).push({id,country_id:p_country,category_id:p_category,new_ranking:p_new_ranking,product_id:p_product||null,new_variant:p_new_variant||null,
+      brand:p_brand_name,pack_name:p_pack_name||`${p_brand_name} ${p_new_ranking}`,status:'review'});
+    demoSave(st);return id;
+  },
+  my_submissions(_,st){return [...(st.added||[]).map(i=>({id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,variant_id:i.v,country_id:i.c,
+    status:i.closed?'closed':D.live(i,st)?'live':'pending',approvals:D.approvals(i,st)})),...(st.requests||[]).map(r=>({...r,approvals:0}))]},
   my_profile(_,st){return st.user?{taster_id:'#DEMO00',home_place:{id:0,level:'unknown',name:'Unknown'},rated:Object.keys(st.ratings).length,
     rankings_helped:new Set(Object.keys(st.ratings).map(id=>{const i=D.all().find(x=>x.id==id);return i&&`${i.p}-${i.v}-${i.c}`})).size}:null},
   my_ratings(_,st){return Object.entries(st.ratings).map(([id,score])=>{const i=D.all().find(x=>x.id==id);if(!i)return null;
@@ -312,7 +319,7 @@ const refresh=()=>show(view==='home'?{v:'home'}:parseHash());
 const ACT={
   home:()=>go({v:'home'}),
   me:()=>needUser({name:'profile'}),
-  cat:d=>{prefs.cat=d.cat;savePrefs();renderHomeCards()},
+  cat:d=>{prefs.cat=d.cat;savePrefs();renderHomeCards()},  // renderHomeCards also relabels the + for that type
   ranking:d=>go({v:'ranking',cc:d.cc,product:+d.product,variant:+d.variant}),
   brand:d=>go({v:'brand',cc:d.cc,brand:+d.brand,product:+d.product}),
   rate:d=>needUser({name:'rate',item:+d.id,from:view}),
@@ -381,159 +388,426 @@ function renderHeader(){
   if(me)b.setAttribute('aria-label','Profile');else b.removeAttribute('aria-label');
 }
 
-/* ---------- The floating +: add a snack (from home) or a brand to the ranking you're on ---------- */
+/* ---------- The floating +: add a snack (to the type chosen on home), or a brand to the ranking you're on ---------- */
 function setFab(){
-  const f=$('#add-fab');
+  const f=$('#add-fab'),t=view==='home'&&prefs.cat!=='all'&&homeData&&homeData.rankings.find(r=>String(r.category_id)===String(prefs.cat));
   f.hidden=view==='profile';
-  f.setAttribute('aria-label',view==='ranking'&&page?`Add a brand to ${page.title}`:'Add a snack');
+  f.setAttribute('aria-label',view==='ranking'&&page?`Add a brand to ${page.title}`:t?`Add a snack to ${t.category}`:'Add a snack');
 }
 function openAdd(){needUser({name:'add'})}  // a declaration, so the click map above can use it
 
-/* ---------- Adding: find it → what kind → the details → sent. From a ranking, straight to the details. ---------- */
-let add=null, searchTimer=null, brandTimer=null;
+/* ---------- Adding, in two steps: type what's on the pack, then check what we filled in.
+   From a ranking page it's a shortcut with the ranking fixed; from a brand page, step 2 with the brand answered.
+   Visitors only ever see Type, Ranking (by its title), Brand and Snack: never "product" or "variant". ---------- */
+let add=null, searchTimer=null, offTimer=null, brandTimer=null, pending=null;
 const catalogues={};
+const NEW_TAG=' <span class="newtag sm">new</span>';
 const titleCase=t=>String(t||'').replace(/(^|\s)([a-z])/g,(m,s,c)=>s+c.toUpperCase()).replace(/ And /g,' and ');
-async function loadCatalogue(c){return catalogues[c]||(catalogues[c]=await rpc('catalogue',{p_country:c}))}
-function kindNames(){ // local names of the chosen product and variant
-  const cat=catalogues[add.country]||[],p=cat.flatMap(c=>c.products).find(x=>x.id===add.product),v=p&&p.variants.find(x=>x.id===add.variant);
-  return {product:p?p.name:'',variant:v?v.name:'',title:v?v.title:'',category:(cat.find(c=>c.products.includes(p))||{}).name||''};
+// The same rules as tidy_case() in the database: text typed ALL IN CAPITALS or all small gets a capital at the start of each word
+// ("TONY'S" → "Tony's"); mixed capitals ("KitKat") are kept. sentence: "Dark chocolate" style, for ranking names.
+function tidyCase(t,sentence){
+  const c=String(t||'').trim().replace(/\s+/g,' '),mixed=c!==c.toUpperCase()&&c!==c.toLowerCase(),caps=c===c.toUpperCase();
+  if(!c||(mixed&&!sentence))return c;
+  return c.split(' ').map((w,i)=>{
+    const l=w.toLowerCase();
+    if(mixed)return i&&/^\p{Lu}[\p{Ll}']+$/u.test(w)?l:w;
+    if(/[0-9&]/.test(w)||(caps&&w.length<=2&&!['of','in','on','a','to','n'].includes(l)))return w; // 70%, M&S, KP
+    if(i&&(sentence||['and','of','the','with','in','on','a','n','to'].includes(l)))return l;
+    return l.replace(/\p{L}/u,ch=>ch.toUpperCase());
+  }).join(' ');
 }
+// Ranking title from the names, as guess_title() does: Dark chocolate + Chocolate bars → "Dark chocolate bars"
+function guessTitle(v,p){
+  p=p.toLowerCase();if(/^(original|regular|plain)$/i.test(v))return p.charAt(0).toUpperCase()+p.slice(1);
+  const last=v.toLowerCase().split(' ').pop();return p.split(' ')[0]===last?v+p.slice(last.length):`${v} ${p}`;
+}
+async function loadCatalogue(c){return catalogues[c]||(catalogues[c]=await rpc('catalogue',{p_country:c}))}
+// Every ranking in a country, with its local names
+const rankingsFor=c=>(catalogues[c]||[]).flatMap(t=>t.products.flatMap(p=>p.variants.map(v=>({cat:t.id,pid:p.id,pname:p.name,vid:v.id,vname:v.name,title:v.title}))));
+const typeName=id=>((catalogues[add.country]||[]).find(t=>t.id===id)||{}).name||'';
+const sameRk=(a,b)=>!!a&&!!b&&(a.new?!!b.new&&norm(a.title)===norm(b.title):!b.new&&a.pid===b.pid&&a.vid===b.vid);
+const bkey=t=>norm(t).replace(/'/g,''); // brands are compared ignoring apostrophes too, so Tyrrell's is Tyrrells
+const afterBrand=(t,b)=>{if(!b)return null;const n=b.split(' ').length,w=String(t||'').split(' ');return bkey(w.slice(0,n).join(' '))===bkey(b)?w.slice(n).join(' '):null};
+const inPlace=p=>/^(UK|US)$/.test(p.short_name)?`in the ${p.short_name}`:`in ${p.short_name}`;
+// Live brands that could be these names: searched by the first word up to any apostrophe, so "Tyrrell's" finds Tyrrells
+const brandProbe=t=>String(t||'').replace(/[\u2018\u2019]/g,"'").trim().split(/\s+/)[0].split("'")[0];
+async function knownBrands(qs){
+  const out=new Set();
+  for(const q of new Set(qs.map(brandProbe).filter(Boolean)))try{(await rpc('brand_suggest',{q})).forEach(b=>out.add(b.name))}catch(e){}
+  return [...out];
+}
+
+/* ---------- Open Food Facts, the free food database: packs that aren't on TasteRank yet.
+   One request at a time and at most 8 a minute (they allow 10 per visitor), 4 s timeout; any failure just hides the section. ---------- */
+const OFF_COUNTRY={GB:'en:united-kingdom',US:'en:united-states',AU:'en:australia',JP:'en:japan',CN:'en:china'};
+const offLog=[]; let offBusy=false, offNext=null;
+async function offSearch(q){
+  const now=Date.now();while(offLog.length&&now-offLog[0]>60000)offLog.shift();
+  if(offLog.length>=8)return null;
+  offLog.push(now);
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),4000);
+  try{
+    const r=await fetch('https://world.openfoodfacts.org/cgi/search.pl?'+new URLSearchParams({search_terms:q,json:1,page_size:10,
+      fields:'code,product_name,brands,categories_tags,countries_tags,quantity,image_front_small_url,image_front_url'}),{signal:ctl.signal});
+    if(!r.ok)return null;
+    return ((await r.json()).products||[]).filter(p=>String(p.product_name||'').trim());
+  }catch(e){return null}finally{clearTimeout(timer)}
+}
+function offLookup(q,done){ // a newer search waits for the one in flight; older waiting ones are dropped
+  if(offBusy){offNext=[q,done];return}
+  offBusy=true;
+  offSearch(q).then(r=>{offBusy=false;done(r);if(offNext){const [nq,nd]=offNext;offNext=null;offLookup(nq,nd)}});
+}
+const offBrand=p=>String(p.brands||'').split(',')[0].replace(/[‘’]/g,"'").trim();
+const offImg=u=>/^https:\/\/images\.openfoodfacts\.org\//.test(String(u||''))&&String(u).length<=500?String(u):null;
+const offSoldHere=p=>(p.countries_tags||[]).includes(OFF_COUNTRY[(placeBy('id',add.country)||{}).code]);
+const offPlace=p=>offSoldHere(p)?placeBy('id',add.country):places.find(pl=>(p.countries_tags||[]).includes(OFF_COUNTRY[pl.code]))||null;
+const offPic=p=>{const u=offImg(p.image_front_small_url);
+  return `<span class="thumb">${u?`<img src="${esc(u)}" alt="Pack photo: ${esc(p.product_name)}" loading="lazy" onerror="this.remove()">`:'<span aria-hidden="true">🍽️</span>'}</span>`};
+
+/* ---------- Guessing: the brand, the ranking and the name on the pack, from the search text or a picked Open Food Facts pack.
+   Pure: brands = known brand names to compare with; rankings = every ranking in the country (rankingsFor). ---------- */
+const NO_VARIANT=/^(original|regular|plain)$/;
+// words compared ignoring capitals, "&"/"and" and a trailing "s": "Salt & Vinegar Crisps" → salt, vinegar, crisp
+const wordsOf=s=>norm(s).split(/[^\p{L}\p{N}']+/u).filter(w=>w&&w!=='and').map(w=>w.replace(/'s$/,'').replace(/(\p{L}{3})s$/u,'$1'));
+function guessFromSearch({text,off,brands,rankings,ctxCat}){
+  const t=String(text||'').replace(/[‘’]/g,"'").replace(/\s+/g,' ').trim();
+  const g={brand:'',brandState:null,brandFrom:null,brandAsk:null,rk:null,rkChoices:[],rkCat:ctxCat||null,rkOther:false,
+    packBase:tidyCase(t),photoUrl:null,barcode:null};
+  // Brand: the longest known brand the text starts with; else Open Food Facts' brand, unless it's nearly a known one
+  const hit=brands.filter(b=>bkey(t)===bkey(b)||bkey(t).startsWith(bkey(b)+' ')).sort((a,b)=>b.length-a.length)[0];
+  const ob=off?offBrand(off):'';
+  if(hit)Object.assign(g,{brand:hit,brandState:'known'});
+  else if(ob){
+    const exact=brands.find(b=>bkey(b)===bkey(ob)),near=brands.filter(b=>bkey(b).startsWith(bkey(ob))||bkey(ob).startsWith(bkey(b)));
+    if(exact)Object.assign(g,{brand:exact,brandState:'known'});
+    else if(near.length===1)g.brandAsk={similar:near[0],off:tidyCase(ob)}; // "Is it Tony's Chocolonely?": never a quiet near-duplicate
+    else Object.assign(g,{brand:tidyCase(ob),brandState:'new',brandFrom:'off'});
+  }
+  // The ranking: the words after the brand, plus how Open Food Facts files the pack (en:salt-and-vinegar-crisps)
+  const rest=afterBrand(t,g.brand)??afterBrand(t,ob)??t;
+  const tags=((off&&off.categories_tags)||[]).filter(x=>/^en:/.test(x)).map(x=>x.slice(3).replace(/-/g,' '));
+  const W=new Set([rest,...tags].flatMap(wordsOf)),has=w=>W.has(w);
+  const pick=({cat,pid,vid,title})=>({cat,pid,vid,title});
+  const pool=rankings.filter(r=>!ctxCat||r.cat===ctxCat).map(r=>({...r,vw:wordsOf(r.vname).filter(w=>!NO_VARIANT.test(w)),pw:wordsOf(r.pname)}));
+  let m=pool.filter(r=>r.vw.every(has)&&r.pw.some(has));
+  if(!m.length){const v=pool.filter(r=>r.vw.length&&r.vw.every(has));if(v.length===1)m=v}
+  const most=Math.max(0,...m.map(r=>r.vw.length));m=m.filter(r=>r.vw.length===most); // chocolate-covered toffee beats toffee
+  if(m.length===1)g.rk=pick(m[0]);
+  else if(m.length){g.rkChoices=m.map(pick);if(new Set(m.map(r=>r.cat)).size===1)g.rkCat=m[0].cat}
+  else{
+    const p=pool.find(r=>r.pw.some(has));
+    if(p){ // a known kind of snack, but no ranking for this one: offer a new ranking from the leftover words first
+      const left=rest.split(' ').filter(w=>w&&!/[\d%]/.test(w)&&!/^(g|kg|ml|l)$/i.test(w));
+      if(left.length&&wordsOf(left[left.length-1]).pop()===wordsOf(p.pname).pop())left.pop(); // "Prawn cocktail crisps" → Prawn cocktail
+      const variant=tidyCase(left.join(' '),true),title=variant&&guessTitle(variant,p.pname);
+      const same=title&&rankings.find(r=>norm(r.title)===norm(title));
+      g.rkCat=p.cat;
+      g.rkChoices=[...(same?[pick(same)]:title?[{new:true,cat:p.cat,pid:p.pid,variant,title}]:[]),
+        ...pool.filter(r=>r.pid===p.pid&&!(same&&r.vid===same.vid)).map(pick)];
+    }else g.rkChoices=ctxCat?pool.map(pick):[];
+  }
+  if(!g.rkCat&&!g.rkChoices.length)g.rkOther=true; // nothing to go on: show the types
+  if(off){g.photoUrl=offImg(off.image_front_url);if(/^\d{8,14}$/.test(String(off.code||'')))g.barcode=String(off.code)}
+  return g;
+}
+function packName(){ // the name on the pack: as edited, or the brand (in its own spelling) followed by the rest
+  if(add.packEdited)return add.pack;
+  const b=add.brand.trim(),base=add.packBase||'';if(!b)return base;
+  const r=afterBrand(base,b);return r===null?(base?`${b} ${base}`:b):[b,r].filter(Boolean).join(' ');
+}
+const thingsLeft=()=>add.mode==='short'?(add.brand.trim()?0:1):(add.brandState?0:1)+(add.rk?0:1);
+
+/* ---------- Starting ---------- */
+const freshAdd=o=>Object.assign({mode:'full',step:'find',country:null,ctxCat:null,q:'',results:null,off:null,offFor:null,offShown:[],
+  brand:'',brandState:null,brandFrom:null,brandAsk:null,rk:null,rkChoices:[],rkCat:null,rkOther:false,rkList:[],rkFind:'',rkData:null,rkError:null,
+  newRkOpen:false,newRk:'',open:{},touched:false,guessed:0,pack:'',packBase:'',packEdited:false,packEditing:false,packFromRk:false,
+  photo:null,photoUrl:null,ownPhoto:false,barcode:null,score:null,error:null,sending:false},o);
 async function startAdd(prefill){
   // a saved copy of the old page can be paired with this newer code for a few minutes after an update: reload once to match
   if(!$('#add-body')){if(!store.get('tasterank-reloaded',true)){store.set('tasterank-reloaded',1,true);toast('TasteRank was just updated. Reloading…');setTimeout(()=>location.reload(),900)}else oops(new Error('Add pop-up missing'));return}
-  if(add&&!prefill&&add.step!=='sent'){renderAdd();openM('m-add');return} // closed by tapping outside: carry on where they left off
+  if(add&&!prefill&&!/^sent/.test(add.step)){renderAdd();openM('m-add');focusAdd();return} // closed by tapping outside: carry on where they left off
   track('add-open',true);
-  const fromRanking=!prefill&&view==='ranking'&&page&&page.kind==='ranking';
-  const c=fromRanking?page.country.id:(prefill?prefill.country:homeCountry().id);
-  add={mode:fromRanking?'short':'full',step:fromRanking||prefill?'details':'find',country:c,q:'',results:null,
-    product:fromRanking?page.route.product:prefill?prefill.product:null,variant:fromRanking?page.route.variant:prefill?prefill.variant:null,
-    brand:prefill?prefill.brand:'',pack:prefill?prefill.pack:'',packEdited:!!prefill,score:null,photo:null,existing:[],error:null,sending:false};
-  try{await loadCatalogue(c);if(add.step==='details')await loadExisting()}catch(e){return oops(e)}
-  renderAdd();openM('m-add');
+  const onRanking=!prefill&&view==='ranking'&&page&&page.kind==='ranking',onBrand=!prefill&&view==='brand'&&page&&page.kind==='brand';
+  const c=prefill?prefill.country:onRanking||onBrand?page.country.id:homeCountry().id;
+  add=freshAdd({mode:onRanking?'short':onBrand?'brand':'full',step:onRanking||onBrand||prefill?'check':'find',country:c});
+  try{await loadCatalogue(c)}catch(e){add=null;return oops(e)}
+  if(!prefill&&view==='home'&&prefs.cat!=='all'&&catalogues[c].some(t=>String(t.id)===String(prefs.cat)))add.ctxCat=+prefs.cat; // the type chip on home
+  const rs=rankingsFor(c);
+  if(onRanking){
+    const r=rs.find(x=>x.pid===page.route.product&&x.vid===page.route.variant);
+    Object.assign(add,{rk:{pid:page.route.product,vid:page.route.variant,title:page.title,cat:r&&r.cat},rkData:page,
+      packBase:titleCase(page.title),packFromRk:true,brandPh:'Brand on the pack'});
+    neighbourBrand();
+  }
+  if(onBrand){ // the brand is answered; its own kind of snack is listed first
+    const mine=rs.filter(x=>x.pid===page.route.product);
+    Object.assign(add,{brand:page.brand,brandState:'known',rkChoices:mine,rkCat:mine[0]?mine[0].cat:null,packFromRk:true,guessed:1});
+  }
+  if(prefill){ // "Add it again" after one closed: everything as it was
+    const r=rs.find(x=>x.pid===prefill.product&&x.vid===prefill.variant),k=(await knownBrands([prefill.brand])).find(b=>bkey(b)===bkey(prefill.brand));
+    Object.assign(add,{brand:k||prefill.brand,brandState:k?'known':'new',rk:r?{pid:r.pid,vid:r.vid,title:r.title,cat:r.cat}:null,
+      pack:prefill.pack||'',packEdited:!!prefill.pack,guessed:r?2:1});
+    await loadRanking();
+  }
+  renderAdd();openM('m-add');focusAdd();
 }
-async function loadExisting(){ // what's already in that ranking, for the "Already here" check
-  const r=await rpc('ranking',{p_product:add.product,p_variant:add.variant,p_country:add.country});
-  add.ranking=r;
-  add.existing=r?[...r.items.map(i=>({...i,live:true})),...r.pending.map(i=>({...i,live:false}))]:[];
+function neighbourBrand(){ // the shortcut's placeholder: a brand from a neighbouring ranking that isn't in this one yet
+  const sib=(page.variants||[]).find(v=>v.id!==page.route.variant),here=page.items.map(i=>bkey(i.brand));if(!sib)return;
+  rpc('ranking',{p_product:page.route.product,p_variant:sib.id,p_country:page.country.id}).then(r=>{
+    const b=r&&r.items.map(i=>i.brand).find(x=>!here.includes(bkey(x)));
+    if(b&&add&&add.mode==='short'){add.brandPh=`e.g. ${b}`;const i=$('#add-brand');if(i)i.placeholder=add.brandPh}
+  }).catch(()=>{});
 }
-const stepBar=n=>`<div class="flow-top"><button class="link" data-act="${n===1?'add-cancel':'add-back'}">${n===1?'Cancel':'← Back'}</button><div class="steps" aria-label="Step ${n} of 3">${[1,2,3].map(k=>`<i${k<=n?' class="on"':''}></i>`).join('')}<span>${n} of 3</span></div></div>`;
+async function startCheck(src){ // step 1 → step 2, with our guesses filled in
+  const text=src.off?String(src.off.product_name):add.q.trim();
+  const brands=await knownBrands([text,src.off&&offBrand(src.off)]);
+  Object.assign(add,freshAdd({mode:add.mode,step:'check',country:add.country,ctxCat:add.ctxCat,q:add.q,results:add.results,off:add.off,offFor:add.offFor,offShown:add.offShown}),
+    guessFromSearch({text,off:src.off,brands,rankings:rankingsFor(add.country),ctxCat:add.ctxCat}));
+  add.guessed=(add.brandState?1:0)+(add.rk?1:0);
+  await loadRanking();renderAdd();focusAdd();
+}
+async function loadRanking(){ // who's already in the chosen ranking: for "With Walkers, Pringles…" and the "Already here" check
+  add.rkData=null;
+  if(add.rk&&!add.rk.new)try{add.rkData=await rpc('ranking',{p_product:add.rk.pid,p_variant:add.rk.vid,p_country:add.country})}catch(e){console.error(e)}
+}
+function focusAdd(){ // the search box; else the first open question; else Send
+  setTimeout(()=>{if(!add)return;(add.step==='find'?$('#add-q'):$('#add-body .row.ask :is(button,input,select)')||$('#add-send')||$('#add-body .btn-primary'))?.focus()},0);
+}
+
+/* ---------- Answers ---------- */
+// Typed answers are saved when the box is left, a moment later, so a tap on a chip beside it still counts
+function later(fn){clearPending();pending={fn,t:setTimeout(()=>{const f=pending.fn;pending=null;f()},250)}}
+function clearPending(){if(pending){clearTimeout(pending.t);pending=null}}
+async function flushPending(){if(pending){const f=pending.fn;clearPending();await f()}}
+async function answerBrand(name){
+  clearPending();
+  const v=tidyCase(name);if(!v)return;
+  const k=(await knownBrands([v])).find(b=>bkey(b)===bkey(v));
+  if(!add)return;
+  Object.assign(add,{brand:k||v,brandState:k?'known':'new',brandFrom:!k&&add.brandAsk&&bkey(v)===bkey(add.brandAsk.off)?'off':null,touched:true});
+  add.open.brand=false;
+  renderAdd();focusAdd();
+}
+async function answerRanking(x){
+  clearPending();if(!x)return;
+  add.rk=x.new?{new:true,title:x.title,cat:x.cat,pid:x.pid||null,variant:x.variant||null}:{pid:x.pid,vid:x.vid,title:x.title,cat:x.cat};
+  if(x.new)track('add-new-ranking',true);
+  Object.assign(add,{newRkOpen:false,newRk:'',rkError:null,touched:true});add.open.ranking=false;
+  if(add.packFromRk&&!add.packEdited)add.packBase=titleCase(x.title);
+  await loadRanking();renderAdd();focusAdd();
+}
+const capFirst=t=>t.charAt(0).toUpperCase()+t.slice(1);
+function answerNewRk(text){
+  const t=capFirst(tidyCase(text,true));if(!t||!add.rkCat)return;
+  if(rankingsFor(add.country).some(r=>norm(r.title)===norm(t)))return renderNewRkHelp(); // "… is already a ranking", with Use it
+  answerRanking(add.rkChoices.find(x=>x.new&&norm(x.title)===norm(t))||{new:true,title:t,cat:add.rkCat}); // typing our own guess keeps its filing
+}
+async function setCountry(c){ // keeps the brand; the ranking is checked against that country's list
+  add.country=c;try{await loadCatalogue(c)}catch(e){return oops(e)}
+  const rs=rankingsFor(c),same=x=>rs.find(r=>r.pid===x.pid&&r.vid===x.vid);
+  if(add.rk&&!add.rk.new){const r=same(add.rk);add.rk=r?{pid:r.pid,vid:r.vid,title:r.title,cat:r.cat}:null}
+  else if(add.rk&&rs.some(r=>norm(r.title)===norm(add.rk.title))){add.newRk=add.rk.title;add.rk=null;add.newRkOpen=true}
+  add.rkChoices=add.rkChoices.map(x=>x.new?x:same(x)).filter(Boolean);
+  add.open.country=false;add.touched=true;
+  await loadRanking();renderAdd();focusAdd();
+}
+async function commitShortBrand(v){ // the shortcut's brand box: known spelling, then ask Open Food Facts for this pack
+  const t=tidyCase(v),k=t&&(await knownBrands([t])).find(b=>bkey(b)===bkey(t));
+  if(!add)return;
+  add.brand=k||t;add.brandState=t?(k?'known':'new'):null;
+  const i=$('#add-brand');if(i&&i.value!==add.brand)i.value=add.brand;
+  renderRest();renderBrandHelp();
+  if(!t)return;
+  const q=`${add.brand} ${add.rk.title}`;if(add.yoursFor===q)return;
+  add.yoursFor=q;add.offYours=null;
+  offLookup(q,r=>{
+    if(!add||add.yoursFor!==q)return;
+    const l=(r||[]).filter(p=>{const a=bkey(offBrand(p)),b=bkey(add.brand);return a&&(a.startsWith(b)||b.startsWith(a))});
+    add.offYours=l.find(offSoldHere)||l[0]||null;renderRest();
+  });
+}
+
+/* ---------- Drawing it ---------- */
+const stepBar=n=>{const cancel=n===1||add.mode==='brand';
+  return `<div class="flow-top"><button class="link" data-act="${cancel?'add-cancel':'add-back'}">${cancel?'Cancel':'← Back'}</button><div class="steps" aria-label="Step ${n} of 2">${[1,2].map(k=>`<i${k<=n?' class="on"':''}></i>`).join('')}<span>${n} of 2</span></div></div>`};
+function searchExample(){ // from the rankings on home, for the type chosen there
+  const rs=(homeData&&homeData.country===add.country?homeData.rankings:[]).filter(r=>!add.ctxCat||r.category_id===add.ctxCat),top=rs.find(r=>r.top);
+  return top?`Brand or name, e.g. ${top.top.brand} ${top.title.toLowerCase()}`:rs[0]?`Brand or name, e.g. ${rs[0].title.toLowerCase()}`:'Brand or name, e.g. Walkers salt';
+}
 function renderAdd(){
   const b=$('#add-body'),cp=placeBy('id',add.country)||{flag:'',name:'',short_name:''};
   if(add.step==='find'){
     b.innerHTML=`${stepBar(1)}<h3 id="add-title">What snack is it?</h3>
-      <div class="field"><input id="add-q" type="search" placeholder="Brand or name, e.g. Walkers salt" aria-label="Search all snacks" autocomplete="off" value="${esc(add.q)}"></div>
+      <p class="meta add-sub">${add.ctxCat?`Adding to ${esc(typeName(add.ctxCat))} · ${cp.flag} ${esc(cp.short_name)}`:"Type what's on the pack."}</p>
+      <div class="field"><input id="add-q" type="search" placeholder="${esc(searchExample())}" aria-label="Search all snacks" autocomplete="off" value="${esc(add.q)}"></div>
       <div id="add-results"></div>`;
-    renderResults();setTimeout(()=>$('#add-q')?.focus(),0);return;
+    renderResults();return;
   }
-  if(add.step==='kind'){
-    const cat=catalogues[add.country]||[],prod=cat.flatMap(c=>c.products).find(p=>p.id===add.product);
-    b.innerHTML=`${stepBar(2)}<h3 id="add-title">What kind of snack?</h3>
-      <label class="field"><span class="lab">Sold in</span><select id="add-country">${places.map(p=>`<option value="${p.id}"${p.id===add.country?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('')}</select></label>
-      <div class="field"><span class="lab">Product</span>${cat.map(c=>`<div class="pgroup"><span class="meta">${esc(c.name)}</span><div class="chips wrap">${c.products.map(p=>
-        `<button class="chip${p.id===add.product?' on':''}" aria-pressed="${p.id===add.product}" data-act="add-product" data-id="${p.id}">${esc(p.name)}</button>`).join('')}</div></div>`).join('')}</div>
-      ${prod?`<div class="field"><span class="lab">Variant</span><div class="chips wrap">${prod.variants.map(v=>
-        `<button class="chip${v.id===add.variant?' on':''}" aria-pressed="${v.id===add.variant}" data-act="add-variant" data-id="${v.id}">${esc(v.name)}</button>`).join('')}</div></div>`:''}
-      <button class="link suggest-link" data-act="suggest-open">Not listed? Suggest a product or variant</button>
-      <button class="btn btn-primary btn-block" data-act="add-next"${add.product&&add.variant?'':' disabled'}>Next</button>`;
-    return;
+  if(add.step==='check'){
+    b.innerHTML=add.mode==='short'
+      ?`<h3 id="add-title">Add a brand to ${esc(add.rk.title)}</h3><div class="meta short-meta">${cp.flag} ${esc(cp.short_name)} · <button class="link" data-act="add-search-all">Search all snacks instead</button></div>
+        <div class="rows"><div class="row ask" role="group" aria-labelledby="rl-brand" id="row-brand"><label class="lab" id="rl-brand" for="add-brand">Brand</label>
+          <input id="add-brand" class="row-input" value="${esc(add.brand)}" maxlength="60" autocomplete="off" placeholder="${esc(add.brandPh||'')}" aria-describedby="brand-help"><div id="brand-help" class="hint"></div></div></div>
+        <div id="add-rest"></div>`
+      :`${stepBar(2)}<h3 id="add-title" class="sr-only">Check it</h3>${crispyLine()}${packHtml()}
+        <div class="rows">${brandRow()}${rankRow()}${countryRow()}</div><div id="add-rest"></div>`;
+    renderRest();renderBrandHelp();return;
   }
-  if(add.step==='details'){
-    const k=kindNames(),short=add.mode==='short';
-    b.innerHTML=`${short?`<h3 id="add-title">Add a brand to ${esc(k.title)}</h3><div class="meta short-meta">${cp.flag} ${esc(cp.name)} · <button class="link" data-act="add-search-all">Search all snacks instead</button></div>`
-        :`${stepBar(3)}<div class="kind-sum"><span>${cp.flag} · ${esc(k.product)} · ${esc(k.variant)}</span><button class="link" data-act="add-change">Change</button></div><h3 id="add-title" class="sr-only">The details</h3>`}
-      <div class="details-top">
-        <label class="upload${add.photo?' has-photo':''}">${add.photo?`<img src="${add.photo.url}" alt="Your photo">`:'<span class="cam" aria-hidden="true">📷</span>Add photo<span class="optional">optional</span>'}
-          <input type="file" id="add-photo" accept="image/*" class="sr-only"></label>
-        <div class="field brand-field"><span class="lab">Brand</span><input id="add-brand" value="${esc(add.brand)}" maxlength="60" autocomplete="off" aria-describedby="brand-help"><div id="brand-help"></div></div>
-      </div>
-      <div id="add-dup"></div>
-      <div id="add-rest">
-        <label class="field"><span class="lab">Name on the pack</span><input id="add-pack" value="${esc(add.pack)}" maxlength="120" autocomplete="off"></label>
-        <div class="field"><span class="lab">Tried it? <span class="optional">(optional)</span></span><div class="faces sm">${FACES.map(f=>
-          `<button class="face-btn${add.score===f.v?' on':''}" aria-pressed="${add.score===f.v}" aria-label="${f.l}" data-act="add-face" data-v="${f.v}"><span aria-hidden="true">${f.e}</span></button>`).join('')}</div></div>
-        <p class="rule">Goes live once ${settings.approval_votes} people approve it. Yours counts as the first.</p>
-        <div id="add-error"></div>
-        <button class="btn btn-primary btn-block" id="add-send" data-act="add-send">Send for approval</button>
-        <button class="link cancel-link" data-act="add-cancel">Cancel</button>
-      </div>`;
-    renderBrandHelp();setTimeout(()=>{if(!add.brand)$('#add-brand')?.focus()},0);return;
-  }
-  if(add.step==='suggested'){
-    const sg=add.suggested,what=add.pack||add.brand;
+  const left=settings.approval_votes-1,more=`${left} more approval${left===1?'':'s'}`;
+  if(add.step==='sent-review'){
     b.innerHTML=`<div class="thanks"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg>
-      <h3 id="add-title">Thanks! We'll look at adding "${esc(sg.text)}"${sg.kind==='variant'&&sg.productName?` to ${esc(sg.productName)}`:''}</h3>
-      <p>${what?`Once it's there, you'll be able to add ${esc(what)}. `:''}Kinds of snack and their variants are added by hand, so it may take a little while.</p>
-      <button class="btn btn-primary btn-block" data-act="add-cancel">Done</button>
-      <button class="btn btn-block" data-act="add-change">Choose from the list instead</button></div>`;
+      <h3 id="add-title">Thanks! We'll check ${esc(add.rk.title)} first</h3>
+      <p>New rankings are checked by hand, usually within a few days. Then ${esc(add.sentName)} goes to the vote and needs ${more}. We'll show you here when it's live.</p>
+      <button class="btn btn-primary btn-block" data-act="add-cancel">Done</button></div>`;
     return;
   }
   if(add.step==='sent'){
-    const left=settings.approval_votes-1,k=kindNames();
     b.innerHTML=`<div class="thanks"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg>
       <h3 id="add-title">Thanks! ${esc(add.sentName)} is waiting for approval</h3>
-      <p>It needs ${left} more approval${left===1?'':'s'} to go live. Share it, and friends who know it can approve it.</p>
+      <p>It needs ${more} to go live. Share it, and friends who know it can approve it.</p>
       <button class="btn btn-primary btn-block" data-act="add-share">Share the link</button>
-      <button class="btn btn-block" data-act="add-done">Back to ${esc(k.title)}</button></div>`;
+      <button class="btn btn-block" data-act="add-done">Back to ${esc(add.rk.title)}</button></div>`;
   }
+}
+// Step 1: TasteRank's own matches (Rate), then Open Food Facts packs that aren't on TasteRank yet (Add)
+function offList(){
+  const tr=add.results||[],same=(x,p)=>bkey(x.brand)===bkey(offBrand(p))&&(norm(x.pack_name).includes(norm(p.product_name))||norm(p.product_name).includes(norm(x.pack_name)));
+  const l=(add.off||[]).filter(p=>!tr.some(x=>same(x,p)));
+  return add.offShown=[...l.filter(offSoldHere),...l.filter(p=>!offSoldHere(p))].slice(0,tr.length?3:4);
 }
 function renderResults(){
   const el=$('#add-results');if(!el)return;
-  const q=add.q.trim();
+  const q=add.q.trim(),tr=add.results;
   if(norm(q).length<2){el.innerHTML=`<p class="hint">Search first, so nothing gets added twice. Each country's version is separate.</p>`;return}
-  if(!add.results){el.innerHTML='<p class="hint">Searching…</p>';return}
-  if(!add.results.length){
+  const offWait=norm(q).length>=3&&add.offFor!==q;
+  if(!tr||(!tr.length&&offWait)){el.innerHTML='<p class="hint">Searching…</p>';return}
+  const off=offList();
+  if(!tr.length&&!off.length){
     el.innerHTML=`<div class="nomatch"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-confused"/></svg><b>Hmm… no match for that snack.</b><span class="meta">Add it, and I'll put it to the vote.</span></div>
-      <button class="btn btn-primary btn-block" data-act="add-new">Add "${esc(q)}" →</button>`;return;
+      <button class="btn btn-primary btn-block" data-act="add-new">Add it →</button>`;return;
   }
-  el.innerHTML=add.results.map(x=>`<div class="match">${thumb(x,'sm')}<div><div class="nm">${esc(x.pack_name)}</div><div class="meta">${x.flag} ${esc(x.country)} · ${esc(x.ranking_title)}${x.status==='pending'?' · waiting for approval':''}</div></div>
-      <button class="btn${x.status==='live'?' btn-primary':''}" data-act="add-open-match" data-id="${x.id}" data-cc="${esc((placeBy('id',x.country_id)||{}).code||'')}" data-product="${x.product_id}" data-variant="${x.variant_id}">${x.status==='live'?'Rate':'See it'}</button></div>`).join('')
-    +`<p class="hint">Each country's version is separate. Pick the one sold where you had it.</p><button class="btn btn-block" data-act="add-new">Not here? Add it</button>`;
-}
-async function guessFromSearch(){
-  const t=add.q.trim();if(!t)return;
-  if(!add.pack){add.pack=/[A-Z]/.test(t)?t:titleCase(t);add.packEdited=true} // keep their own capitals if they used any
-  if(!add.brand){ // the longest known brand the text starts with: "Tony's Chocolonely Dark…" → Tony's Chocolonely
-    try{const bs=await rpc('brand_suggest',{q:t.split(/\s+/)[0]}),k=norm(t);
-      const hit=bs.filter(b=>k.startsWith(norm(b.name))).sort((a,b)=>b.name.length-a.name.length)[0];if(hit)add.brand=hit.name}catch(e){}
+  let h='';
+  if(tr.length)h+=`<h4 class="lab res-h">On TasteRank</h4>`+tr.map(x=>`<div class="offr">${thumb(x)}<div><div class="nm">${esc(x.pack_name)}</div><div class="meta">${x.flag} ${esc(x.country)} · ${esc(x.ranking_title)}${x.status==='pending'?' · waiting for approval':''}</div></div>
+      <button class="btn${x.status==='live'?' btn-primary':''}" data-act="add-open-match" data-id="${x.id}" data-cc="${esc((placeBy('id',x.country_id)||{}).code||'')}" data-product="${x.product_id}" data-variant="${x.variant_id}" aria-label="${x.status==='live'?'Rate':'See'} ${esc(x.pack_name)}">${x.status==='live'?'Rate':'See it'}</button></div>`).join('');
+  if(off.length){
+    h+=(tr.length?`<h4 class="lab res-h">Not on TasteRank yet</h4>`
+      :`<div class="mini"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><span><b>Not on TasteRank yet.</b><br><span class="meta">Is it one of these? Tap yours and I'll fill in the rest.</span></span></div>`)
+      +off.map((p,i)=>{const pl=offPlace(p);return `<div class="offr">${offPic(p)}<div><div class="nm">${esc(tidyCase(p.product_name))}</div>
+        <div class="meta">${[esc(offBrand(p)),pl?`${pl.flag} ${esc(pl.short_name)}`:'',esc(p.quantity||'')].filter(Boolean).join(' · ')}</div></div>
+        <button class="btn" data-act="add-off-pick" data-i="${i}" aria-label="Add ${esc(p.product_name)}">Add</button></div>`}).join('')
+      +'<p class="src">From Open Food Facts, the free food database</p>';
+    if(add.offTracked!==q){add.offTracked=q;track('add-off-shown',true)}
   }
-  if(add.product)return;
-  const cat=catalogues[add.country]||[],k=norm(t),prods=cat.flatMap(c=>c.products);
-  const hits=prods.flatMap(p=>p.variants.filter(v=>!/^(original|regular)$/i.test(v.name)&&k.includes(norm(v.name))).map(v=>({p,v,both:k.includes(norm(p.name))})));
-  const pick=(hits.filter(h=>h.both).length===1?hits.filter(h=>h.both):hits.length===1?hits:[])[0];
-  if(pick){add.product=pick.p.id;add.variant=pick.v.id;return}
-  const ps=prods.filter(p=>k.includes(norm(p.name)));
-  if(ps.length===1)add.product=ps[0].id;
+  el.innerHTML=h+'<button class="btn btn-block" data-act="add-new">None of these: add it myself →</button>';
 }
-async function runSearch(){
-  const q=add.q.trim(),k=norm(q);
-  if(k.length<2){add.results=null;return renderResults()}
-  try{const r=await rpc('search_items',{q});if(add&&add.q.trim()===q){add.results=r;renderResults();track(r.length?'add-search-match':'add-no-match',true)}}catch(e){console.error(e)}
+// Step 2: Crispy's line, the name on the pack, then a row each for Brand, Ranked in and Sold in
+function crispyLine(){
+  if(add.touched||dupOf())return ''; // no "then send" when it's already here
+  const left=thingsLeft(),t=!left?'Found it all. Check it, then send.':add.guessed?"I've filled in what I could. Check it, then send.":left===1?'One quick question, then send.':'Two quick questions, then send.';
+  return `<div class="crispy-line"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#${left?'crisp-happy':'crisp-joy'}"/></svg><span>${t}</span></div>`;
 }
-async function renderBrandHelp(){
-  const help=$('#brand-help'),dup=$('#add-dup'),rest=$('#add-rest');if(!help)return;
-  const k=norm(add.brand);
-  const match=k&&add.existing.find(x=>norm(x.brand)===k);
-  if(match){ // one item per brand, variant and country
-    const t=kindNames(),cp=placeBy('id',add.country);
-    help.innerHTML='';rest.hidden=true;track('add-duplicate',true);
-    dup.innerHTML=`<div class="alert"><b>Already here</b><span>${esc(match.brand)} already has ${esc(t.variant.toLowerCase())} ${esc(t.product.toLowerCase())} in the ${esc(cp.short_name)}.</span>
-      <div class="match">${thumb(match,'sm')}<div><div class="nm">${esc(match.pack_name)}</div><div class="meta">${match.live?(match.total?plural(match.total,'rating'):'No ratings yet'):`${match.approvals} of ${settings.approval_votes} approvals`}</div></div>
-        <button class="btn btn-primary" data-act="add-open-match" data-id="${match.id}" data-cc="${cp.code}" data-product="${add.product}" data-variant="${add.variant}">${match.live?'Rate it':'See it'}</button></div></div>
-      <p class="hint center">Is yours a different range, like Walkers Max? Type that as the brand.</p>`;
+function packHtml(){
+  if(add.packEditing)return `<div class="pack"><input id="add-pack" class="row-input" value="${esc(add.pack)}" maxlength="120" autocomplete="off" aria-label="Name on the pack"></div>`;
+  return `<div class="pack"><span><span class="sr-only">Name on the pack: </span>${esc(packName())}</span><button class="link" data-act="add-edit-pack" aria-label="Edit the name on the pack">Edit</button></div>`;
+}
+const answered=(row,label,val,sub)=>`<div class="row" role="group" aria-labelledby="rl-${row}"><span class="lab" id="rl-${row}">${label}</span>
+  <button class="link" data-act="add-change" data-row="${row}" aria-label="Change ${label.toLowerCase()}">Change</button><span class="val">${val}</span>${sub?`<span class="sub">${sub}</span>`:''}</div>`;
+const wordChips=t=>{const out=[];for(const w of String(t||'').split(' ').filter(Boolean).slice(0,3)){if(/\d/.test(w))break;out.push(out.length?`${out[out.length-1]} ${w}`:w)}return out};
+function brandRow(){
+  if(add.brandState&&!add.open.brand)return answered('brand','Brand',`${esc(add.brand)} ${add.brandState==='known'?'<span class="ok">✓ on TasteRank</span>':NEW_TAG}`,add.brandFrom==='off'?'From Open Food Facts':'');
+  const ask=add.brandAsk,chips=ask?[ask.similar,ask.off]:wordChips(add.packBase);
+  if(add.brand&&!chips.some(c=>bkey(c)===bkey(add.brand)))chips.unshift(add.brand);
+  return `<div class="row ask" role="group" aria-labelledby="rl-brand" id="row-brand"><span class="lab" id="rl-brand">Brand</span>
+    <div class="q">${ask?`Is it ${esc(ask.similar)}?`:'Who makes it?'}</div>
+    ${chips.length?`<div class="chips wrap">${chips.map(c=>{const on=!!add.brand&&bkey(c)===bkey(add.brand);return `<button class="chip${on?' on':''}" aria-pressed="${on}" data-act="add-brand-pick" data-name="${esc(c)}">${esc(c)}</button>`}).join('')}</div>`:''}
+    <input id="add-brand" class="row-input" maxlength="60" autocomplete="off" placeholder="Or type the brand" aria-label="Or type the brand" aria-describedby="brand-help"><div id="brand-help" class="hint"></div></div>`;
+}
+function withLine(){ // "With Walkers, Pringles and 2 more"
+  const b=add.rkData?add.rkData.items.map(i=>esc(i.brand)):[];if(!b.length)return '';
+  return `With ${b[0]}${b.length===2?` and ${b[1]}`:b.length>2?`, ${b[1]}${b.length>3?` and ${b.length-2} more`:` and ${b[2]}`}`:''}`;
+}
+function rankRow(){
+  if(add.rk&&!add.open.ranking)return answered('rank','Ranked in',`${esc(add.rk.title)}${add.rk.new?NEW_TAG:''}`,add.rk.new?"A new ranking: we'll check it first":withLine());
+  const types=catalogues[add.country]||[];
+  let list=add.rkOther||(!add.rkChoices.length&&add.rkCat)
+    ?[...add.rkChoices.filter(x=>x.new&&x.cat===add.rkCat),...rankingsFor(add.country).filter(r=>r.cat===add.rkCat)]:add.rkChoices;
+  if(add.rk&&!list.some(x=>sameRk(x,add.rk)))list=[add.rk,...list];
+  add.rkList=list;
+  return `<div class="row ask" role="group" aria-labelledby="rl-rank" id="row-rank"><span class="lab" id="rl-rank">Ranked in${add.rkCat?` · ${esc(typeName(add.rkCat))}`:''}</span>
+    <div class="q">Which ranking does it go in?</div>
+    ${add.rkOther?`<div class="chips" role="group" aria-label="Types">${types.map(t=>`<button class="chip sm${t.id===add.rkCat?' on':''}" aria-pressed="${t.id===add.rkCat}" data-act="add-type" data-id="${t.id}">${esc(t.name)}</button>`).join('')}</div>`:''}
+    ${list.length>=9?`<input id="add-rkfind" class="row-input" type="search" placeholder="Find a ranking" aria-label="Find a ranking" autocomplete="off" value="${esc(add.rkFind)}">`:''}
+    <div id="rk-list">${rkChips()}</div></div>`;
+}
+function rkChips(){
+  const list=add.rkList,f=norm(add.rkFind),shown=list.map((x,i)=>[x,i]).filter(([x])=>!f||norm(x.title).includes(f));
+  return `${shown.length||add.rkCat?`<div class="chips wrap">${shown.map(([x,i])=>{const on=sameRk(x,add.rk);
+      return `<button class="chip${x.new?' chip-new':''}${on?' on':''}" aria-pressed="${on}" data-act="add-rk" data-i="${i}">${x.new?'＋ ':''}${esc(x.title)}${x.new?NEW_TAG:''}</button>`}).join('')}
+      ${add.rkCat?`<button class="chip chip-new${add.newRkOpen?' on':''}" aria-pressed="${add.newRkOpen}" data-act="add-newrk">＋ New ranking</button>`:''}</div>`:''}
+    ${f?`<div class="hint">${shown.length} of ${list.length} · <button class="link" data-act="add-rk-all">Show all</button></div>`:''}
+    ${add.newRkOpen?`<input id="add-newrk" class="row-input" value="${esc(add.newRk)}" maxlength="60" autocomplete="off" aria-label="New ranking" aria-describedby="newrk-help"><div id="newrk-help" class="hint">${newRkHelp()}</div>`:''}
+    ${add.rkError?`<p class="sheet-error" role="alert">${esc(add.rkError)}</p>`:''}
+    <div class="hint">${add.rkOther&&!add.rkCat?'Pick a type first.':`It goes head to head with other brands of the same thing.${add.rkOther?'':' <button class="link" data-act="add-other-types">Other types</button>'}`}</div>`;
+}
+function renderRkList(){const el=$('#rk-list');if(el)el.innerHTML=rkChips()}
+function newRkHelp(){
+  const t=tidyCase(add.newRk,true),rs=rankingsFor(add.country),same=t&&rs.find(r=>norm(r.title)===norm(t));
+  if(same)return `${esc(same.title)} is already a ranking. <button class="chip" data-act="add-rk-use" data-pid="${same.pid}" data-vid="${same.vid}">Use it</button>`;
+  const ex=rs.filter(r=>r.cat===add.rkCat).map(r=>r.title),[a,b]=ex.length>=2?ex:['Chewy sweets','Sour sweets'];
+  return `What other brands would it go head to head with? Like "${esc(a)}" or "${esc(b)}", not the brand.`;
+}
+function renderNewRkHelp(){const el=$('#newrk-help');if(el)el.innerHTML=newRkHelp()}
+function countryRow(){
+  const cp=placeBy('id',add.country)||{flag:'',name:''};
+  if(!add.open.country)return answered('country','Sold in',`${cp.flag} ${esc(cp.name)}`);
+  return `<div class="row ask" role="group" aria-labelledby="rl-country" id="row-country"><label class="lab" id="rl-country" for="add-country">Sold in</label>
+    <select id="add-country" class="row-input">${places.map(p=>`<option value="${p.id}"${p.id===add.country?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('')}</select></div>`;
+}
+function dupOf(){ // one snack per brand, ranking and country
+  const k=bkey(add.brand);if(!k||!add.rkData||!add.rk||add.rk.new)return null;
+  return [...add.rkData.items.map(i=>({...i,live:true})),...add.rkData.pending.map(i=>({...i,live:false}))].find(x=>bkey(x.brand)===k)||null;
+}
+function yoursHtml(){ // the shortcut: Open Food Facts' pack for this brand and ranking
+  const p=add.offYours;if(!p||add.offUsed||add.yoursFor!==`${add.brand} ${add.rk.title}`)return '';
+  return `<div class="offr yours">${offPic(p)}<div><div class="nm">Is this yours?</div><div class="src">${esc(tidyCase(p.product_name))}${p.quantity?`, ${esc(p.quantity)}`:''} · Open Food Facts</div></div>
+    <button class="btn" data-act="add-off-use">Use</button></div>`;
+}
+function renderRest(){ // below the rows: "Already here", or the photo, "Tried it?" and Send
+  const el=$('#add-rest');if(!el)return;
+  const left=thingsLeft(),d=dupOf(),n=settings.approval_votes,cp=placeBy('id',add.country)||{};
+  let h=add.mode==='short'&&add.brand.trim()?packHtml()+yoursHtml():'';
+  if(d){
+    if(add.dupFor!==d.id){add.dupFor=d.id;track('add-duplicate',true)}
+    el.innerHTML=h+`<div class="alert"><b>Already here</b><span>${esc(d.brand)} already has ${esc(add.rk.title.toLowerCase())} ${esc(inPlace(cp))}.</span></div>
+      <div class="match">${thumb(d,'sm')}<div><div class="nm">${esc(d.pack_name)}</div><div class="meta">${d.live?(d.total?plural(d.total,'rating'):'No ratings yet'):`${d.approvals} of ${n} approvals`}</div></div>
+        <button class="btn btn-primary" data-act="add-open-match" data-id="${d.id}" data-cc="${cp.code}" data-product="${add.rk.pid}" data-variant="${add.rk.vid}">${d.live?'Rate it':'See it'}</button></div>
+      <p class="hint center">Is yours a different range, like Walkers Max? Change the brand.</p>`;
     return;
   }
-  dup.innerHTML='';rest.hidden=false;
-  if(!k){help.innerHTML='';return}
-  let sugg=[];try{sugg=await rpc('brand_suggest',{q:add.brand})}catch(e){}
-  if(norm(add.brand)!==k)return; // typing moved on
-  const exact=sugg.find(s=>norm(s.name)===k);
-  help.innerHTML=(exact?'':`<span class="newtag">＋ New brand: ${esc(add.brand.trim())}</span>`)
-    +sugg.filter(s=>norm(s.name)!==k).slice(0,4).map(s=>`<button class="chip" data-act="add-brand-pick" data-name="${esc(s.name)}">${esc(s.name)}</button>`).join('');
+  if(!left){
+    const tried=`<div class="field tried"><span class="lab">Tried it? <span class="optional">(optional)</span></span><div class="faces sm">${FACES.map(f=>
+      `<button class="face-btn${add.score===f.v?' on':''}" aria-pressed="${add.score===f.v}" aria-label="${f.l}" data-act="add-face" data-v="${f.v}"><span aria-hidden="true">${f.e}</span></button>`).join('')}</div></div>`;
+    h+=add.photoUrl&&!add.ownPhoto
+      ?`<div class="photo-row"><span class="thumb big"><img src="${esc(add.photoUrl)}" alt="Pack photo: ${esc(packName())}"></span><div><span class="src">Photo from Open Food Facts</span><br><button class="link" data-act="add-own-photo">Use my own photo</button></div></div>${tried}`
+      :`<div class="photo-tried"><label class="upload${add.photo?' has-photo':''}">${add.photo?`<img src="${add.photo.url}" alt="Your photo"><span class="change">Change</span>`:'<span class="cam" aria-hidden="true">📷</span>Add photo<span class="optional">optional</span>'}
+          <input type="file" id="add-photo" accept="image/*" class="sr-only"></label>${tried}</div>`;
+    h+=`<p class="rule">${add.rk.new?`${esc(add.rk.title)} is new, so we'll check it first (usually within a few days). Then it goes to the vote: it needs ${n} approvals, and yours counts as the first.`
+      :`It needs ${n} approvals to go live, and yours counts as the first.`}</p>`;
+  }
+  el.innerHTML=h+`<div id="add-error">${add.error?`<div class="sheet-error" role="alert"><b>It didn't send.</b> Please try again.<small>${esc(add.error)}</small></div>`:''}</div>`
+    +(left?`<p class="left">${left===1?'1 thing':`${left} things`} left to check ↑</p>`:'')
+    +`<button class="btn btn-primary btn-block" id="add-send" data-act="add-send">${left?'Send':add.rk.new?'Send for a check':'Send for approval'}</button>`;
 }
-function setBrand(v){
-  add.brand=v;
-  if(!add.packEdited){const k=kindNames();add.pack=v.trim()?`${v.trim()} ${titleCase(k.variant)} ${k.product}`:'';const p=$('#add-pack');if(p)p.value=add.pack}
-  clearTimeout(brandTimer);brandTimer=setTimeout(renderBrandHelp,200);
+async function renderBrandHelp(){ // under a brand box: ✓ on TasteRank, or "＋ New brand", plus known brands that match
+  const help=$('#brand-help'),inp=$('#add-brand');if(!help||!inp)return;
+  const v=inp.value,k=bkey(v);
+  if(!k){help.innerHTML='';return}
+  const sugg=(await knownBrands([v])).filter(s=>bkey(s).includes(k)||k.includes(bkey(s)));
+  if(!$('#add-brand')||bkey($('#add-brand').value)!==k)return; // typing moved on
+  const exact=sugg.find(s=>bkey(s)===k);
+  $('#brand-help').innerHTML=(exact?'<span class="ok">✓ on TasteRank</span>':`<span class="newtag">＋ New brand: ${esc(tidyCase(v))}</span>`)
+    +sugg.filter(s=>bkey(s)!==k).slice(0,4).map(s=>`<button class="chip" data-act="add-brand-pick" data-name="${esc(s)}">${esc(s)}</button>`).join('');
 }
 async function shrinkPhoto(file){ // max 800 px on the long side, JPEG, never over 1 MB
   const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('Couldn\'t read that photo. Try another one.'));i.src=URL.createObjectURL(file)});
@@ -549,83 +823,125 @@ async function uploadPhoto(blob){
   must(await sb.storage.from('product-photos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'31536000',upsert:false}));
   return path;
 }
+
+/* ---------- Sending ---------- */
 async function sendAdd(){
   if(!add||add.sending)return;
-  const brand=add.brand.trim(),err=$('#add-error'),btn=$('#add-send');
-  if(!brand){err.innerHTML='<p class="sheet-error" role="alert">Add the brand first.</p>';return $('#add-brand').focus()}
-  add.sending=true;btn.disabled=true;btn.textContent='Sending…';err.innerHTML='';
+  await flushPending();
+  if(thingsLeft()){ // never a silently greyed-out button: take them to what's left
+    $('#add-body .row.ask')?.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+    return focusAdd();
+  }
+  if(dupOf())return renderRest();
+  const brand=tidyCase(add.brand),pack=tidyCase(packName())||null,rk=add.rk,review=!!rk.new,cp=placeBy('id',add.country),btn=$('#add-send');
+  add.sending=true;add.error=null;btn.disabled=true;btn.textContent='Sending…';
+  const url=add.photo||add.ownPhoto?null:add.photoUrl;
+  let id,path=null;
   try{
-    let path=null;
     if(add.photo&&LIVE){path=await uploadPhoto(add.photo.blob);track('photo-upload',true)}
-    const args={p_product:add.product,p_variant:add.variant,p_country:add.country,p_brand_name:brand,p_pack_name:add.pack.trim()||null,p_image_path:path,p_score:add.score};
+    const extra={p_image_path:path,p_image_url:url,p_barcode:add.barcode,p_score:add.score};
+    const args=review
+      ?{p_country:add.country,p_category:rk.cat,p_new_ranking:rk.title,p_brand_name:brand,p_pack_name:pack,p_product:rk.pid||null,p_new_variant:rk.pid?rk.variant:null,...extra}
+      :{p_product:rk.pid,p_variant:rk.vid,p_country:add.country,p_brand_name:brand,p_pack_name:pack,...extra};
     if(!LIVE&&add.photo)args.p_demo_image=add.photo.dataUrl;
-    await rpc('submit_item',args);
+    id=await rpc(review?'submit_item_request':'submit_item',args);
   }catch(e){
-    add.sending=false;btn.disabled=false;btn.textContent='Send for approval';
-    if(e.code==='23505'){try{await loadExisting()}catch(x){}return renderBrandHelp()} // someone added it a moment ago
-    console.error(e);err.innerHTML=`<div class="sheet-error" role="alert"><b>It didn't send.</b> Please try again.<small>${esc(e.message||e)}</small></div>`;return;
+    add.sending=false;
+    if(e.code==='23505'){await loadRanking();return renderRest()} // someone added it a moment ago
+    if(/already a ranking/i.test(e.message||'')){Object.assign(add,{rk:null,rkError:e.message,newRkOpen:false});add.open.ranking=true;renderAdd();return focusAdd()}
+    console.error(e);add.error=e.message||String(e);return renderRest();
+  }
+  if(review){
+    const p=rk.pid&&rankingsFor(add.country).find(r=>r.pid===rk.pid);
+    emailOwner(`TasteRank: check new ranking "${rk.title}"`,
+      `Type: ${typeName(rk.cat)}\nSold in: ${cp.name}\nBrand: ${brand}\nName on the pack: ${pack||`${brand} ${rk.title}`}\nPhoto: ${path?'uploaded':url?'from Open Food Facts':'none'}\n`
+      +`My guess: ${p?`${p.pname} › ${rk.variant||'Original'}`:`new product "${rk.title}" › Original`}\n\n`
+      +`To check it, open Supabase → SQL Editor and run:\n  select * from public.review_list();\nThen accept it (with my guess) or decline it:\n  select public.accept_request(${id});\n  select public.decline_request(${id});`);
   }
   track('add-sent',true);
-  add.sentName=add.pack.trim()||brand;add.step='sent';add.sending=false;homeData=null;
+  add.sentName=pack||`${brand} ${rk.title}`;add.step=review?'sent-review':'sent';add.sending=false;homeData=null;
   renderAdd();$('#m-add .btn-primary')?.focus();
-  if(view==='ranking')refresh();
+  refresh(); // the page behind shows it (and home reloads its data, so the type chips keep working)
 }
 const ADD_ACT={
-  'add-back':()=>{add.step=add.step==='details'?'kind':'find';renderAdd()},
-  'add-new':async()=>{Object.assign(add,{product:null,variant:null,brand:'',pack:'',packEdited:false});await guessFromSearch();add.step='kind';renderAdd()}, // a fresh search starts fresh guesses
-  'add-cancel':()=>{add=null;closeM()},
-  'add-product':d=>{add.product=+d.id;add.variant=null;renderAdd()}, // never pick the variant for them, even when there's only one
-  'add-variant':d=>{add.variant=+d.id;renderAdd()},
-  'add-next':async()=>{try{await loadExisting()}catch(e){return oops(e)}add.step='details';renderAdd()},
-  'add-change':()=>{add.step='kind';renderAdd()},
-  'add-search-all':()=>{add.mode='full';add.step='find';renderAdd()},
+  'add-back':()=>{clearPending();add.step='find';renderAdd();focusAdd()},
+  'add-new':()=>{if(add.offShown.length)track('add-off-none',true);startCheck({})},
+  'add-off-pick':d=>{track('add-off-picked',true);startCheck({off:add.offShown[+d.i]})},
+  'add-cancel':()=>{clearPending();add=null;closeM()},
+  'add-change':d=>{const row=d.row==='rank'?'ranking':d.row;add.open[row]=true;add.touched=true;track('add-row-changed-'+row,true);renderAdd();
+    $(`#row-${d.row} :is(.chip.on,button,input,select)`)?.focus()},
+  'add-brand-pick':d=>{if(add.mode==='short'){clearPending();$('#add-brand').value=d.name;add.brand=d.name;commitShortBrand(d.name)}else answerBrand(d.name)},
+  'add-rk':d=>answerRanking(add.rkList[+d.i]),
+  'add-rk-use':d=>answerRanking(rankingsFor(add.country).find(r=>r.pid===+d.pid&&r.vid===+d.vid)),
+  'add-newrk':()=>{add.newRkOpen=!add.newRkOpen;renderRkList();if(add.newRkOpen)$('#add-newrk')?.focus()},
+  'add-other-types':()=>{add.rkOther=true;add.rkFind='';renderAdd();$('#row-rank :is(.chip.on,.chip)')?.focus()},
+  'add-type':d=>{Object.assign(add,{rkCat:+d.id,rkFind:'',newRkOpen:false});renderAdd();$(`#row-rank [data-act="add-type"][data-id="${d.id}"]`)?.focus()},
+  'add-rk-all':()=>{add.rkFind='';const f=$('#add-rkfind');if(f){f.value='';f.focus()}renderRkList()},
+  'add-edit-pack':()=>{add.pack=packName();add.packEditing=true;if(add.mode==='short')renderRest();else renderAdd();const p=$('#add-pack');if(p){p.focus();p.select()}},
+  'add-own-photo':()=>{add.ownPhoto=true;renderRest();$('#add-photo')?.click()},
+  'add-off-use':()=>{const p=add.offYours;Object.assign(add,{offUsed:true,photoUrl:offImg(p.image_front_url),barcode:/^\d{8,14}$/.test(String(p.code||''))?String(p.code):null});
+    if(!add.packEdited)add.packBase=tidyCase(p.product_name);add.packFromRk=false;renderRest();$('#add-send')?.focus()},
+  'add-search-all':()=>{clearPending();add=freshAdd({country:add.country});renderAdd();focusAdd()},
   'add-face':d=>{add.score=add.score===+d.v?null:+d.v;document.querySelectorAll('#add-body .face-btn').forEach(b=>{const on=+b.dataset.v===add.score;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)})},
-  'add-brand-pick':d=>{$('#add-brand').value=d.name;setBrand(d.name)},
   'add-send':sendAdd,
   'add-open-match':async d=>{add=null;closeM();await go({v:'ranking',cc:d.cc,product:+d.product,variant:+d.variant});if(page&&page.items.some(i=>i.id===+d.id))needUser({name:'rate',item:+d.id,from:'ranking'})},
-  'add-share':()=>{const k=kindNames();share(`Know ${add.sentName}? Help it onto TasteRank: approve it in ${k.title}.`)},
-  'add-done':async()=>{const c=placeBy('id',add.country);closeM();await go({v:'ranking',cc:c.code,product:add.product,variant:add.variant})},
-  'suggest-open':()=>{$('#sg-text').value='';ADD_ACT['suggest-kind']({kind:add&&add.product?'variant':'product'});openM('m-suggest')},
-  'suggest-kind':d=>document.querySelectorAll('[data-act="suggest-kind"]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.kind===d.kind)),
-  'close-suggest':()=>openM('m-add')
+  'add-share':()=>share(`Know ${add.sentName}? Help it onto TasteRank: approve it in ${add.rk.title}.`),
+  'add-done':async()=>{const c=placeBy('id',add.country),rk=add.rk;closeM();await go({v:'ranking',cc:c.code,product:rk.pid,variant:rk.vid})}
 };
+// Saving a typed answer: when the box is left (a moment later, see later()) or on Enter
+function commitField(el){
+  const v=el.value;
+  if(el.id==='add-brand')return add.mode==='short'?commitShortBrand(v):answerBrand(v);
+  if(el.id==='add-newrk')return answerNewRk(v);
+  if(el.id==='add-pack'){Object.assign(add,{pack:tidyCase(v),packEdited:!!tidyCase(v),packEditing:false});if(add.mode==='short')renderRest();else renderAdd();$('#add-body [data-act="add-edit-pack"]')?.focus()}
+}
 document.addEventListener('input',e=>{
   if(!add)return;
-  if(e.target.id==='add-q'){add.q=e.target.value;add.results=null;renderResults();clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,250)}
-  if(e.target.id==='add-brand')setBrand(e.target.value);
-  if(e.target.id==='add-pack'){add.pack=e.target.value;add.packEdited=true}
+  const id=e.target.id,v=e.target.value;
+  if(id==='add-q'){add.q=v;add.results=null;add.off=null;add.offFor=null;renderResults();clearTimeout(searchTimer);clearTimeout(offTimer);searchTimer=setTimeout(runSearch,250);offTimer=setTimeout(runOff,600)}
+  if(id==='add-brand'){
+    if(add.mode==='short'){
+      if(add.offUsed&&bkey(v)!==bkey(add.brand)){Object.assign(add,{offUsed:false,photoUrl:null,barcode:null,packFromRk:true});if(!add.packEdited)add.packBase=titleCase(add.rk.title)}
+      add.brand=v;add.brandState=null;renderRest();
+    }
+    clearTimeout(brandTimer);brandTimer=setTimeout(renderBrandHelp,200);
+  }
+  if(id==='add-newrk'){add.newRk=v;renderNewRkHelp()}
+  if(id==='add-rkfind'){add.rkFind=v;renderRkList()}
+  if(id==='add-pack')add.pack=v;
+});
+document.addEventListener('keydown',e=>{
+  if(!add||e.key!=='Enter'||!['add-brand','add-newrk','add-pack'].includes(e.target.id))return;
+  e.preventDefault();clearPending();commitField(e.target);
 });
 document.addEventListener('change',async e=>{
   if(!add)return;
-  if(e.target.id==='add-country'){add.country=+e.target.value;try{await loadCatalogue(add.country)}catch(x){return oops(x)}
-    if(!(catalogues[add.country]||[]).flatMap(c=>c.products).some(p=>p.id===add.product)){add.product=null;add.variant=null}renderAdd()}
-  if(e.target.id==='add-photo'&&e.target.files[0]){
-    try{add.photo=await shrinkPhoto(e.target.files[0])}catch(x){$('#add-error').innerHTML=`<p class="sheet-error" role="alert">${esc(x.message)}</p>`;return}
-    const tile=$('#add-body .upload');tile.classList.add('has-photo');tile.querySelector('img,.cam')?.remove();
-    tile.innerHTML=`<img src="${add.photo.url}" alt="Your photo"><span class="change">Change</span>`+tile.querySelector('input').outerHTML;
+  const el=e.target;
+  if(['add-brand','add-newrk','add-pack'].includes(el.id))later(()=>commitField(el));
+  if(el.id==='add-country')setCountry(+el.value);
+  if(el.id==='add-photo'&&el.files[0]){
+    try{add.photo=await shrinkPhoto(el.files[0]);add.ownPhoto=true;add.error=null}catch(x){add.error=x.message}
+    renderRest();$('#add-photo')?.focus();
   }
 });
-$('#f-suggest').addEventListener('submit',async e=>{
-  e.preventDefault();
-  const text=$('#sg-text').value.trim();if(!text)return;
-  const kind=$('[data-act="suggest-kind"][aria-pressed="true"]').dataset.kind;
-  // include what they were trying to add, so the suggestion makes sense on its own
-  const k=add?kindNames():{},cp=add&&placeBy('id',add.country);
-  const ctx=add?[add.pack||add.brand||add.q,cp&&cp.short_name,kind==='variant'&&k.product].filter(Boolean).join(' · '):'';
-  try{await rpc('suggest_catalogue',{p_kind:kind,p_text:(text+(ctx?` (for: ${ctx})`:'')).slice(0,120)})}catch(err){return oops(err)}
-  track('suggest-catalogue',true);
-  if(!add)return closeM();
-  add.suggested={kind,text,productName:k.product};
-  if(kind==='variant')add.variant=null;else{add.product=null;add.variant=null}
-  add.step='suggested';renderAdd();openM('m-add');
-});
+async function runSearch(){ // TasteRank's own matches
+  const q=add.q.trim();
+  if(norm(q).length<2){add.results=null;return renderResults()}
+  try{const r=await rpc('search_items',{q});if(add&&add.q.trim()===q){add.results=r;renderResults();track(r.length?'add-search-match':'add-no-match',true)}}
+  catch(e){console.error(e);if(add&&add.q.trim()===q){add.results=[];renderResults()}}
+}
+function runOff(){ // Open Food Facts, from 3 characters, once typing pauses
+  const q=add.q.trim();
+  if(norm(q).length<3)return;
+  offLookup(q,r=>{if(!add||add.q.trim()!==q)return;add.off=r||[];add.offFor=q;renderResults()});
+}
 
 /* ---------- Your submissions: "it's live!" or "not this time", each shown once ---------- */
 async function checkMoments(){
   if(!me||openId)return;
   let subs;try{subs=await rpc('my_submissions')}catch(e){return}
   const key='tasterank-moments-'+me.id,seen=new Set(store.get(key)||[]);
-  const m=subs.find(x=>(x.status==='live'||x.status==='closed')&&!seen.has(x.id));
+  const m=subs.find(x=>['live','closed','declined'].includes(x.status)&&!seen.has(x.id));
   if(!m||openId)return;
   seen.add(m.id);store.set(key,[...seen]);
   const live=m.status==='live',n=settings.approval_votes;
@@ -634,6 +950,9 @@ async function checkMoments(){
     ?`<div class="moment"><svg class="burst" viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-joy"/></svg><h3 id="moment-title">${esc(m.pack_name)} is live!</h3>
       <p>${n} people approved it. Be the first to rate it.</p>
       <button class="btn btn-primary btn-block" data-act="moment-rate">Rate it now</button><button class="btn btn-block" data-act="close">Later</button></div>`
+    :m.status==='declined'?`<div class="moment"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-sad"/></svg><h3 id="moment-title">Not this time</h3>
+      <p>We couldn't add ${esc(m.new_ranking)} as a new ranking, so ${esc(m.pack_name)} wasn't added. If it fits one that's already listed, you can add it there.</p>
+      <button class="btn btn-primary btn-block" data-act="close">OK</button></div>`
     :`<div class="moment"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-sad"/></svg><h3 id="moment-title">Not this time</h3>
       <p>${esc(m.pack_name)} didn't get ${n} approvals in ${settings.close_after_days} days. You can send it in again; it starts afresh.</p>
       <button class="btn btn-primary btn-block" data-act="moment-again">Add it again</button><button class="btn btn-block" data-act="close">OK</button></div>`;
@@ -684,7 +1003,8 @@ function renderHomeCards(){
   const brands=homeData.brands.filter(()=>prefs.cat==='all').map(b=>`<button class="rcard" data-act="brand" data-cc="${c.code}" data-brand="${b.brand_id}" data-product="${b.product_id}">
       <span class="stack"><span class="thumb sm" aria-hidden="true">⭐</span></span>
       <span class="rinfo"><span class="rk-title">${esc(b.brand)} ${esc(c.short_name)}</span><span class="meta">Brand view · ${plural(b.variants,'variant')}</span></span></button>`).join('');
-  $('#cards').innerHTML=cards+brands||`<div class="card empty">No snacks here yet. Know one? Tap + to suggest it.</div>`;
+  $('#cards').innerHTML=cards+brands||`<div class="card empty">No snacks here yet. Know one? Tap + to add it.</div>`;
+  setFab();
 }
 
 /* ---------- Ranking page ---------- */
@@ -885,6 +1205,10 @@ function sheetSecond(){
 }
 
 /* ---------- Feedback ---------- */
+function emailOwner(subject,message){ // tells the TasteRank inbox there's something to check; the database keeps the record
+  if(LIVE)fetch('https://api.web3forms.com/submit',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
+    body:JSON.stringify({access_key:CONFIG.WEB3FORMS_KEY,subject,from_name:'TasteRank',message})}).catch(err=>console.error(err));
+}
 async function sendFeedback(e){
   e.preventDefault();
   const message=$('#fb-msg').value.trim();if(!message)return;

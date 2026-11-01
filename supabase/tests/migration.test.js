@@ -1,5 +1,5 @@
-// Tests supabase/setup.sql and migrations 002–004 on an in-memory Postgres with a small Supabase stand-in.
-// Part 1 checks 002 and 003; part 2 (part004, at the bottom) starts a fresh database and checks 004.
+// Tests supabase/setup.sql and migrations 002–007 on an in-memory Postgres with a small Supabase stand-in.
+// Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–007.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
 const {PGlite}=require('@electric-sql/pglite');
@@ -327,8 +327,138 @@ ok('11th waiting item is refused',/waiting for approval/.test((await as(19,`sele
 ok('suggest a variant',!(await as(19,`select public.suggest_catalogue('variant','Prawn cocktail')`)).err&&(await q('select count(*)::int n from public.catalogue_suggestions'))[0].n===1);
 ok('visitors can\'t change submission dates',!!(await as(13,`update public.items set created_at=now()+interval '1 year'`)).err);
 
+// ---- Migration 006: "Check it" adding: new rankings in plain words, Open Food Facts photos, tidy capitals, local type names ----
+const mig6=fs.readFileSync(R+'migrate-006-new-kinds.sql','utf8');
+// The first version of 006 (round 1) is live: an item_requests of another shape and other function arguments.
+const ROUND1=`create table public.item_requests (id bigint generated always as identity primary key, product_id int, new_product text,
+  new_variant text, brand_name text, pack_name text, status text default 'review', user_id uuid, created_at timestamptz default now());
+  create function public.submit_item_request(int,int,text,text,text,text,text,int) returns bigint language sql as 'select 1::bigint';
+  create function public.accept_request(bigint,text,text,text,text,text) returns text language sql as 'select 1::text';`;
+{
+  const db4=new PGlite(); await db4.exec(STUB);
+  for(const f of ['setup.sql','migrate-002-flavours.sql','migrate-003-no-names.sql','migrate-004-brands.sql','migrate-005-remove-rating.sql']) await db4.exec(fs.readFileSync(R+f,'utf8'));
+  await db4.exec(ROUND1); await db4.exec(`insert into public.item_requests(product_id,new_variant,brand_name,pack_name) values (1,'Dark chocolate','Tony''s','Tony''s Dark')`);
+  let err=null; try{await db4.exec(mig6);await db4.exec(mig6)}catch(e){err=e.message}
+  ok('006 over a live round-1 table with requests: keeps them as item_requests_round1',!err&&(await db4.query('select count(*)::int n from public.item_requests_round1')).rows[0].n===1&&(await db4.query('select count(*)::int n from public.item_requests')).rows[0].n===0,err);
+  ok('…and new requests use the new table',!(await db4.query(`select set_config('request.jwt.claim.sub','${U(1)}',false)`).then(()=>db4.query('insert into auth.users(id) values ($1)',[U(1)])).then(()=>db4.query(`select public.submit_item_request(1,2,'Milk candy','White Rabbit')`)).then(()=>null,e=>e.message)));
+}
+await db.exec(ROUND1);
+try{await db.exec(mig6);await db.exec(mig6);ok('migration 006 runs (twice) without errors, over an empty round-1 table',true)}catch(e){ok('migration 006 runs (twice) without errors, over an empty round-1 table',false,e.message)}
+ok('…the empty round-1 table is replaced, not kept',(await q(`select to_regclass('public.item_requests_round1') r`))[0].r===null&&(await q(`select count(*)::int n from information_schema.columns where table_name='item_requests' and column_name in ('new_ranking','category_id','image_url','barcode')`))[0].n===4);
+ok('…and only the new versions of the functions are left',(await q(`select string_agg(proname||'/'||pronargs,',' order by proname) s from pg_proc where pronamespace='public'::regnamespace and proname in ('submit_item','submit_item_request','accept_request','review_list')`))[0].s==='accept_request/5,review_list/0,submit_item/9,submit_item_request/11');
+const tidy=async(t,s=false)=>(await q('select public.tidy_case($1,$2) t',[t,s]))[0].t;
+ok('capitals tidied: TONY\'S CHOCOLONELY DARK CHOCOLATE 70%',(await tidy("TONY'S CHOCOLONELY DARK CHOCOLATE 70%"))==="Tony's Chocolonely Dark Chocolate 70%",await tidy("TONY'S CHOCOLONELY DARK CHOCOLATE 70%"));
+ok('small letters tidied, short words stay small',(await tidy('walkers salt and vinegar'))==='Walkers Salt and Vinegar');
+ok('mixed capitals kept as typed (KitKat, KETTLE Chips)',(await tidy('Nestlé KitKat'))==='Nestlé KitKat'&&(await tidy('KETTLE Chips'))==='KETTLE Chips');
+ok('M&S and KP kept in capitals',(await tidy('M&S CHOCOLATE'))==='M&S Chocolate'&&(await tidy('KP NUTS'))==='KP Nuts',[await tidy('M&S CHOCOLATE'),await tidy('KP NUTS')].join());
+ok('sentence style: DARK CHOCOLATE / Dark Chocolate → Dark chocolate; Matcha KitKat kept',(await tidy('DARK CHOCOLATE',true))==='Dark chocolate'&&(await tidy('Dark Chocolate',true))==='Dark chocolate'&&(await tidy('Matcha KitKat',true))==='Matcha KitKat');
+const gt=async(v,p)=>(await q('select public.guess_title($1,$2) t',[v,p]))[0].t;
+ok('ranking titles guessed: Dark chocolate bars, Prawn cocktail crisps, Popcorn',(await gt('Dark chocolate','Chocolate bars'))==='Dark chocolate bars'&&(await gt('Prawn cocktail','Crisps'))==='Prawn cocktail crisps'&&(await gt('Original','Popcorn'))==='Popcorn');
+const newBrand=await as(20,`select public.submit_item(3,4,1,'SEABROOK','SEABROOK SALT & VINEGAR') id`);
+ok('submit_item tidies a new brand and pack name typed in capitals',!newBrand.err&&(await q('select b.name,i.pack_name from public.items i join public.brands b on b.id=i.brand_id where i.id=$1',[newBrand.rows[0].id]))[0].pack_name==='Seabrook Salt & Vinegar',newBrand.err);
+ok('…existing brands keep their own spelling (WALKERS → Walkers)',/Already here/.test((await as(20,`select public.submit_item(3,4,1,'WALKERS')`)).err||''));
+
+// Open Food Facts photos and barcodes
+const OFF='https://images.openfoodfacts.org/images/products/871/767/733/9556/front_en.200.jpg';
+const sOff=await as(20,`select public.submit_item(3,5,1,'Seabrook',null,null,null,'${OFF}','5000328123456') id`);
+ok('submit_item takes an Open Food Facts photo and barcode',!sOff.err&&(await q('select image_url,barcode from public.items where id=$1',[sOff.rows[0].id])).map(r=>r.image_url+'|'+r.barcode)[0]===OFF+'|5000328123456',sOff.err);
+ok('…a photo from any other site is refused',/Open Food Facts/.test((await as(20,`select public.submit_item(3,6,1,'Seabrook',null,null,null,'https://example.com/x.jpg')`)).err||''));
+ok('…your own photo and an Open Food Facts one together are refused',/one photo/.test((await as(20,`select public.submit_item(3,6,1,'Seabrook',null,'${U(20)}/a.jpg',null,'${OFF}')`)).err||''));
+ok('…a barcode that isn\'t 8–14 digits is refused',/barcode/.test((await as(20,`select public.submit_item(3,6,1,'Seabrook',null,null,null,null,'12AB')`)).err||''));
+
+// A new ranking, with the site's guess: Tony's dark chocolate
+const rq=await as(21,`select public.submit_item_request(1,1,'DARK CHOCOLATE BARS','tony''s chocolonely','TONY''S CHOCOLONELY DARK CHOCOLATE 70%',1,'dark chocolate',null,'${OFF}','8717677339556',4) id`);
+ok('send a snack for a new ranking, with a guess (Chocolate bars › Dark chocolate)',!rq.err,rq.err); const rqId=rq.rows&&rq.rows[0].id;
+ok('…saved tidied, waiting for a check',(await q('select new_ranking,new_variant,brand_name,pack_name,status from public.item_requests where id=$1',[rqId])).map(r=>[r.new_ranking,r.new_variant,r.brand_name,r.pack_name,r.status].join('|'))[0]==="Dark chocolate bars|Dark chocolate|Tony's Chocolonely|Tony's Chocolonely Dark Chocolate 70%|review");
+ok('…shows in my submissions as "review", with the new ranking',(await one(21,'select public.my_submissions()')).some(x=>x.id==='r'+rqId&&x.status==='review'&&x.new_ranking==='Dark chocolate bars'&&x.category_id===1));
+ok('…not in any ranking yet',(await one(21,'select public.ranking(1,1,1)')).pending.every(p=>!/Dark/.test(p.pack_name)));
+ok('already a ranking is refused, ignoring capitals (milk chocolate bars)',/Milk chocolate bars is already a ranking/.test((await as(21,`select public.submit_item_request(1,1,'milk chocolate bars','Galaxy')`)).err||''));
+ok('…including a local title (SALT & VINEGAR CHIPS in the US)',/Salt & vinegar chips is already a ranking/.test((await as(21,`select public.submit_item_request(2,3,'SALT & VINEGAR CHIPS','Lay''s')`)).err||''));
+ok('a guessed product must be in the type',/isn't in this type/.test((await as(21,`select public.submit_item_request(1,2,'Fudge','Thorntons',null,1)`)).err||''));
+ok('the type must exist, and the ranking needs a name',/Pick a type/.test((await as(21,`select public.submit_item_request(1,99,'Fudge','Thorntons')`)).err||'')&&/Name the ranking/.test((await as(21,`select public.submit_item_request(1,2,'   ','Thorntons')`)).err||''));
+ok('requests: Open Food Facts photos only, one photo, barcode format',/Open Food Facts/.test((await as(21,`select public.submit_item_request(1,2,'Fudge','Thorntons',p_image_url=>'https://example.com/x.jpg')`)).err||'')&&/one photo/.test((await as(21,`select public.submit_item_request(1,2,'Fudge','Thorntons',p_image_path=>'${U(21)}/a.jpg',p_image_url=>'${OFF}')`)).err||'')&&/barcode/.test((await as(21,`select public.submit_item_request(1,2,'Fudge','Thorntons',p_barcode=>'123')`)).err||''));
+ok('…and only photos in your own folder',/own folder/.test((await as(21,`select public.submit_item_request(1,2,'Fudge','Thorntons',p_image_path=>'${U(22)}/a.jpg')`)).err||''));
+ok('signed out can\'t send a request',denied(await as(null,`select public.submit_item_request(1,1,'White chocolate bars','Milkybar')`)));
+for(const f of ['review_list()','accept_request(1)','decline_request(1)'])
+  ok(`visitors can't call ${f}`,denied(await as(21,`select * from public.${f}`)));
+ok('visitors can\'t read item_requests',denied(await as(21,'select * from public.item_requests')));
+ok('…or call the tidying helpers directly',denied(await as(null,`select public.tidy_case('ABC')`))&&denied(await as(21,`select public.guess_title('Dark','Bars')`)));
+const rl=await q('select * from public.review_list()'), rv=rl.find(r=>r.id==rqId);
+ok('review list: type, new ranking, guess, photo source and barcode',rv&&[rv.type,rv.new_ranking,rv.guess,rv.photo,rv.barcode].join('|')==='Chocolate|Dark chocolate bars|Chocolate bars › Dark chocolate|Open Food Facts|8717677339556',JSON.stringify(rv));
+const rq2=await as(22,`select public.submit_item_request(1,1,'Dark chocolate bars','Lindt','Lindt Excellence 70%',1,'Dark chocolate') id`);
+const acc=(await q('select public.accept_request($1) m',[rqId]))[0].m;
+ok('accept with no other arguments',acc==="Added Tony's Chocolonely Dark Chocolate 70% to Dark chocolate bars: it's now in the vote.",acc);
+const dc=(await q(`select id,title from public.variants where product_id=1 and name='Dark chocolate'`))[0];
+ok('…reuses Chocolate bars and adds Dark chocolate, titled "Dark chocolate bars"',dc&&dc.title==='Dark chocolate bars'&&(await q('select count(*)::int n from public.products'))[0].n===3);
+const tony=(await one(21,`select public.ranking(1,${dc.id},1)`)).pending.find(p=>p.mine);
+ok('…the sender\'s approval carries over (1 of 5)',tony&&tony.approvals===1&&tony.pack_name==="Tony's Chocolonely Dark Chocolate 70%",JSON.stringify(tony));
+ok('…with the Open Food Facts photo and barcode',(await q('select image_url,barcode from public.items where id=$1',[tony.id])).map(r=>r.image_url+'|'+r.barcode)[0]===OFF+'|8717677339556');
+ok('…and it left "review" in my submissions',!(await one(21,'select public.my_submissions()')).some(x=>x.id==='r'+rqId));
+(await q('select public.accept_request($1)',[rq2.rows[0].id]));
+ok('a second request for the same ranking reuses it',(await q(`select count(*)::int n from public.variants where product_id=1 and name_key='dark chocolate'`))[0].n===1&&(await one(22,`select public.ranking(1,${dc.id},1)`)).pending.length===2);
+ok('now it\'s a ranking, so new requests for it are refused',/Dark chocolate bars is already a ranking/.test((await as(23,`select public.submit_item_request(1,1,'dark chocolate bars','Green & Black''s')`)).err||''));
+for(const u of [23,24,25,26]) await as(u,`select public.approve_item(${tony.id})`);
+ok('4 more approvals: live, and the "Tried it?" face becomes a rating',(await q('select status from public.items where id=$1',[tony.id]))[0].status==='live'&&(await q('select score from public.item_ratings where item_id=$1 and user_id=$2',[tony.id,U(21)]))[0]?.score===4);
+
+// A new ranking with no guess: White Rabbit
+const wr=await as(23,`select public.submit_item_request(1,2,'milk candy','WHITE RABBIT','White Rabbit Creamy Candy') id`);
+ok('send a snack for a new ranking with no guess (Milk candy in Sweets)',!wr.err,wr.err);
+ok('…review list says it\'ll be a new product',(await q('select * from public.review_list()')).find(r=>r.id==wr.rows[0].id)?.guess==='new product "Milk candy" › Original');
+const acc2=(await q('select public.accept_request($1) m',[wr.rows[0].id]))[0].m;
+ok('accept: new product Milk candy in Sweets, with an Original ranking titled "Milk candy"',/^Added White Rabbit Creamy Candy to Milk candy/.test(acc2)&&(await q(`select p.name,p.category_id,p.emoji,v.name vn,v.title,v.is_default from public.products p join public.variants v on v.product_id=p.id where p.name='Milk candy'`)).map(r=>[r.name,r.category_id,r.emoji,r.vn,r.title,r.is_default].join('|'))[0]==='Milk candy|2|🍽️|Original|Milk candy|true',acc2);
+
+// Vera's own choices when accepting
+const wc=await as(26,`select public.submit_item_request(1,1,'White chocolate buttons','Milkybar') id`);
+(await q(`select public.accept_request($1, p_product_name => 'CHOCOLATE BARS', p_variant_name => 'white chocolate')`,[wc.rows[0].id]));
+ok('owner override: file it under an existing product, named in any capitals',(await q(`select v.product_id,v.title from public.variants v where v.name='White chocolate'`)).map(r=>r.product_id+'|'+r.title)[0]==='1|White chocolate buttons');
+const gum=await as(24,`select public.submit_item_request(1,5,'Spearmint chewing gum','Wrigley''s','Wrigley''s Extra Spearmint') id`);
+(await q(`select public.accept_request($1, p_product_name => 'chewing gum', p_variant_name => 'SPEARMINT', p_title => 'Spearmint gum', p_emoji => '🫧')`,[gum.rows[0].id]));
+ok('owner overrides: new product Chewing gum (🫧) › Spearmint, titled "Spearmint gum"',(await q(`select p.name,p.emoji,p.category_id,v.name vn,v.title from public.products p join public.variants v on v.product_id=p.id where p.name='Chewing gum'`)).map(r=>[r.name,r.emoji,r.category_id,r.vn,r.title].join('|'))[0]==='Chewing gum|🫧|5|Spearmint|Spearmint gum');
+ok('…and its hidden type (Mints & Chewing Gum) now shows',(await q('select visible from public.categories where id=5'))[0].visible===true);
+
+// Local type names
+const names=async c=>(await one(null,`select public.catalogue(${c})`)).map(x=>x.name);
+const us=await names(2), uk=await names(1), au=await names(3);
+ok('US catalogue: Chocolate, Candy, Chips & Snacks',['Chocolate','Candy','Chips & Snacks'].every(n=>us.includes(n))&&!us.includes('Sweets'),us.join());
+ok('UK catalogue keeps Sweets and Crisps & Snacks; Australia says Lollies',['Sweets','Crisps & Snacks'].every(n=>uk.includes(n))&&au.includes('Lollies'),uk.join()+' / '+au.join());
+const usHome=await one(null,'select public.home_rankings(2)');
+ok('US home rankings say Chips & Snacks',usHome.some(r=>r.category==='Chips & Snacks')&&!usHome.some(r=>r.category==='Crisps & Snacks'),JSON.stringify(usHome.map(r=>r.category)));
+ok('ranking page: Chips & Snacks in the US, Crisps & Snacks in the UK',(await one(null,'select public.ranking(3,4,2)')).category==='Chips & Snacks'&&(await one(null,'select public.ranking(3,4,1)')).category==='Crisps & Snacks');
+const usReq=await as(22,`select public.submit_item_request(2,2,'Gummy bears','Haribo') id`);
+ok('review list uses the local type name (Candy for a US request)',(await q('select * from public.review_list()')).find(r=>r.id==usReq.rows[0].id)?.type==='Candy');
+
+// Declining, and the limit
+const rq4=await as(24,`select public.submit_item_request(1,1,'Ruby chocolate bars','Cadbury') id`);
+(await q('select public.decline_request($1)',[rq4.rows[0].id]));
+ok('declined: the sender sees it as declined, with the ranking they named',(await one(24,'select public.my_submissions()')).some(x=>x.id==='r'+rq4.rows[0].id&&x.status==='declined'&&x.new_ranking==='Ruby chocolate bars'));
+for(let k=0;k<9;k++) await as(25,`select public.submit_item(3,5,1,'Limit ${k}')`);
+await as(25,`select public.submit_item_request(1,1,'Caramel bars','Limit X')`);
+ok('waiting for a check counts towards the limit of 10',/waiting for approval/.test((await as(25,`select public.submit_item_request(1,1,'Mint bars','Limit Y')`)).err||''));
+
 // ---- Deleting an account ----
 await as(12,'select public.delete_me()');
 const left=(await q(`select (select count(*) from public.item_ratings where user_id=$1)::int r,(select count(*) from public.rating_events where user_id=$1)::int e,(select count(*) from public.approvals where user_id=$1)::int a`,[U(12)]))[0];
 ok('deleting an account removes its ratings, history and approvals',left.r===0&&left.e===0&&left.a===0,JSON.stringify(left));
+
+// ---- Migration 007: removing the old site's tables and functions ----
+const mig7=fs.readFileSync(R+'migrate-007-cleanup.sql','utf8');
+const old7=async(d)=>(await d.query(`select to_regclass('public.legacy_items') li,to_regclass('public.ratings') ra,to_regclass('public.votes') vo,
+  to_regclass('public.suggestions') su,to_regclass('public.catalogue_suggestions') cs,to_regprocedure('public.item_list()') il,
+  to_regprocedure('public.suggest_catalogue(text,text)') sc,to_regprocedure('public.vote_for_own_item()') vf,to_regprocedure('public.promote_when_approved()') pw`)).rows[0];
+{let err=null;try{await db.exec(mig7)}catch(e){err=e.message;await db.exec('rollback')}
+ ok('007 stops while the old tables hold people\'s ratings and approvals, naming them',/ratings \(\d+\)/.test(err||'')&&/votes \(\d+\)/.test(err||''),err);
+ ok('…and changes nothing',Object.values(await old7(db)).every(Boolean));}
+try{await db.exec(mig7.replace("old_data_saved', 'no'","old_data_saved', 'yes'"));await db.exec(mig7);ok('007 runs once the data is saved (and again after)',true)}catch(e){ok('007 runs once the data is saved (and again after)',false,e.message)}
+ok('old tables and functions are gone',Object.values(await old7(db)).every(v=>v===null),JSON.stringify(await old7(db)));
+ok('the new site still works after 007 (home, ranking, adding)',!(await as(null,'select public.home_rankings(1)')).err&&!!(await one(null,'select public.ranking(3,4,1)'))&&!(await as(26,`select public.submit_item(3,5,1,'After cleanup')`)).err);
+ok('profiles kept, and deleting an account still works',(await q(`select to_regclass('public.profiles') p`))[0].p!==null&&!(await as(13,'select public.delete_me()')).err);
+// A fresh install has nothing from people in the old tables, so 007 runs as it is; one unread idea stops it
+for(const unread of [false,true]){
+  const d=new PGlite(); await d.exec(STUB);
+  for(const f of ['setup.sql','migrate-002-flavours.sql','migrate-003-no-names.sql','migrate-004-brands.sql','migrate-005-remove-rating.sql','migrate-006-new-kinds.sql']) await d.exec(fs.readFileSync(R+f,'utf8'));
+  if(unread){await d.query(`insert into auth.users(id) values ($1)`,[U(1)]);await d.query(`insert into public.catalogue_suggestions(user_id,kind,text) values ($1,'variant','Dark chocolate')`,[U(1)])}
+  let err=null;try{await d.exec(mig7)}catch(e){err=e.message;await d.exec('rollback')}
+  if(unread)ok('007 also stops for an idea someone sent in',/catalogue_suggestions \(1\)/.test(err||''),err);
+  else ok('fresh install: 007 runs without the yes (starter foods only)',!err&&Object.values(await old7(d)).every(v=>v===null),err);
+}
 }
