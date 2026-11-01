@@ -222,7 +222,6 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .res-h+.offr,.mini+.offr{border-top:0}
 .offr .nm{font-weight:800;font-size:14px;line-height:1.25}
 .offr .btn{min-width:64px}
-.offr.yours{border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:0 0 12px}
 .src{font-size:12px;font-weight:700;color:var(--muted)}
 p.src{margin:4px 0 12px}
 .mini,.crispy-line{display:flex;gap:10px;align-items:center;font-size:14px}
@@ -250,6 +249,17 @@ p.src{margin:4px 0 12px}
 .photo-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;margin-bottom:10px}
 .photo-tried{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start}
 .photo-tried .upload{margin-top:0}
+.pack.editing{display:block}
+.pack.editing .lab{display:block;margin-bottom:4px}
+#rk-find .chips .lab{align-self:center;margin-right:2px}
+#rk-find .hint{margin:6px 0 0}
+.chip .in-type{font-weight:600;color:var(--muted)}
+.pick-photo{margin-bottom:10px}
+.photo-opts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0 4px}
+.photo-opt{width:64px;height:64px;padding:0;border-radius:12px;border:2px solid var(--line);background:var(--tile);overflow:hidden;cursor:pointer}
+.photo-opt img{width:100%;height:100%;object-fit:contain;display:block}
+.photo-opt.on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary)}
+.photo-opts .link{min-height:44px;font-size:14px}
 .tried .faces{margin:4px 0 6px}
 .short-meta{margin:-2px 0 14px}
 .short-meta .link{min-height:44px;color:var(--accent-text)}
