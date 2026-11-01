@@ -255,6 +255,8 @@ p.src{margin:4px 0 12px}
 #rk-find .hint{margin:6px 0 0}
 .chip .in-type{font-weight:600;color:var(--muted)}
 .pick-photo{margin-bottom:10px}
+.dup-other{margin-top:12px}
+.dup-other p{margin:0 0 8px}
 .photo-opts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0 4px}
 .photo-opt{width:64px;height:64px;padding:0;border-radius:12px;border:2px solid var(--line);background:var(--tile);overflow:hidden;cursor:pointer}
 .photo-opt img{width:100%;height:100%;object-fit:contain;display:block}

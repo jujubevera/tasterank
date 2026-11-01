@@ -516,13 +516,26 @@ function packName(){ // the name on the pack: as edited, or the brand (in its ow
   const r=afterBrand(base,b);return r===null?(base?`${b} ${base}`:b):[b,r].filter(Boolean).join(' ');
 }
 // "Maltesers Milk Chocolate" typed as the brand on Milk chocolate bars → brand Maltesers: a known brand at the start wins,
-// else the words before the first word of the ranking. brandWhole: they asked to keep it all.
+// else the words before the first word of the ranking. brandWhole: a brand picked as it stands (a chip, or "Make the brand Walkers Max").
 function splitBrand(text,known){
-  const t=tidyCase(text),k=(known||[]).filter(b=>bkey(t).startsWith(bkey(b)+' ')).sort((a,b)=>b.length-a.length)[0];
+  const t=tidyCase(text);if(add.brandWhole)return {brand:t,cut:false};
+  const k=(known||[]).filter(b=>bkey(t).startsWith(bkey(b)+' ')).sort((a,b)=>b.length-a.length)[0];
   if(k)return {brand:k,cut:true};
-  if(!add.rk||add.brandWhole)return {brand:t,cut:false};
+  if(!add.rk)return {brand:t,cut:false};
   const rw=new Set(wordsOf(add.rk.title)),w=t.split(' '),i=w.findIndex(x=>wordsOf(x).some(y=>rw.has(y)));
   return i>0?{brand:w.slice(0,i).join(' ').replace(/[\s&+,-]+$/,''),cut:true}:{brand:t,cut:false};
+}
+// What the pack says beyond the brand and the ranking: "Werther's Original Soft Caramels" in Toffee → "Soft caramels"
+function leftover(){
+  const pack=packName(),rest=afterBrand(pack,add.brand)??pack,rw=new Set(wordsOf(add.rk?add.rk.title:''));
+  const w=rest.split(' ').filter(x=>x&&!/[\d%]/.test(x)&&!wordsOf(x).every(y=>rw.has(y)||NO_VARIANT.test(y))); // "Original" is part of the name, not a kind
+  return capFirst(tidyCase(w.join(' '),true));
+}
+// A range between the brand and the ranking's words: "Walkers Max Salt & Vinegar" → Walkers Max. None for "Werther's Original Soft Caramels" in Toffee.
+function subBrand(){
+  const rest=afterBrand(packName(),add.brand);if(!rest||!add.rk)return null;
+  const rw=new Set(wordsOf(add.rk.title)),w=rest.split(' '),i=w.findIndex(x=>wordsOf(x).some(y=>rw.has(y)));
+  return i>0?`${add.brand} ${w.slice(0,i).join(' ')}`.replace(/[\s&+,-]+$/,''):null;
 }
 const thingsLeft=()=>add.mode==='short'?(add.brand.trim()?0:1):(add.brandState?0:1)+(add.rk?0:1);
 
@@ -730,7 +743,7 @@ function renderResults(){
       +off.map((p,i)=>{const pl=offPlace(p);return `<div class="offr">${offPic(p)}<div><div class="nm">${esc(tidyCase(p.product_name))}</div>
         <div class="meta">${[esc(offBrand(p)),pl?`${pl.flag} ${esc(pl.short_name)}`:'',esc(p.quantity||'')].filter(Boolean).join(' · ')}</div></div>
         <button class="btn" data-act="add-off-pick" data-i="${i}" aria-label="Add ${esc(p.product_name)}">Add</button></div>`}).join('')
-      +'<p class="src">From Open Food Facts, the free food database</p>';
+      +'<p class="src">From Open Food Facts</p>';
     if(add.offTracked!==q){add.offTracked=q;track('add-off-shown',true)}
   }
   el.innerHTML=h+'<button class="btn btn-block" data-act="add-new">None of these: add it myself →</button>';
@@ -817,10 +830,13 @@ function renderRest(){ // below the rows: "Already here", or the photo, "Tried i
   let h=add.mode==='short'&&add.brand.trim()?packHtml():'';
   if(d){
     if(add.dupFor!==d.id){add.dupFor=d.id;track('add-duplicate',true)}
+    const lo=leftover(),sub=subBrand();
     el.innerHTML=h+`<div class="alert"><b>Already here</b><span>${esc(d.brand)} already has ${esc(add.rk.title.toLowerCase())} ${esc(inPlace(cp))}.</span></div>
       <div class="match">${thumb(d,'sm')}<div><div class="nm">${esc(d.pack_name)}</div><div class="meta">${d.live?(d.total?plural(d.total,'rating'):'No ratings yet'):`${d.approvals} of ${n} approvals`}</div></div>
         <button class="btn btn-primary" data-act="add-open-match" data-id="${d.id}" data-cc="${cp.code}" data-product="${add.rk.pid}" data-variant="${add.rk.vid}">${d.live?'Rate it':'See it'}</button></div>
-      <p class="hint center">Is yours a different range, like Walkers Max? Change the brand.</p>`;
+      <div class="dup-other"><p><b>Not ${esc(add.rk.title.toLowerCase())}?</b> If ${lo?esc(packName()):'yours'} is a different kind of snack, it goes head to head in its own ranking.</p>
+        <button class="btn btn-block" data-act="add-rk-other">Put it in another ranking</button>
+        ${sub?`<p class="hint center">Or is it a separate range, sold as ${esc(sub)}? <button class="link" data-act="add-brand-sub" data-name="${esc(sub)}">Make the brand ${esc(sub)}</button></p>`:''}</div>`;
     return;
   }
   if(!left){
@@ -851,10 +867,10 @@ async function renderBrandHelp(){ // under a brand box: ✓ on TasteRank, or "�
   const sugg=(await knownBrands([v])).filter(s=>bkey(s).includes(k)||k.includes(bkey(s)));
   if(!$('#add-brand')||bkey($('#add-brand').value)!==k)return; // typing moved on
   const sp=splitBrand(v,sugg),bk=bkey(sp.brand),exact=sugg.find(s=>bkey(s)===bk),typed=add&&!add.brandWhole&&add.brandTyped;
-  const whole=sp.cut?tidyCase(v):typed&&bkey(typed).startsWith(k+' ')?tidyCase(typed):null; // still offered once the box shows just the brand
+  const cut=sp.cut||!!typed&&bkey(typed).startsWith(k+' '); // still said once the box shows just the brand
   $('#brand-help').innerHTML=(exact?`<span class="ok">✓ ${sp.cut?`${esc(exact)} `:''}on TasteRank</span>`:`<span class="newtag">＋ New brand: ${esc(sp.brand)}</span>`)
     +sugg.filter(s=>bkey(s)!==bk).slice(0,4).map(s=>`<button class="chip" data-act="add-brand-pick" data-name="${esc(s)}">${esc(s)}</button>`).join('')
-    +(whole?`<div class="hint">The rest goes on the pack name. <button class="link" data-act="add-brand-whole">Keep "${esc(whole)}" as the brand</button></div>`:'');
+    +(cut?'<div class="hint">The rest goes on the pack name.</div>':'');
 }
 async function shrinkPhoto(file){ // max 800 px on the long side, JPEG, never over 1 MB
   const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('Couldn\'t read that photo. Try another one.'));i.src=URL.createObjectURL(file)});
@@ -932,8 +948,13 @@ const ADD_ACT={
   'add-photo-pick':d=>{const u=offImg(add.offPhotos[+d.i].image_front_url);add.photoUrl=add.photoUrl===u?null:u;if(add.photoUrl)track('add-photo-picked',true);
     renderRest();$(`#add-rest [data-act="add-photo-pick"][data-i="${d.i}"]`)?.focus()},
   'add-photo-none':()=>{Object.assign(add,{offNone:true,photoUrl:null});renderRest();$('#add-photo')?.focus()},
-  'add-brand-whole':()=>{add.brandWhole=true;const v=add.brandTyped||'';$('#add-brand').value=v;
-    if(add.mode==='short')commitShortBrand(v);else answerBrand(v)},
+  'add-brand-sub':d=>{add.brandWhole=true;track('add-dup-sub-brand',true); // kept as typed, not cut back to the known brand
+    if(add.mode==='short'){clearPending();$('#add-brand').value=d.name;commitShortBrand(d.name)}else answerBrand(d.name)},
+  'add-rk-other':()=>{ // from "Already here": same brand and pack, a different ranking, starting from the words left over
+    const d=dupOf(),t=leftover();clearPending();track('add-dup-other-ranking',true);
+    if(add.mode==='short')Object.assign(add,{mode:'brand',pack:packName(),packEdited:true,packEditing:false}); // the ranking is no longer fixed
+    Object.assign(add,{brand:d?d.brand:add.brand,brandState:'known',rkCat:add.rk.cat,rkChoices:[],rk:null,rkData:null,rkFind:t,rkError:null,touched:true});
+    add.open.ranking=true;renderAdd();const f=$('#add-rkfind');if(f){f.focus();f.select()}},
   'add-search-all':()=>{clearPending();add=freshAdd({country:add.country});renderAdd();focusAdd()},
   'add-face':d=>{add.score=add.score===+d.v?null:+d.v;document.querySelectorAll('#add-body .face-btn').forEach(b=>{const on=+b.dataset.v===add.score;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)})},
   'add-send':sendAdd,
