@@ -1,5 +1,5 @@
-// Tests supabase/setup.sql and migrations 002–007 on an in-memory Postgres with a small Supabase stand-in.
-// Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–007.
+// Tests supabase/setup.sql and migrations 002–008 on an in-memory Postgres with a small Supabase stand-in.
+// Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
 const {PGlite}=require('@electric-sql/pglite');
@@ -461,4 +461,134 @@ for(const unread of [false,true]){
   if(unread)ok('007 also stops for an idea someone sent in',/catalogue_suggestions \(1\)/.test(err||''),err);
   else ok('fresh install: 007 runs without the yes (starter foods only)',!err&&Object.values(await old7(d)).every(v=>v===null),err);
 }
+
+// ---- Migration 008: browse by category and brand, adding without a flavour, Withdraw ----
+console.log('\n---- Migration 008 ----');
+const mig8=fs.readFileSync(R+'migrate-008-browse.sql','utf8');
+const fresh=async(extra)=>{ // a fresh database up to 007, plus anything extra, then 008: returns [db, error]
+  const d=new PGlite(); await d.exec(STUB);
+  for(const f of ['setup.sql','migrate-002-flavours.sql','migrate-003-no-names.sql','migrate-004-brands.sql','migrate-005-remove-rating.sql','migrate-006-new-kinds.sql','migrate-007-cleanup.sql']) await d.exec(fs.readFileSync(R+f,'utf8'));
+  if(extra) await d.exec(extra);
+  let err=null; try{await d.exec(mig8)}catch(e){err=e.message;await d.exec('rollback')}
+  return [d,err];
+};
+{ // Safety checks: a name clash, or two Werther's brands, stop it and change nothing
+  const [d,err]=await fresh(`insert into public.items(product_id,variant_id,brand_id,country_id,pack_name,status)
+    select 3,6,id,1,'Walkers Salt and Vinegar Crisps 32.5g','live' from public.brands where name='Walkers'`);
+  ok('008 stops when two snacks in one country have the same tidy name, naming them',/same name: .*Walkers Salt & Vinegar Crisps #\d+ \(live\) = Walkers Salt and Vinegar Crisps 32\.5g #\d+ \(live\) \(UK\)/.test(err||''),err);
+  ok('…and changes nothing',(await d.query(`select count(*)::int n from information_schema.columns where table_name='items' and column_name='name_key'`)).rows[0].n===0);
+  const [d2,err2]=await fresh(`insert into public.brands(name,status) values ('Werther''s Original','live')`);
+  ok('008 stops when a separate "Werther\'s Original" brand already exists',/two brands/.test(err2||''),err2);
+}
+const before8=(await q(`select count(*)::int n from public.items`))[0].n;
+try{await db.exec(mig8);await db.exec(mig8);ok('migration 008 runs (twice) without errors',true)}catch(e){ok('migration 008 runs (twice) without errors',false,e.message);return}
+ok('…and adds no snacks',(await q(`select count(*)::int n from public.items`))[0].n===before8);
+ok('…one Other flavour per category, made once',(await q(`select count(*)::int n from public.variants where is_other`))[0].n===(await q(`select count(*)::int n from public.products`))[0].n&&(await q(`select count(*)::int n from public.variants where is_other group by product_id order by 1 desc limit 1`))[0].n===1);
+
+const key=async t=>(await q('select public.snack_key($1) k',[t]))[0].k;
+ok('snack_key strips pack sizes: 150g, 1.5 kg, 6 x 25g, 2 pack',(await key('M&S Double Devon Toffees 150g'))===(await key('M&S Double Devon Toffees'))&&(await key('Walkers Crisps 6 x 25g'))==='walkers crisps'&&(await key('Haribo 1.5 kg'))==='haribo'&&(await key('Twix 2 Pack'))==='twix',await key('Walkers Crisps 6 x 25g'));
+ok('…keeps other numbers: 3 Musketeers, 70%, 4 Finger',(await key('3 Musketeers'))==='3 musketeers'&&(await key("Tony's Dark 70%"))==='tonys dark 70'&&(await key('KitKat 4 Finger'))==='kitkat 4 finger');
+ok('…ignores capitals, apostrophes (straight or curly), "&"/"and" and punctuation',(await key("WERTHER’S Original"))===(await key("werthers original"))&&(await key('Salt & Vinegar'))===(await key('salt and vinegar'))&&(await key('Boundless, Sea Salt / Cider'))==='boundless sea salt cider');
+ok('…keeps Japanese and Chinese names',(await key('Meiji Milk Chocolate (明治ミルクチョコレート)'))==='meiji milk chocolate 明治ミルクチョコレート');
+ok('every snack has its key',(await q(`select count(*)::int n from public.items where name_key is null or name_key<>public.snack_key(pack_name)`))[0].n===0);
+ok('tidy_case drops commas and stray punctuation, keeps & \' %',(await tidy('Boundless, Sea Salt and Cider Vinegar Chips'))==='Boundless Sea Salt and Cider Vinegar Chips'&&(await tidy("M&S ; Percy Pig's 70%"))==="M&S Percy Pig's 70%"&&(await tidy('Walkers - Max Paprika'))==='Walkers Max Paprika',await tidy("M&S ; Percy Pig's 70%"));
+
+// Werther's Original and the renamed flavour
+ok('brand renamed: Werther\'s → Werther\'s Original (same id, every country)',(await q(`select count(*)::int n from public.brands where name='Werther''s Original'`))[0].n===1&&(await q(`select count(*)::int n from public.brands where name='Werther''s'`))[0].n===0);
+ok('…UK pack is "Werther\'s Original Butter Candies"; Australia\'s is unchanged',(await q(`select pack_name from public.items i join public.places p on p.id=i.country_id where pack_name like 'Werther%' order by country_id`)).map(r=>r.pack_name).join('|')==="Werther's Original Butter Candies|Werther's Original|Werther's Original (ヴェルタースオリジナル)");
+ok('plain toffee shows as "Plain", title still "Toffee"',(await q('select name,title from public.variants where id=2')).map(r=>r.name+'|'+r.title)[0]==='Plain|Toffee');
+ok('Other flavours are titled per country: Other crisps (UK), Other chips (US)',(await one(null,'select public.category_page(3,1)'))&&(await q(`select public.ranking_title(id,1) uk, public.ranking_title(id,2) us from public.variants where product_id=3 and is_other`)).map(r=>r.uk+'|'+r.us)[0]==='Other crisps|Other chips');
+ok('the old add form\'s list leaves out Other, and has Open Food Facts tags',(await one(null,'select public.catalogue(1)')).every(c=>c.products.every(p=>p.variants.every(v=>!/^Other/.test(v.title))))&&(await one(null,'select public.catalogue(1)'))[2].products[0].off_tags.includes('en:crisps'));
+
+// Guessing the flavour
+const guess=async(p,name,hint=null)=>(await q('select v.name from public.variants v where v.id=public.guess_variant($1,$2,$3)',[p,name,hint]))[0].name;
+ok('guess: Sea Salt & Balsamic Vinegar → Salt & vinegar',(await guess(3,'KETTLE Sea Salt & Balsamic Vinegar'))==='Salt & vinegar');
+ok('guess: Lightly Sea Salted → Ready salted; Mature Cheddar & Chive → Cheese & onion',(await guess(3,'Tyrrells Lightly Sea Salted'))==='Ready salted'&&(await guess(3,'Tyrrells Mature Cheddar & Chive'))==='Cheese & onion');
+ok('guess: nothing in the name → the hint, else Other',(await guess(3,'Walkers Prawn Cocktail',5))==='Cheese & onion'&&(await guess(3,'Walkers Prawn Cocktail'))==='Other'&&(await guess(2,"Werther's Original Soft Caramels"))==='Other');
+ok('guess: the name wins over the hint',(await guess(3,'Seabrook Sea Salt & Vinegar',5))==='Salt & vinegar');
+
+// Reading the new pages (signed out)
+const hc=await one(null,'select public.home_categories(1)');
+ok('home_categories (UK): Crisps, Chocolate bars, Toffee, each with snacks and ratings',['Crisps','Chocolate bars','Toffee'].every(n=>hc.some(c=>c.name===n))&&hc.find(c=>c.name==='Crisps').type==='Crisps & Snacks',JSON.stringify(hc.map(c=>[c.name,c.snacks,c.ratings])));
+const crispsCard=hc.find(c=>c.name==='Crisps'), toffeeCard=hc.find(c=>c.name==='Toffee');
+ok('…Crisps has a top 3 led by the winner; Toffee has none, so it lists 2 to rate first',crispsCard.top.length>=1&&crispsCard.top[0].pack_name==='Walkers Salt & Vinegar Crisps'&&toffeeCard.top.length===0&&toffeeCard.to_rate.length===2,JSON.stringify([crispsCard.top,toffeeCard.to_rate]));
+ok('…US says Chips, under Chips & Snacks',(await one(null,'select public.home_categories(2)')).some(c=>c.name==='Chips'&&c.type==='Chips & Snacks'));
+const hb=await one(null,'select public.home_brands(1)');
+ok('home_brands (UK): only brands with 2+ snacks (Walkers, KETTLE…), with their categories',hb.length>=2&&hb.every(b=>b.snacks>=2)&&hb.some(b=>b.name==='Walkers'&&b.categories[0]==='Crisps')&&!hb.some(b=>b.name==='Cadbury'),JSON.stringify(hb.map(b=>[b.name,b.snacks])));
+ok('…Walkers\' best is its ranked salt & vinegar',hb.find(b=>b.name==='Walkers').best?.pack_name==='Walkers Salt & Vinegar Crisps');
+const cp=await one(null,'select public.category_page(3,1)');
+ok('category_page: every UK crisp in one list, with flavours and their counts',cp.name==='Crisps'&&cp.items.length===cp.flavours.reduce((s,f)=>s+f.count,0)&&cp.flavours.some(f=>f.name==='Salt & vinegar'&&f.count>=5)&&cp.country.code==='GB',JSON.stringify(cp.flavours));
+ok('…the ranked one first, each row with its flavour and how many snacks its brand has here',cp.items[0].ranked&&cp.items[0].variant_id===4&&cp.items.find(i=>i.brand==='Walkers').brand_snacks>=2);
+ok('…empty flavours and an empty Other aren\'t listed',cp.flavours.every(f=>f.count>0)&&!cp.flavours.some(f=>f.is_other));
+ok('…waiting snacks say their flavour',cp.pending.length>0&&cp.pending.every(p=>p.variant_id));
+ok('…never names raters or submitters',!/submitted_by|user_id|0000-4000/.test(JSON.stringify(cp)));
+ok('category_page for a category that doesn\'t exist is empty',(await one(null,'select public.category_page(999,1)'))===null);
+const walkersId=(await q(`select id from public.brands where name='Walkers'`))[0].id;
+const bp=await one(null,`select public.brand_page(${walkersId},1)`);
+ok('brand_page: Walkers\' UK crisps with their place in Crisps',bp.name==='Walkers'&&bp.items.length>=2&&bp.items[0].place===1&&bp.items[0].product==='Crisps'&&bp.products.length===1,JSON.stringify(bp.items.map(i=>[i.pack_name,i.place])));
+ok('…unranked ones have no place, and flavours are counted',bp.items.filter(i=>!i.ranked).every(i=>i.place===null)&&bp.flavours.reduce((s,f)=>s+f.count,0)===bp.items.length);
+ok('…never names raters',!/user_id|0000-4000/.test(JSON.stringify(bp)));
+ok('search says each snack\'s category ("Toffee")',(await one(null,`select public.search_items('werthers')`)).some(x=>x.product==='Toffee'&&x.pack_name==="Werther's Original Butter Candies"));
+
+// Next on the new pages
+let nx=await one(27,`select public.next_snack(${walkersSV},4,false)`);
+ok('next_snack: another salt & vinegar crisp when that flavour is picked',nx.kind==='item'&&(await q('select variant_id from public.items where id=$1',[nx.id]))[0].variant_id===4&&nx.short_label!=null,JSON.stringify(nx));
+nx=await one(27,`select public.next_snack(${walkersSV},null,true)`);
+ok('…from the brand page: another Walkers snack first',nx.kind==='item'&&(await q('select brand_id from public.items where id=$1',[nx.id]))[0].brand_id===walkersId,JSON.stringify(nx));
+for(const it of (await one(null,'select public.category_page(3,1)')).items.filter(i=>i.variant_id===4)) await as(27,`select public.rate_item(${it.id},4)`);
+nx=await one(27,`select public.next_snack(${walkersSV},4,false)`);
+ok('…salt & vinegar all rated → the next flavour\'s list',nx.kind==='list'&&nx.product_id===3&&nx.variant_id===5&&nx.title==='Cheese & onion crisps',JSON.stringify(nx));
+
+// Adding a snack
+const ss=async(who,args)=>as(who,`select public.submit_snack(${args}) r`);
+let s=await ss(28,`1,2,'Werther''s Original','werthers original soft caramels',null,null,'${OFF}','4014400927634',5`);
+ok('submit_snack: Werther\'s Original Soft Caramels goes into Toffee beside the Butter Candies',s.rows&&s.rows[0].r.id&&s.rows[0].r.product==='Toffee'&&s.rows[0].r.pack_name==="Werthers Original Soft Caramels",JSON.stringify(s));
+const softId=s.rows&&s.rows[0].r.id;
+ok('…its flavour is Other (for the owner to sort), with the sender\'s approval and face',(await q('select v.is_other,(select count(*)::int from public.approvals a where a.item_id=i.id) ap,(select score from public.planned_ratings p where p.item_id=i.id) sc from public.items i join public.variants v on v.id=i.variant_id where i.id=$1',[softId])).map(r=>[r.is_other,r.ap,r.sc].join('|'))[0]==='true|1|5');
+ok('…and shows under Toffee, waiting',(await one(28,'select public.category_page(2,1)')).pending.some(p=>p.id===softId&&p.mine));
+s=await ss(29,`1,2,'M&S','M&S DOUBLE DEVON TOFFEES 150G'`);
+ok('the same name (capitals and pack size aside) → duplicate, nothing added',s.rows&&s.rows[0].r.duplicate?.pack_name==='M&S Double Devon Toffees'&&s.rows[0].r.duplicate.product==='Toffee'&&!s.rows[0].r.id,JSON.stringify(s));
+s=await ss(29,`1,1,'Werther''s Original','Werther''s Original Caramel Chocolate',null,null,null,'4014400927634'`);
+ok('the same barcode → duplicate',s.rows&&s.rows[0].r.duplicate?.id===softId,JSON.stringify(s));
+s=await ss(29,`1,3,'Walkers','walkers'`);
+ok('just the brand, when the brand already has crisps here → asks for the full name',/Walkers already has crisps here/.test(s.err||''),s.err);
+s=await ss(29,`1,1,'Wispa','Wispa'`);
+ok('…but fine for a brand with nothing in that category yet (Wispa)',s.rows&&s.rows[0].r.id,s.err);
+s=await ss(29,`1,3,'Boundless','Boundless, Sea Salt and Cider Vinegar Chips',4`);
+ok('commas tidied, and the name\'s flavour is guessed (Salt & vinegar)',s.rows&&s.rows[0].r.pack_name==='Boundless Sea Salt and Cider Vinegar Chips'&&s.rows[0].r.variant_id===4,JSON.stringify(s));
+s=await ss(29,`1,3,'Walkers','Walkers Prawn Cocktail',5`);
+ok('no flavour in the name → the chip it was added from (hint)',s.rows&&s.rows[0].r.variant_id===5,JSON.stringify(s));
+ok('a category that doesn\'t exist is refused',/Pick a category/.test((await ss(29,`1,999,'X','X Bar'`)).err||''));
+ok('signed out can\'t add',denied(await ss(null,`1,3,'X','X Crisps'`)));
+ok('the old add form gets a plain message when the name is taken',/already on TasteRank/.test((await as(29,`select public.submit_item(3,6,1,'M&S','M&S Double Devon Toffees')`)).err||''),(await as(29,`select public.submit_item(3,6,1,'M&S','M&S Double Devon Toffees')`)).err);
+
+// A new category
+const nc=await as(30,`select public.submit_new_category(1,'CHOCOLATE SWEETS','Maltesers','Maltesers Milk Chocolate',null,'${OFF}',null,4) id`);
+ok('submit_new_category: Maltesers in a new "Chocolate sweets"',!nc.err,nc.err); const ncId=nc.rows&&nc.rows[0].id;
+ok('…shows in my submissions as a new category, with its flag',(await one(30,'select public.my_submissions()')).some(x=>x.id==='r'+ncId&&x.new_category&&x.product==='Chocolate sweets'&&x.country_flag==='🇬🇧'&&x.status==='review'));
+ok('…an existing category is refused (including a local name: Chips)',/Toffee is already a category/.test((await as(30,`select public.submit_new_category(1,'toffee','X','X Toffee')`)).err||'')&&/is already a category/.test((await as(30,`select public.submit_new_category(2,'Chips','X','X Chips')`)).err||''));
+ok('…and a snack that\'s already here is refused',/Already on TasteRank/.test((await as(30,`select public.submit_new_category(1,'Fudge','M&S','M&S Double Devon Toffees')`)).err||''));
+ok('review list: "new category", type "you pick"',(await q('select * from public.review_list()')).some(r=>r.id==ncId&&/^new category "Chocolate sweets"/.test(r.guess)&&/you pick/.test(r.type)));
+ok('accepting without a type says how to give one',/p_category => 2/.test(await db.query('select public.accept_request($1)',[ncId]).then(()=>'',e=>e.message)));
+const acc8=(await q('select public.accept_request($1, p_category => 1) m',[ncId]))[0].m;
+ok('accept with a type: new category under Chocolate, with its Other flavour; the snack goes to the vote',/^Added Maltesers Milk Chocolate to Other chocolate sweets/.test(acc8)&&(await q(`select p.category_id,v.title from public.products p join public.variants v on v.product_id=p.id and v.is_other where p.name='Chocolate sweets'`)).map(r=>r.category_id+'|'+r.title)[0]==='1|Other chocolate sweets',acc8);
+{const cs=(await q(`select id from public.products where name='Chocolate sweets'`))[0].id;
+ ok('…with the sender\'s approval',(await one(30,`select public.category_page(${cs},1)`)).pending.some(p=>p.mine&&p.approvals===1));}
+ok('visitors can\'t call the owner\'s lists or accept',denied(await as(30,'select * from public.to_sort()'))&&denied(await as(30,'select public.accept_request(1,p_category=>1)')));
+ok('to_sort lists snacks in Other, with the flavours to pick from',(await q('select * from public.to_sort()')).some(r=>r.id==softId&&/Plain/.test(r.flavours)));
+
+// Withdraw
+ok('withdraw your own waiting snack',(await one(28,`select public.withdraw_submission('${softId}')`))==='Withdrawn');
+ok('…its approvals and planned face go, it leaves your list and the page, and is listed as withdrawn there',(await q('select (select count(*)::int from public.approvals where item_id=$1) a,(select count(*)::int from public.planned_ratings where item_id=$1) p',[softId])).map(r=>r.a+r.p)[0]===0&&!(await one(28,'select public.my_submissions()')).some(x=>x.id===softId)&&(await one(null,'select public.category_page(2,1)')).withdrawn.some(w=>w.id===softId&&w.pack_name==="Werthers Original Soft Caramels")&&!(await one(null,'select public.category_page(2,1)')).pending.some(p=>p.id===softId));
+ok('…approving it now says it was withdrawn',/just withdrawn/.test((await as(29,`select public.approve_item(${softId})`)).err||''));
+ok('…and the name is free again',!!(await ss(28,`1,2,'Werther''s Original','Werther''s Original Soft Caramels'`)).rows?.[0].r.id);
+ok('can\'t withdraw someone else\'s, or a live one',/isn't one of yours/.test((await as(29,`select public.withdraw_submission('${softId}')`)).err||'')&&/Only snacks still waiting/.test((await as(21,`select public.withdraw_submission('${tony.id}')`)).err||''));
+const nc2=await as(30,`select public.submit_new_category(1,'Popcorn','Propercorn','Propercorn Sweet & Salty') id`);
+ok('withdraw a new-category request (r + id)',(await one(30,`select public.withdraw_submission('r${nc2.rows[0].id}')`))==='Withdrawn'&&!(await one(30,'select public.my_submissions()')).some(x=>x.id==='r'+nc2.rows[0].id)&&!(await q('select * from public.review_list()')).some(r=>r.id==nc2.rows[0].id));
+ok('signed out can\'t withdraw',denied(await as(null,`select public.withdraw_submission('1')`)));
+ok('nobody can call the internal steps (duplicate check, flavour guess, Other)',denied(await as(30,`select public.find_same_snack(1,'x',null)`))&&denied(await as(null,`select public.guess_variant(3,'x')`))&&denied(await as(30,'select public.ensure_other_variant(3)')));
+
+// The old site keeps working on 008
+ok('old site still works: home_rankings, ranking, brand_view, next_to_rate',!(await as(null,'select public.home_rankings(1)')).err&&(await one(null,'select public.ranking(3,4,1)')).items.length>0&&!(await as(null,`select public.brand_view(${walkersId},3,1)`)).err&&!(await as(1,`select public.next_to_rate(${walkersSV},false)`)).err);
+ok('…and no empty "Other" ranking appears on the old home',!(await one(null,'select public.home_rankings(1)')).some(r=>/^Other/.test(r.title)));
 }

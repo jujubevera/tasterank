@@ -59,5 +59,20 @@ else
   echo "SKIP  new-ranking checks (migration 006 not run yet)"
 fi
 
+# Browse by category and brand, adding without a flavour, Withdraw (migration 008). Skipped until it has been run.
+if call home_categories '{"p_country":1}' | grep -q '"type_id"'; then
+  check "the UK categories list works"          "$(call home_categories '{"p_country":1}')" '^\[\{'
+  check "the UK brands list works"              "$(call home_brands '{"p_country":1}')" '^\['
+  check "a category page never shows who rated or submitted" "$(call category_page '{"p_product":3,"p_country":1}' | grep -c 'submitted_by\|user_id')" '^0$'
+  check "a brand page never shows who rated"    "$(call brand_page '{"p_brand":1,"p_country":1}' | grep -c 'submitted_by\|user_id')" '^0$'
+  check "signed out can't add a snack"          "$(call submit_snack '{"p_country":1,"p_product":3,"p_brand_name":"X","p_pack_name":"X"}')" 'permission denied'
+  check "signed out can't suggest a category"   "$(call submit_new_category '{"p_country":1,"p_new_category":"X","p_brand_name":"X","p_pack_name":"X"}')" 'permission denied'
+  check "signed out can't withdraw"             "$(call withdraw_submission '{"p_id":"1"}')" 'permission denied'
+  check "only the owner can see what to sort"   "$(call to_sort '{}')" 'permission denied'
+  check "nobody can run the duplicate check"    "$(call find_same_snack '{"p_country":1,"p_pack":"x","p_barcode":null}')" 'permission denied'
+else
+  echo "SKIP  category and brand checks (migration 008 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }
