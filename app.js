@@ -77,7 +77,7 @@ const liveApi={
 /* ---------- Demo mode: the UK seed list plus Japanese crisps, with sample ratings ---------- */
 const OFF='https://images.openfoodfacts.org/images/products/';
 const DEMO={
-  settings:{approval_votes:5,rank_after_ratings:10,close_after_days:30,max_open_submissions:10,brand_card_variants:5,group_min_ratings:10},
+  settings:{approval_votes:5,rank_after_ratings:10,close_after_days:30,max_open_submissions:10,max_daily_submissions:5,brand_card_variants:5,group_min_ratings:10},
   places:[
     {id:1,name:'United Kingdom',short_name:'UK',adjective:'British',code:'GB',flag:'🇬🇧',regions:['Scotland','Wales','Northern Ireland','North East','North West','Yorkshire & the Humber','East Midlands','West Midlands','East of England','London','South East','South West'].map((name,k)=>({id:101+k,name}))},
     {id:2,name:'United States',short_name:'US',adjective:'American',code:'US',flag:'🇺🇸',regions:[]},
@@ -98,7 +98,8 @@ const DEMO={
     {id:7,product_id:1,name:'Other',title:'Other chocolate bars',is_other:true,keywords:[]},
     {id:8,product_id:2,name:'Other',title:'Other toffee',is_other:true,keywords:[]},
     {id:9,product_id:3,name:'Other',title:'Other crisps',is_other:true,keywords:[]}],
-  local:{'product:3:4':'Potato chips','variant:6:4':'Lightly salted (うすしお)','title:6:4':'Lightly salted potato chips (うすしお)','title:9:4':'Other potato chips'},
+  local:{'type:2:2':'Candy','type:3:2':'Chips & Snacks','type:2:3':'Lollies','type:3:3':'Chips & Snacks','type:2:4':'Candy','type:3:4':'Chips & Snacks',
+    'type:2:5':'Candy','type:3:5':'Chips & Snacks','product:3:4':'Potato chips','variant:6:4':'Lightly salted (うすしお)','title:6:4':'Lightly salted potato chips (うすしお)','title:9:4':'Other potato chips'},
   /* r = sample ratings for faces [1,2,3,4,5]; demo numbers are allowed only here */
   items:[
     {id:1,c:1,p:1,v:1,b:'Cadbury',pack:'Cadbury Dairy Milk Chocolate Bar',img:OFF+'762/221/049/7383/front.7.400.jpg',r:[0,1,2,4,7]},
@@ -150,6 +151,11 @@ const D={
   variant:(id,c)=>D.local('variant',id,c)||DEMO.variants.find(v=>v.id===id).name,
   title:(id,c)=>D.local('title',id,c)||DEMO.variants.find(v=>v.id===id).title,
   type:id=>DEMO.categories.find(c=>c.id===DEMO.products.find(p=>p.id===id).category_id),
+  dayLimit:st=>{ // migration 012: 5 additions a day (here everyone is the demo owner, so the limit applies to all)
+    const day=Date.now()-864e5,n=st.added.filter(x=>x.id>day).length+(st.requests||[]).filter(r=>Date.parse(r.sent)>day).length;
+    if(n>=DEMO.settings.max_daily_submissions)throw new Error(`You've added ${n} snacks today, the most for one day. Thanks! You can add more tomorrow.`);
+  },
+  typeName:(id,c)=>D.local('type',id,c)||DEMO.categories.find(x=>x.id===id).name, // a category's local name: Candy in the US
   emoji:id=>DEMO.products.find(p=>p.id===id).emoji,
   country:id=>{const pl=DEMO.places.find(x=>x.id===id);return pl&&{id:pl.id,name:pl.name,short_name:pl.short_name,flag:pl.flag,code:pl.code}},
   vsort:(a,b)=>!!a.is_other-!!b.is_other||a.id-b.id,
@@ -183,7 +189,7 @@ const DEMO_RPC={
     const t=D.totals(p_country,st);
     return DEMO.products.filter(p=>t.some(x=>x.product_id===p.id)).map(p=>{
       const mine=t.filter(x=>x.product_id===p.id).sort(D.order),ranked=mine.filter(x=>x.ranked);
-      return {id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,type:D.type(p.id).name,type_id:p.category_id,snacks:mine.length,ratings:D.sum(mine),
+      return {id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,type:D.typeName(p.category_id,p_country),type_id:p.category_id,snacks:mine.length,ratings:D.sum(mine),
         lead:Math.max(0,...mine.map(x=>x.total)),thumbs:D.pics(mine),top:ranked.slice(0,3).map(x=>({item_id:x.id,pack_name:x.pack_name,brand:x.brand,avg:x.avg,total:x.total})),
         to_rate:ranked.length?[]:mine.slice(0,2).map(x=>({item_id:x.id,pack_name:x.pack_name,total:x.total}))};
     }).sort((a,b)=>b.ratings-a.ratings||a.type_id-b.type_id||a.id-b.id);
@@ -201,7 +207,7 @@ const DEMO_RPC={
   category_page({p_product,p_country},st){
     const p=DEMO.products.find(x=>x.id===p_product),country=D.country(p_country);if(!p||!country)return null;
     const t=D.totals(p_country,st),live=t.filter(x=>x.product_id===p_product).map(x=>({...x,brand_snacks:t.filter(y=>y.brand_id===x.brand_id).length})).sort(D.order);
-    return {id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,type:D.type(p.id).name,type_id:p.category_id,country,
+    return {id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,type:D.typeName(p.category_id,p_country),type_id:p.category_id,country,
       flavours:DEMO.variants.filter(v=>v.product_id===p_product&&live.some(x=>x.variant_id===v.id)).sort(D.vsort)
         .map(v=>({id:v.id,name:D.variant(v.id,p_country),title:D.title(v.id,p_country),is_other:!!v.is_other,count:live.filter(x=>x.variant_id===v.id).length})),
       items:live,
@@ -252,11 +258,12 @@ const DEMO_RPC={
         image_url:i.img||null,image_path:null,emoji:D.emoji(i.p)};
     }).sort((a,b)=>(b.status==='live')-(a.status==='live')||a.pack_name.localeCompare(b.pack_name));
   },
-  catalogue({p_country}){return DEMO.categories.map(c=>({id:c.id,name:c.name,products:DEMO.products.filter(p=>p.category_id===c.id).map(p=>({id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,off_tags:p.off_tags,
+  catalogue({p_country}){return DEMO.categories.map(c=>({id:c.id,name:D.typeName(c.id,p_country),products:DEMO.products.filter(p=>p.category_id===c.id).map(p=>({id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,off_tags:p.off_tags,
     variants:DEMO.variants.filter(v=>v.product_id===p.id&&!v.is_other).map(v=>({id:v.id,name:D.variant(v.id,p_country),title:D.title(v.id,p_country),off_tags:v.off_tags||null}))}))}))},
   brand_suggest({q},st){const k=norm(q);return [...new Set(D.all().filter(i=>D.live(i,st)).map(i=>i.b))].filter(b=>k&&norm(b).includes(k)).sort((a,b)=>norm(b).startsWith(k)-norm(a).startsWith(k)||a.localeCompare(b)).slice(0,8).map(b=>({id:D.brandId(b),name:b}))},
   // Adding: a snack in a category (the flavour is guessed), one snack per name per country; or a snack in a new category
   submit_snack({p_country,p_product,p_brand_name,p_pack_name,p_variant_hint,p_image_url,p_barcode,p_score,p_demo_image},st){
+    D.dayLimit(st);
     const pack=tidyCase(p_pack_name),pname=D.product(p_product,p_country);
     if(!pack)throw new Error('Type the name on the pack');
     const dup=D.same(p_country,pack,p_barcode,st);
@@ -270,6 +277,7 @@ const DEMO_RPC={
     demoSave(st);return {id,pack_name:pack,product_id:p_product,product:pname,variant_id:v,status:'pending'};
   },
   submit_new_category({p_country,p_new_category,p_brand_name,p_pack_name,p_category},st){
+    D.dayLimit(st);
     const nc=tidyCase(p_new_category,true),pack=tidyCase(p_pack_name);
     const found=DEMO.products.find(p=>norm(p.name)===norm(nc)||Object.entries(DEMO.local).some(([k,n])=>k.startsWith(`product:${p.id}:`)&&norm(n)===norm(nc)));
     if(found)throw new Error(`${D.product(found.id,p_country)} is already a category. Pick it from the list.`);
@@ -430,7 +438,7 @@ let openId=null, lastFocus=null;
 function openM(id){
   if(openId&&openId!==id)$('#'+openId).hidden=true;
   else if(!openId)lastFocus=document.activeElement;
-  openId=id;
+  openId=id;$('#tip7').hidden=true;
   const m=$('#'+id);m.hidden=false;
   const first=m.querySelector('[data-autofocus]')||m.querySelector('.face-btn,input:not([type=checkbox]),textarea,select,.btn-primary,button:not(.x)');
   (first||m.querySelector('button')).focus();
@@ -438,6 +446,7 @@ function openM(id){
 function closeM(){
   if(!openId)return;
   $('#'+openId).hidden=true;openId=null;sheet=null;
+  if(tipNow&&!tipNow.n)tipNow=null;setTimeout(updateTips,0); // after a page change this runs, so no tip is picked for the page being left
   if(lastFocus&&document.contains(lastFocus))lastFocus.focus();
   lastFocus=null;
 }
@@ -476,7 +485,7 @@ const hashFor=r=>{const cc=String(r.cc||'').toLowerCase();
     :r.v==='brand'?`#/b/${cc}/${r.brand}${r.product?`/${r.product}${r.variant?'/'+r.variant:''}`:''}`
     :r.v==='profile'?'#/me':r.v==='owner'?'#/owner':r.by==='brands'?'#/brands':''};
 async function show(r){
-  view=r.v;
+  view=r.v;tipReady=false;
   VIEWS.forEach(x=>$('#v-'+x).hidden=x!==r.v);
   setFab();
   if(r.v==='home')await renderHome(r);
@@ -485,6 +494,7 @@ async function show(r){
   if(r.v==='profile')await renderProfile();
   if(r.v==='owner')await renderOwner();
   setFab(); // its label names the list now showing
+  tipReady=true;updateTips();
   currentUrl=location.href;
   track(pagePath());
 }
@@ -517,14 +527,14 @@ const ACT={
   flavour:d=>pickFlavour(d.id?+d.id:null),
   'bp-cat':d=>pickBrandChip(d.id?+d.id:null,null,'pick-category'),
   'bp-flavour':d=>pickBrandChip(page.route.product,d.id?+d.id:null,'pick-flavour'),
-  rate:d=>needUser({name:'rate',item:+d.id,from:view}),
+  rate:d=>{tipAct(2);needUser({name:'rate',item:+d.id,from:view})},
   face:d=>saveRating(+d.v),
   'edit-rating':()=>{sheet.editing=true;renderSheet()},
   unrate:removeRating,
   next:nextStep,
   'sheet-second':sheetSecond,
-  approve:d=>needUser({name:'approve',item:+d.id,brand:d.brand,mine:d.mine==='1'}),
-  'share-list':()=>{if(!page)return;track('share-list',true);share(`${page.title}: which one wins? Vote on TasteRank`)},
+  approve:d=>{tipAct(5);needUser({name:'approve',item:+d.id,brand:d.brand,mine:d.mine==='1'})},
+  'share-list':()=>{if(!page)return;tipAct(6);track('share-list',true);share(`${page.title}: which one wins? Vote on TasteRank`)},
   share:()=>share(),
   'share-snack':d=>{const p=page.pending.find(x=>x.id===+d.id);if(p)share(`Know ${p.pack_name}? Help it onto TasteRank: approve it in ${page.name}.`,snackLink({cc:page.cc,product:page.id,id:p.id}))},
   add:openAdd,
@@ -538,6 +548,9 @@ const ACT={
   about:()=>{showSettings(false);toast('About Crispy is coming soon')},
   settings:()=>showSettings($('#settings-pop').hidden),
   'set-theme':d=>setTheme(d.theme),
+  'set-tips':d=>setTips(!!d.on),
+  how:()=>{showSettings(false);openHow()},
+  'tip-ok':d=>tipClose(+d.n,'dismissed'),
   owner:()=>{showSettings(false);go({v:'owner'})}
 };
 document.addEventListener('click',e=>{
@@ -561,7 +574,20 @@ const AFTER={
 function needUser(a){
   if(me)return AFTER[a.name](a);
   store.set('tasterank-after',{...a,hash:location.hash},true); // survives the trip to Google and back
-  openM('m-signin');
+  signInFor(a);openM('m-signin');
+}
+// Crispy's tip 3: rating or approving signed out, the pop-up names the snack, shows the faces that come next (greyed) and says why
+function signInFor(a){
+  const it=a.name==='rate'?itemFromPage(a.item):null,p=a.name==='approve'?(page?.pending||[]).find(x=>x.id===a.item):null;
+  const name=it?it.pack_name:p?p.pack_name:null;
+  $('#signin-title').textContent=name?`${it?'Rate':'Approve'} ${name}`:'Join TasteRank';
+  const m=$('#signin-meta');m.hidden=!it;if(it)m.textContent=`${it.country.flag} ${it.country.short_name} · ${it.where}`;
+  const f=$('#signin-faces');f.hidden=!it;if(it)f.innerHTML=FACES.map(x=>`<span class="face-btn"><span>${x.e}</span>${x.l}</span>`).join('');
+  $('#signin-why').textContent=name?`Sign in first, so everyone ${it?'rates':'approves'} each snack once. Other people only see totals, never your name.`
+    :'Sign in to rate snacks and approve new ones.';
+  const b=$('#signin-back');b.hidden=!name;
+  if(name)b.innerHTML=`You'll come straight back here to ${it?'pick a face':'approve it'}. <button class="link" data-act="privacy">Privacy</button>`;
+  $('#signin-fine').hidden=!!name&&LIVE; // its privacy line would repeat the one above; the demo note stays
 }
 async function signIn(){
   track('sign-in',true);
@@ -595,7 +621,7 @@ function setFab(){
   f.hidden=view==='profile'||view==='owner';
   f.setAttribute('aria-label',c?`Add a snack to ${c.name}`:b?`Add a ${b.name} snack`:'Add a snack');
 }
-function openAdd(){needUser({name:'add'})}  // a declaration, so the click map above can use it
+function openAdd(){tipAct(7);needUser({name:'add'})}  // a declaration, so the click map above can use it
 
 /* ---------- Adding, in two steps: 1 "What snack is it?" searches TasteRank and Open Food Facts as you type;
    2 "Check it" shows what we filled in, every part of it editable (design/mockups/add.html, A1–A12).
@@ -1311,7 +1337,6 @@ function typesInOrder(c){
 async function renderHome(r){
   const c=homeCountry();
   $('#country').innerHTML=places.map(p=>`<option value="${esc(p.code)}"${p===c?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('');
-  $('#bubble').hidden=!!(profile&&profile.rated>=BUBBLE_UNTIL);
   homeBy=r&&r.by==='brands'?'brands':null;
   if(!homeData||homeData.country!==c.id){
     $('#cards').innerHTML='<div class="card empty">Loading…</div>';
@@ -1369,7 +1394,7 @@ function chipsHtml(label,act,list,on){
 function winnerHtml(items,label,line,none){
   const w=items.find(i=>i.ranked);
   return w?`<div class="winner"><span class="lbl">${esc(label)}</span><span class="wrow"><span class="nm">${esc(w.pack_name)}</span><span class="face" aria-hidden="true">${faceFor(w.avg).e}</span><span class="num">${score1(w.avg)}</span></span><span class="cnt">${line(w)}</span></div>`
-    :`<div class="early"><b>${none}</b>Each snack needs ${settings.rank_after_ratings} ratings. Rate the ones you know!</div>`;
+    :`<div class="early"><b>${none}</b>Each snack needs ${settings.rank_after_ratings} ratings. Rate the ones you know! <button class="link" data-act="how">How it works</button></div>`;
 }
 /* A row leads with the snack's name (up to 2 lines, the whole name in its label). The name is the button that opens the rating sheet,
    stretched over the row; the link underneath (brand, or "#1 in Crisps") sits above it, so it's a separate tap and Tab stop. */
@@ -1423,12 +1448,15 @@ function drawCategory(){
     ${d.gone?`<div class="card gone-card" role="status"><span class="gone-e" aria-hidden="true">😶</span><b>${esc(d.gone.pack_name)} was withdrawn</b><span class="meta">The person who added it took it back before it went live, so there's nothing to approve.</span></div>`:''}
     ${chips?chipsHtml('Flavours','flavour',[{id:null,name:'All',count:d.items.length},...d.flavours],f?f.id:null):''}
     ${winnerHtml(items,'The winner so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'No winner yet')}
+    <div class="tip-slot" data-n="2"></div>
     ${n?`<div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
         ?`<a class="bl" href="${esc(hashFor({v:'brand',cc:d.cc,brand:it.brand_id}))}" data-act="brand" data-cc="${d.cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand))
         +(chips&&!f?` · ${esc(flavour(it.variant_id))}`:''))).join('')}</div>`:''}
     ${n<3?`<div class="alert"><b>${n?`Only ${n===1?'one':'two'} so far`:'None live yet'}</b><span>Know ${n?`another ${esc(d.title.toLowerCase())}`:'one'} sold in ${esc(d.country.name)}? Tap + to add it. It goes live once ${settings.approval_votes} people approve.</span></div>`:''}
-    ${pend.length?`<h2>Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
+    ${pend.length?`<div class="tip-slot" data-n="5"></div><h2>Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
+    <div class="tip-slot" data-n="6"></div>
     <button class="btn share-btn" data-act="share-list">Share this list</button>`;
+  updateTips();
 }
 function pickFlavour(id){
   if(!page||page.kind!=='category'||page.route.variant===id)return;
@@ -1482,8 +1510,10 @@ function drawBrand(){
     ${multi?chipsHtml('Subcategories','bp-cat',[{id:null,name:'All',count:d.items.length},...d.products],prod):''}
     ${fls.length>=2?chipsHtml('Flavours','bp-flavour',[{id:null,name:multi?`All ${(d.products.find(p=>p.id===prod)||{name:''}).name.toLowerCase()}`:'All',count:fls.reduce((s,f)=>s+f.count,0)},...fls],v):''}
     ${winnerHtml(items,`${possessive(d.name)} best so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet')}
+    <div class="tip-slot" data-n="2"></div>
     <div class="list">${items.map((it,k)=>listRow(it,k,it.place?listLink(d.cc,it.product_id,`#${it.place} in ${esc(it.product)}`)
       :`${listLink(d.cc,it.product_id,esc(it.product))} · not ranked yet`)).join('')}</div>`;
+  updateTips();
 }
 function pickBrandChip(product,variant,event){
   if(!page||page.kind!=='brandpage')return;
@@ -1535,7 +1565,9 @@ function renderSheet(){
     main=`${n.kind==='list'?`<div class="done-line">That's every ${esc(it.where.toLowerCase())} here rated. 🎉</div>`:''}<button class="btn btn-primary btn-block" data-act="next">${esc(text.length>32?'Rate the next one →':text)}</button>`;
   }
   body.innerHTML=`<div class="saved"><span>✓ Saved · You rated <b>${f.e} ${f.l}</b></span><button class="link" data-act="edit-rating">Edit</button></div>
+    ${sheet.tip4?`<div class="tip plain${sheet.tip4==='new'?' tip-in':''}" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-joy"/></svg><p>Your first rating! The more snacks you rate here, the fairer the fight.</p></div>`:''}
     ${main}${n&&n.kind==='done'?'':`<button class="btn btn-block" data-act="sheet-second">${esc(second)}</button>`}`;
+  if(sheet.tip4)sheet.tip4=true;
   // keep keyboard focus inside the sheet when its buttons are replaced
   if(!$('#m-rate').contains(document.activeElement)||document.activeElement===document.body)($('#rate-body .btn-primary:not([disabled])')||$('#rate-body [data-act="edit-rating"]')).focus();
 }
@@ -1548,9 +1580,11 @@ async function saveRating(v){
   if(!sheet||!me)return;
   const it=sheet.it,first=!it.my_score;
   // a failed save stays visible in the sheet (with the reason), instead of a message that disappears
-  try{const n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n}
+  let firstEver=false;
+  try{const n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n;firstEver=first&&n===1}
   catch(e){console.error(e);sheet.error=e.message||String(e);renderSheet();return}
   track('rate-item',true);
+  if(firstEver&&!tips.off&&!tipSeen(4)){sheet.tip4='new';tipMark(4);track('tip-shown-4',true)} // Crispy's tip 4, once
   it.my_score=v;sheet.editing=false;sheet.error=null;sheet.next=null;renderSheet();
   homeData=null;
   await refresh();                      // the page behind updates its counts, "You" tag and winner
@@ -1589,6 +1623,7 @@ function sheetSecond(){ // "More from <brand>", or back to the list
 
 /* ---------- Feedback ---------- */
 function emailOwner(subject,message){ // tells the TasteRank inbox there's something to check; the database keeps the record
+  message+=`\n\nSent by: Taster ID ${profile?.taster_id||'unknown'} (the first 6 characters of their account ID; never their name or email)`;
   if(LIVE)fetch('https://api.web3forms.com/submit',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
     body:JSON.stringify({access_key:CONFIG.WEB3FORMS_KEY,subject,from_name:'TasteRank',message})}).catch(err=>console.error(err));
 }
@@ -1952,6 +1987,77 @@ async function deleteAccount(){
 }
 async function resetDemo(){if(confirm('Reset all demo data in this browser?')){await api.deleteAccount();signedOut('Demo data reset')}}
 
+/* ---------- Crispy's tips: one short tip at a time, where and when it helps, each once per device (design/DESIGN.md, "First-time guide").
+   1 the home bubble, until 3 ratings · 2 the first list or brand page · 3 the sign-in pop-up's words (signInFor) · 4 the first rating, in the sheet
+   · 5 above Waiting for approval · 6 above Share this list, after rating 2 in it · 7 beside the +, after 3 ratings or a second visit.
+   The lowest number that fits wins; none is picked while a pop-up is open or before the page has loaded. ---------- */
+const tips=(()=>{const t=store.get('tasterank-tips')||{};
+  return {seen:Array.isArray(t.seen)?t.seen:[],visits:+t.visits||0,last:+t.last||0,off:!!t.off,checked:!!t.checked}})();
+const saveTips=()=>store.set('tasterank-tips',tips);
+if(Date.now()-tips.last>30*60*1000)tips.visits++; // a visit: a page load more than 30 minutes after the last one
+tips.last=Date.now();saveTips();
+let tipNow=null,tipReady=false; // tipNow {n, key, fresh}; n 0 = one was just closed here, so no new one until a pop-up closes or the page changes
+const tipSeen=n=>tips.seen.includes(n);
+function tipMark(n){if(!tipSeen(n)){tips.seen.push(n);saveTips()}}
+const tipKey=()=>view==='home'?'home':page?.key||view;
+const myRated=()=>profile?profile.rated:0;
+const TIPS={
+  2:['crisp-happy',()=>`Know any of these? Tap a snack and pick a face. Each snack needs ${settings.rank_after_ratings} ratings to be ranked.`,true],
+  5:['crisp-happy',()=>`New snacks need ${settings.approval_votes} approvals to join the list. Know one of these? Approve it.`],
+  6:['crisp-joy',()=>"Think the crowd's wrong? Share this list and settle it."]};
+function tipFits(n){
+  if(tipSeen(n))return false;
+  const c=onCategory();
+  if(n===2)return !!(c||onBrandPage());
+  if(n===5)return !!(c&&me&&myRated()>=1&&$('#v-category .tip-slot[data-n="5"]')&&c.pending.some(p=>!p.mine&&!p.approved));
+  if(n===6)return !!(c&&c.items.filter(i=>i.my_score).length>=2);
+  if(n===7)return ['home','category','brand'].includes(view)&&(myRated()>=3||tips.visits>=2);
+}
+function updateTips(){
+  if(profile&&!tips.checked){tips.checked=true;if(profile.rated>=3)[1,2,3,4].forEach(tipMark);saveTips()} // regulars skip the first four
+  const key=tipKey(),bubble=view==='home'&&!tips.off&&!tipSeen(1)&&myRated()<BUBBLE_UNTIL;
+  $('#bubble').hidden=!bubble;
+  if(tips.off||(tipNow&&tipNow.key!==key))tipNow=null;
+  if(!tips.off&&!tipNow&&!bubble&&tipReady&&!openId){
+    const n=[2,5,6,7].find(tipFits);
+    if(n){tipNow={n,key,fresh:true};tipMark(n);track('tip-shown-'+n,true)}
+  }
+  drawTip();
+}
+function drawTip(){
+  const n=tipNow?tipNow.n:0,fresh=!!tipNow?.fresh,fab=$('#add-fab'),t7=$('#tip7');
+  document.querySelectorAll('.tip-slot').forEach(el=>{const k=+el.dataset.n;el.innerHTML=k===n?tipHtml(k,fresh):''});
+  document.querySelectorAll('.share-btn').forEach(b=>b.classList.toggle('btn-primary',n===6));
+  const show7=n===7&&!openId&&!fab.hidden;
+  t7.hidden=!show7;t7.classList.toggle('tip-in',show7&&fresh);
+  if(show7)fab.setAttribute('aria-describedby','tip7');else fab.removeAttribute('aria-describedby');
+  if(tipNow)tipNow.fresh=false;
+}
+function tipHtml(n,fresh){
+  const [face,text,how]=TIPS[n];
+  return `<div class="tip${fresh?' tip-in':''}" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#${face}"/></svg><div><p>${esc(text())}</p>
+    <div class="acts"><button class="link" data-act="tip-ok" data-n="${n}">Got it</button>${how?'<button class="link" data-act="how">How it works</button>':''}</div></div></div>`;
+}
+function tipClose(n,how){ // Got it, or doing what the tip suggests
+  tipMark(n);
+  if(tipNow&&tipNow.n===n){track(`tip-${how}-${n}`,true);tipNow={n:0,key:tipKey()};drawTip()}
+}
+const tipAct=n=>tipClose(n,'acted'); // doing it also counts when the tip hasn't shown yet: they found it themselves
+function setTips(on){
+  if(on===!tips.off)return;
+  tips.off=!on;if(on)tips.seen=[]; // back on: they start over
+  tipNow=null;saveTips();track(on?'tips-on':'tips-off',true);renderTipsSwitch();updateTips();
+}
+function renderTipsSwitch(){document.querySelectorAll('[data-act="set-tips"]').forEach(b=>b.setAttribute('aria-pressed',!!b.dataset.on===!tips.off))}
+function openHow(){
+  const lines=[['Like for like','Every snack in a list, like Crisps or Toffee, is ranked together, country by country. Tap a flavour to compare like with like: Walkers vs Pringles in salt & vinegar crisps.'],
+    ['Tap a face','Rate the ones you know. It saves straight away, and you can change it any time.'],
+    ['Fair winners',`One rating per person. A snack is ranked after ${settings.rank_after_ratings} ratings, so nobody wins on a handful of votes.`],
+    ['Grow it together',`New snacks go live with ${settings.approval_votes} approvals. Missing one? Tap + and type what's on the pack.`]];
+  $('#how-list').innerHTML=lines.map(([b,t],k)=>`<li><span class="n" aria-hidden="true">${k+1}</span><div><b>${esc(b)}</b><span>${esc(t)}</span></div></li>`).join('');
+  track('how-it-works',true);openM('m-how');
+}
+
 /* ---------- Light / dark switch (light is the default; the choice is saved on this device) ---------- */
 function renderTheme(){
   const dark=document.documentElement.dataset.theme==='dark';
@@ -1974,7 +2080,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#settings-pop')
 
 /* ---------- Start ---------- */
 async function start(){
-  renderTheme();
+  renderTheme();renderTipsSwitch();
   $('#demo-bar').hidden=LIVE;
   if(!LIVE)$('#signin-fine').textContent='Demo mode: no real account is created.';
   if(CONFIG.SUPABASE_URL&&!window.supabase)toast("Couldn't reach the TasteRank server. Showing demo data.");

@@ -88,5 +88,13 @@ else
   echo "SKIP  owner page checks (migration 011 not run yet)"
 fi
 
+# At most 5 additions a day (migration 012). Skipped until it has been run.
+if call app_settings '{}' | grep -q 'max_daily_submissions'; then
+  check "the daily limit is 5"                  "$(call app_settings '{}')" '"max_daily_submissions": ?5'
+  check "nobody can run the limit check"        "$(call check_submission_limit '{"u":"00000000-0000-0000-0000-000000000000"}')" 'permission denied'
+else
+  echo "SKIP  daily limit checks (migration 012 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }

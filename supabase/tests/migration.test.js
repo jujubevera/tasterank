@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–011 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–012 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -727,5 +727,34 @@ ok('move: the snacks go across with their flavour, and the empty subcategory goe
 ok('…ratings come along',(await lq(`select count(*)::int n from public.item_ratings where item_id=${acc.item_id}`))[0].n===1);
 ok('…and moving into itself is refused',/different subcategory/.test((await las(2,`select public.owner_move_snacks(${jelly.id},${jelly.id})`)).err||''));
 ok('after it all, the pages still load',(await lq('select jsonb_array_length(public.home_categories(1)) n'))[0].n>0&&!!(await lq(`select public.category_page(${jelly.id},1) p`))[0].p&&!(await las(null,'select public.catalogue(1)')).err);
+
+// ---- Migration 012: at most 5 additions a day ----
+console.log('\n---- Migration 012 ----');
+const mig12=fs.readFileSync(R+'migrate-012-daily-limit.sql','utf8');
+try{await live.exec(mig12);await live.exec(mig12);ok('012 runs twice without errors',true)}catch(e){ok('012 runs twice without errors',false,e.message);return}
+ok('…and the site can read the number',(await las(null,`select public.app_settings()->>'max_daily_submissions' v`)).rows[0].v==='5');
+const crisps12=(await lq(`select id from public.products where name='Crisps'`))[0].id;
+const add12=(who,k)=>las(who,`select public.submit_snack(1,${crisps12},'Daybrand','Daybrand Test Crisps ${k}') r`);
+const past12=()=>lq(`update public.items set created_at=now()-interval '25 hours' where submitted_by='${U(4)}'`); // earlier tests' additions are "yesterday"
+await past12();await lq(`update public.item_requests set created_at=now()-interval '25 hours' where user_id='${U(4)}'`);
+const ids12=[];
+for(let k=1;k<=5;k++){const r=await add12(4,'A'+k);if(r.err)ok('five snacks in a day are fine',false,r.err);else ids12.push(r.rows[0].r.id)}
+ok('five snacks in a day are fine',ids12.length===5);
+ok('the sixth is refused, saying why',/added 5 snacks today/.test((await add12(4,'A6')).err||''));
+await lone(4,`select public.withdraw_submission('${ids12[0]}')`);
+ok('withdrawing one doesn\'t free a place',/added 5 snacks today/.test((await add12(4,'A7')).err||''));
+await past12();
+ok('after 24 hours they don\'t count',!(await add12(4,'B1')).err);
+const req12=await las(4,`select public.submit_new_category(1,'Gummy bears','Daybrand','Daybrand Gummy Bears',p_category=>2) id`);
+ok('a new subcategory counts too',!req12.err&&!(await add12(4,'B2')).err&&!(await add12(4,'B3')).err&&!(await add12(4,'B4')).err
+  &&/added 5 snacks today/.test((await add12(4,'B5')).err||''),req12.err);
+await past12();
+await lone(2,`select public.owner_accept(${req12.rows[0].id})`);
+await lq(`update public.items set status='live' where submitted_by='${U(4)}' and status='pending' and id<>(select item_id from public.item_requests where id=${req12.rows[0].id})`); // so the 10-waiting rule stays out of it
+let n12=0,e12='';for(const k of ['C1','C2','C3','C4','C5']){const r=await add12(4,k);if(!r.err)n12++;else e12=r.err}
+ok('…and the one refused says so',/added 5 snacks today/.test(e12),e12);
+ok('an accepted subcategory counts once, not twice',n12===4,String(n12));
+let own12=0;for(let k=1;k<=6;k++)if(!(await las(2,`select public.submit_snack(1,${crisps12},'Ownbrand','Ownbrand Crisps ${k}') r`)).err)own12++;
+ok('the owner has no daily limit',own12===6,String(own12));
 }
 }

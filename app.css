@@ -394,3 +394,30 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:900;color:var(--in
 .toast{width:max-content;max-width:calc(100vw - 32px)}
 .toast:has(button){border-radius:16px}
 .toast button{pointer-events:auto;color:inherit;text-decoration:underline;margin-left:6px;font-weight:900;min-height:24px}
+
+/* ---------- Crispy's tips (app.js "Crispy's tips"): inline in the page, never covering it, except tip 7 beside the + ---------- */
+.tip{display:grid;grid-template-columns:38px minmax(0,1fr);gap:10px;align-items:start;background:var(--hint);border-radius:14px;padding:10px 12px;margin:12px 0;max-width:560px}
+.tip svg{width:38px;height:38px}
+.tip p{margin:0;font-size:14px;font-weight:700}
+.tip .acts{display:flex;gap:18px;flex-wrap:wrap}
+.tip.plain{background:none;padding:0 2px;margin:0 0 12px;align-items:center}
+/* links in tips and bubbles: a 44 px tap area without making the line taller */
+.tip .link,.bubble .link,.early .link,.float-tip .link,#signin-back .link{display:inline-block;padding:12px 0;margin:-12px 0;font-size:13.5px}
+.tip .acts .link{margin:-4px 0 -10px}
+.early .link{color:var(--primary)}
+.float-tip{position:fixed;right:84px;bottom:24px;z-index:30;width:min(230px,calc(100vw - 108px));background:var(--ink);color:var(--bg);border-radius:14px;padding:10px 12px;font-size:13.5px;font-weight:700;box-shadow:0 6px 18px var(--shadow-c)}
+.float-tip::after{content:"";position:absolute;right:-6px;bottom:22px;width:12px;height:12px;background:var(--ink);transform:rotate(45deg)}
+.float-tip .link{color:var(--bg);text-decoration:underline}
+@keyframes tip-in{from{opacity:0}}
+@media (prefers-reduced-motion:no-preference){.tip-in{animation:tip-in .15s ease-out}}
+/* How it works */
+.how{list-style:none;padding:0;margin:12px 0 18px;display:grid;gap:14px}
+.how li{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;align-items:start}
+.how .n{width:34px;height:34px;border-radius:50%;background:var(--hint);display:grid;place-items:center;font-weight:900;color:var(--ink)}
+.how b{display:block;font-size:15px}
+.how span:not(.n){font-size:14px;color:var(--muted);font-weight:600}
+/* the sign-in pop-up when rating: the faces that come next, greyed */
+#signin-meta{margin:-4px 0 2px}
+.faces.ghost{opacity:.45;margin:8px 0 12px;pointer-events:none}
+#signin-back{margin-top:10px}
+#tips-label{margin-top:14px}
