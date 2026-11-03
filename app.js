@@ -516,6 +516,11 @@ async function loadCatalogue(c){return catalogues[c]||(catalogues[c]=await rpc('
 // Every category in a country (Crisps, Toffee), with its type, flavours and Open Food Facts tags
 const categoriesIn=c=>(catalogues[c]||[]).flatMap(t=>t.products.map(p=>({...p,type:t.id})));
 const categoryBy=(c,id)=>categoriesIn(c).find(p=>p.id===id)||null;
+// Visitors call the top level the category (Chocolate, Sweets) and the lists in it subcategories (Toffee); the database calls them
+// categories and products. In the add form, add.type is the category and add.product the subcategory.
+const typeOf=id=>(categoryBy(add.country,id)||{}).type||null;
+const typeName=id=>((catalogues[add.country]||[]).find(t=>t.id===id)||{}).name||'';
+const oneType=ids=>{const t=[...new Set(ids.map(typeOf).filter(Boolean))];return t.length===1?t[0]:null};
 const bkey=t=>norm(t).replace(/'/g,''); // brands are compared ignoring apostrophes too, so Tyrrell's is Tyrrells
 // Live brands that could start these names, looked up by the first few letters of the first word, so "werthers" finds Werther's Original
 const brandProbe=t=>String(t||'').replace(/[‘’]/g,"'").trim().split(/\s+/)[0].split("'")[0].slice(0,5);
@@ -601,7 +606,7 @@ const offDisagrees=(p,id)=>{const t=((p&&p.categories_tags)||[]).filter(x=>/^en:
 const freshAdd=o=>Object.assign({from:'home',where:'',step:'find',country:null,ctxProduct:null,ctxVariant:null,ctxBrand:null,ctxBrandProducts:[],ctxType:null,
   q:'',results:null,off:null,offFor:null,sent:null},checkState(),o);
 const checkState=()=>({pack:'',offPick:null,offBrand:'',barcode:null,brand:'',brandState:null,brandNear:null,brandSet:false,brandOpen:false,brandSnacks:null,brandFor:null,
-  product:null,newCat:null,catAsk:null,catOpen:false,catFind:'',catRefused:null,catError:null,
+  type:null,typeOpen:false,product:null,newCat:null,catAsk:null,catOpen:false,catFind:'',catRefused:null,catError:null,
   dup:null,dupTracked:null,whichForced:false,whichTracked:false,checking:false,checkSeq:0,checkPromise:null,
   touched:false,photo:null,photoUrl:null,ownPhoto:false,score:null,error:null,sending:false});
 const whereNow=()=>{const c=onCategory(),b=onBrandPage();return c?`c${c.id}/${c.country.id}`:b?`b${b.id}/${b.country.id}`:'home'};
@@ -631,12 +636,14 @@ async function startCheck(src){ // step 1 → step 2, with what we could fill in
   else if(fromPage&&off&&offDisagrees(off,fromPage))add.catAsk=fromPage;
   else add.product=fromPage||(offCats[0]||{}).id||(nameCategory(add.pack)||{}).id||null;
   if(!add.product)add.catOpen=!add.catAsk;
+  add.type=typeOf(add.product||add.catAsk)||add.ctxType||oneType(add.ctxBrandProducts); // else asked first
   if(again)Object.assign(add,{brand:again.brand,brandState:'new',brandSet:true});
   renderAdd();
   await checkName();
   if(!add||add.step!=='check')return;
   categoryFromBrand();
-  if(add.catAsk||add.catOpen)track('add-category-asked',true);
+  if(!add.type)track('add-category-asked',true);
+  if(add.catAsk||add.catOpen)track('add-subcategory-asked',true);
   renderMid();focusAdd();
 }
 function focusAdd(){ // the search box; else the first open question; else the step's heading. Never Send: it would show a focus ring.
@@ -692,22 +699,24 @@ function nameCategory(name){
   const w=new Set(snackKey(name).split(' ').map(stem));
   return categoriesIn(add.country).filter(c=>snackKey(c.name).split(' ').every(x=>w.has(stem(x)))).sort((a,b)=>b.name.length-a.name.length)[0]||null;
 }
-// Still no category, and nothing typed for it: a known brand whose snacks here are all in one category is a good guess,
-// but only a guess (Tyrrells makes popcorn too), so it's asked: "Does it belong in Toffee?"
+// Still no subcategory, and nothing typed for it: a known brand whose snacks here are all in one is a good guess,
+// but only a guess (Tyrrells makes popcorn too), so it's asked: "Does it belong in Toffee?". Never outside the category chosen.
 function categoryFromBrand(){
   const cats=[...new Set((add.brandSnacks||[]).map(x=>x.product_id))];
-  if(add.catOpen&&!add.catFind&&!add.catRefused&&cats.length===1&&categoryBy(add.country,cats[0]))Object.assign(add,{catAsk:cats[0],catOpen:false});
+  if(add.catOpen&&!add.catFind&&!add.catRefused&&cats.length===1&&categoryBy(add.country,cats[0])&&(!add.type||typeOf(cats[0])===add.type))
+    Object.assign(add,{catAsk:cats[0],catOpen:false,type:typeOf(cats[0])});
 }
 const catName=()=>add.newCat||(categoryBy(add.country,add.product)||{}).name||'';
 // What still needs an answer before Send, in the order shown: the element to take them to
 function openQuestion(){
   if(!add.pack||whichSnack())return $('#add-pack');
   if(add.brandOpen||!add.brandState)return $('#add-brand');
+  if(add.typeOpen||!add.type)return $('#row-type .chip.on')||$('#row-type .chip');
   if(add.catAsk)return $('#row-cat .chip');
-  if(add.catOpen||(!add.product&&!add.newCat))return $('#add-cat');
+  if(add.catOpen||(!add.product&&!add.newCat))return $('#row-cat .chips .chip')||$('#add-cat'); // a chip, not the box: the keyboard would cover the chips
   return null;
 }
-const hasQuestion=()=>!add.pack||!!whichSnack()||add.brandOpen||!add.brandState||!!add.catAsk||add.catOpen||(!add.product&&!add.newCat);
+const hasQuestion=()=>!add.pack||!!whichSnack()||add.brandOpen||!add.brandState||add.typeOpen||!add.type||!!add.catAsk||add.catOpen||(!add.product&&!add.newCat);
 
 /* ---------- Answers ---------- */
 // Typed answers are saved when the box is left, a moment later, so a tap on a chip beside it still counts
@@ -727,30 +736,44 @@ async function answerBrand(name){
   Object.assign(add,{brand:k||v,brandState:k?'known':'new',brandNear:null,brandSet:true,brandOpen:false,touched:true});
   renderMid();await loadBrandSnacks();categoryFromBrand();renderMid();focusAdd();
 }
-function answerCategory(id,newName){
+function answerType(id){ // a subcategory that isn't in the new category is asked again; a new one moves with it
   clearPending();
-  Object.assign(add,{product:newName?null:id,newCat:newName||null,catAsk:null,catOpen:false,catFind:'',catError:null,touched:true});
-  if(newName)track('add-new-category',true);
+  const ok=x=>x&&typeOf(x)===id;
+  Object.assign(add,{type:id,typeOpen:false,touched:true});
+  if(add.product&&!ok(add.product))Object.assign(add,{product:null,catOpen:true});
+  if(add.catAsk&&!ok(add.catAsk))Object.assign(add,{catAsk:null,catOpen:true});
+  if(add.catRefused&&!ok(add.catRefused))add.catRefused=null;
+  renderMid();focusAdd();
+}
+function answerCategory(id,newName){ // picking a subcategory from another category moves the category too
+  clearPending();
+  Object.assign(add,{product:newName?null:id,type:newName?add.type:typeOf(id)||add.type,newCat:newName||null,catAsk:null,catOpen:false,catFind:'',catError:null,touched:true});
+  if(newName)track('add-new-subcategory',true);
   renderMid();focusAdd();
 }
 async function setCountry(c){ // the category stays if it's sold there too; the name is checked again for that country
   add.country=c;try{await loadCatalogue(c)}catch(e){return oops(e)}
   if(add.product&&!categoryBy(c,add.product))Object.assign(add,{product:null,catOpen:true});
+  if(!(catalogues[c]||[]).some(t=>t.id===add.type))add.type=null;
   add.touched=true;add.countryOpen=false;add.brandFor=null;
   renderMid();await checkName();focusAdd();
 }
-// Category words that start with what's typed: "choc" finds Chocolate bars, in any type; never the one just refused
+// Subcategory words that start with what's typed: "choc" finds Chocolate bars, in this category first, then any; never the one just refused
 function catMatches(t){
   const tw=snackKey(t).split(' ').filter(Boolean);if(!tw.length)return [];
   return categoriesIn(add.country).filter(c=>c.id!==add.catRefused&&tw.every(x=>snackKey(c.name).split(' ').some(y=>y.startsWith(x))))
-    .sort((a,b)=>(snackKey(b.name)===snackKey(t))-(snackKey(a.name)===snackKey(t))||a.name.length-b.name.length).slice(0,4);
+    .sort((a,b)=>(snackKey(b.name)===snackKey(t))-(snackKey(a.name)===snackKey(t))||(a.type!==add.type)-(b.type!==add.type)||a.name.length-b.name.length).slice(0,4);
 }
-function catSuggestions(){ // with nothing typed: the brand's own categories, where you came from, the type picked on home, then the rest
-  const all=categoriesIn(add.country).filter(c=>c.id!==add.catRefused);
+function catSuggestions(){ // the chips: this category's subcategories, the brand's own and where you came from first, then those with most snacks
   const mine=new Set([...add.ctxBrandProducts,...(add.brandSnacks||[]).map(x=>x.product_id)]);
-  const rank=c=>mine.has(c.id)?0:c.id===add.ctxProduct?1:c.type===add.ctxType?2:3;
-  return all.sort((a,b)=>rank(a)-rank(b)).slice(0,6);
+  const n=new Map((homeData&&homeData.country===add.country?homeData.cats:[]).map(c=>[c.id,c.snacks||0]));
+  const rank=c=>mine.has(c.id)?0:c.id===add.ctxProduct?1:2;
+  return categoriesIn(add.country).filter(c=>c.type===add.type&&c.id!==add.catRefused)
+    .sort((a,b)=>rank(a)-rank(b)||(n.get(b.id)||0)-(n.get(a.id)||0)).slice(0,6);
 }
+// The box's example is a subcategory that isn't here yet, so it never repeats a chip (category ids: 1 Chocolate, 2 Sweets, 3 Crisps & Snacks)
+const SUB_EXAMPLES={1:['Chocolate buttons','Chocolate eggs','Truffles'],2:['Jelly sweets','Liquorice','Marshmallows','Mints'],3:['Popcorn','Pretzels','Nuts','Tortilla chips']};
+function catExample(){const have=new Set(categoriesIn(add.country).map(c=>snackKey(c.name)));return (SUB_EXAMPLES[add.type]||[]).find(x=>!have.has(snackKey(x)))||''}
 
 /* ---------- Drawing it ---------- */
 const stepBar=n=>`<div class="flow-top"><button class="link" data-act="${n===1?'add-cancel':'add-back'}">${n===1?'Cancel':'← Back'}</button><div class="steps" aria-label="Step ${n} of 2">${[1,2].map(k=>`<i${k<=n?' class="on"':''}></i>`).join('')}<span aria-hidden="true">${n} of 2</span></div></div>`;
@@ -779,7 +802,7 @@ function renderAdd(){
   const s=add.sent,left=settings.approval_votes-1;
   b.innerHTML=`<div class="thanks"><div class="party" aria-hidden="true">🥳</div>
     <h3 id="add-title" tabindex="-1">${s.newCat?"Thanks! It's waiting for a check":"Thanks! It's waiting for approval"}</h3>
-    <p class="meta sent-what">${esc(s.name)}, in ${esc(s.category)}</p>
+    <p class="meta sent-what">${esc(s.name)}, in ${s.typeName?`<span class="up">${esc(s.typeName)}</span> › `:''}${esc(s.category)}</p>
     <p class="sent-next">${s.newCat?`We'll check ${esc(s.category)} first, then it goes to the vote.`:`It needs ${left} more approval${left===1?'':'s'}. Friends can approve it from the link.`}</p>
     ${s.newCat?'':'<button class="btn btn-primary btn-block" data-act="add-share">Share the link</button>'}
     <button class="btn btn-block${s.newCat?' btn-primary':''}" data-act="add-done">${s.newCat?'Back home':`Back to ${esc(s.category)}`}</button></div>`;
@@ -860,8 +883,8 @@ function drawMid(el){
     ?`<div class="photo-row"><span class="thumb big"><img src="${esc(add.photoUrl)}" alt="Pack photo: ${esc(add.pack)}"></span><div><span class="src">Photo from Open Food Facts</span><br><button class="link" data-act="add-own-photo">Use my own photo</button></div></div>${tried}`
     :`<div class="photo-tried"><label class="upload${add.photo?' has-photo':''}">${add.photo?`<img src="${add.photo.url}" alt="Your photo"><span class="change">Change</span>`:'<span class="cam" aria-hidden="true">📷</span>Add photo<span class="optional">optional</span>'}
         <input type="file" id="add-photo" accept="image/*" class="sr-only"></label>${tried}</div>`;
-  el.innerHTML=`<div class="rows">${brandRow()}${catRow()}${countryRow()}</div>
-    ${q?'':photo+`<p class="rule">${add.newCat?`We check new categories first. Then it needs ${n} approvals.`:`It needs ${n} approvals to go live, and yours counts as the first.`}</p>`}
+  el.innerHTML=`<div class="rows">${brandRow()}${typeRow()}${catRow()}${countryRow()}</div>
+    ${q?'':photo+`<p class="rule">${add.newCat?`We check new subcategories first. Then it needs ${n} approvals.`:`It needs ${n} approvals to go live, and yours counts as the first.`}</p>`}
     ${sendHtml()}`;
   if(add.brandOpen)renderBrandHelp();
 }
@@ -877,30 +900,43 @@ function brandRow(){
   return `<div class="row ask" role="group" aria-labelledby="rl-brand" id="row-brand"><label class="lab" id="rl-brand" for="add-brand">Brand</label>
     <input id="add-brand" class="row-input" value="${esc(add.brand)}" maxlength="60" autocomplete="off" placeholder="Who makes it?" aria-describedby="brand-help"><div id="brand-help" class="hint"></div></div>`;
 }
-function catRow(){
+const waitRow=(row,label,text)=>`<div class="row wait" id="row-${row}"><span class="lab">${label}</span><span class="val hint">${text}</span></div>`;
+function typeRow(){ // the category: chips, as there are only a few
+  if(add.checking&&!add.touched&&!add.type)return waitRow('type','Category','Checking…');
+  if(add.type&&!add.typeOpen)return answered('type','Category',esc(typeName(add.type)));
+  const q=!add.type;
+  return `<div class="row ask" role="group" aria-labelledby="rl-type${q?' type-q':''}" id="row-type"><span class="lab" id="rl-type">Category</span>
+    ${q?'<div class="q" id="type-q">Which category is it?</div>':''}
+    <div class="chips wrap">${(catalogues[add.country]||[]).map(t=>`<button class="chip${t.id===add.type?' on':''}" aria-pressed="${t.id===add.type}" data-act="add-type" data-id="${t.id}">${esc(t.name)}</button>`).join('')}</div></div>`;
+}
+function catRow(){ // the subcategory: tap one of the category's own; type only one that isn't there
   if(add.catAsk){
     const p=categoryBy(add.country,add.catAsk)||{name:''};
-    return `<div class="row ask" role="group" aria-labelledby="rl-cat cat-q" id="row-cat"><span class="lab" id="rl-cat">Category</span>
+    return `<div class="row ask" role="group" aria-labelledby="rl-cat cat-q" id="row-cat"><span class="lab" id="rl-cat">Subcategory</span>
       <div class="q" id="cat-q">Does it belong in ${esc(p.name)}?</div>
       <div class="chips wrap"><button class="chip" data-act="add-cat-yes">Yes</button><button class="chip" data-act="add-cat-else">Something else</button></div></div>`;
   }
-  if(add.checking&&!add.touched&&add.catOpen)return `<div class="row" id="row-cat"><span class="lab">Category</span><span class="val hint">Checking…</span></div>`;
-  if(add.catOpen||(!add.product&&!add.newCat))
-    return `<div class="row ask" role="group" aria-labelledby="rl-cat" id="row-cat"><label class="lab" id="rl-cat" for="add-cat">Category</label>
-      <div class="q" id="cat-q">What is it?</div>
-      <input id="add-cat" class="row-input" type="search" maxlength="60" autocomplete="off" value="${esc(add.catFind)}" aria-describedby="cat-q cat-find">
+  if(add.checking&&!add.touched&&add.catOpen)return waitRow('cat','Subcategory','Checking…');
+  if(!add.type&&!add.product)return waitRow('cat','Subcategory','Pick the category first');
+  if(add.catOpen||(!add.product&&!add.newCat)){
+    const sug=catSuggestions(),ex=catExample();
+    return `<div class="row ask" role="group" aria-labelledby="rl-cat" id="row-cat">${sug.length?'<span class="lab" id="rl-cat">Subcategory</span>':'<label class="lab" id="rl-cat" for="add-cat">Subcategory</label>'}
+      ${sug.length?`<div class="chips wrap">${sug.map(c=>catChip(c,'list')).join('')}</div><label class="hint add-it" for="add-cat">Not listed? Add it:</label>`:''}
+      <input id="add-cat" class="row-input" type="search" maxlength="60" autocomplete="off" value="${esc(add.catFind)}"${ex?` placeholder="e.g. ${esc(ex)}"`:''} aria-describedby="cat-find">
       <div id="cat-find" aria-live="polite">${catFindHtml()}</div>
       ${add.catError?`<p class="sheet-error" role="alert">${esc(add.catError)}</p>`:''}</div>`;
-  return answered('cat','Category',`${esc(catName())}${add.newCat?NEW_TAG:''}`);
+  }
+  return answered('cat','Subcategory',`${esc(catName())}${add.newCat?NEW_TAG:''}`);
 }
-function catFindHtml(){ // existing categories that match first; otherwise "＋ New category"
-  const t=tidyCase(add.catFind,true),ms=norm(t).length?catMatches(t):catSuggestions();
-  const on=c=>c.id===add.product;
-  const chips=ms.map(c=>`<button class="chip${on(c)?' on':''}" aria-pressed="${on(c)}" data-act="add-cat-pick" data-id="${c.id}">${esc(c.name)}</button>`);
+const catChip=(c,src)=>{const on=c.id===add.product;
+  return `<button class="chip${on?' on':''}" aria-pressed="${on}" data-act="add-cat-pick" data-id="${c.id}" data-src="${src}">${esc(c.name)}${c.type!==add.type?` <span class="in">in ${esc(typeName(c.type))}</span>`:''}</button>`};
+function catFindHtml(){ // under the box, once something's typed: matches (one in another category says where), else "＋ New subcategory"
+  const t=tidyCase(add.catFind,true);if(!norm(t).length)return '';
+  const ms=catMatches(t),chips=ms.map(c=>catChip(c,'typed'));
   if(norm(t).length>=2&&!ms.length){const n=!!add.newCat&&norm(add.newCat)===norm(t);
-    chips.push(`<button class="chip chip-new${n?' on':''}" aria-pressed="${n}" data-act="add-cat-new">＋ New category: ${esc(t)}</button>`)}
+    chips.push(`<button class="chip chip-new${n?' on':''}" aria-pressed="${n}" data-act="add-cat-new">＋ New subcategory: ${esc(t)}</button>`)}
   return `${chips.length?`<div class="chips wrap">${chips.join('')}</div>`:''}
-    <div class="hint">Name the kind of snack, like "Chocolate sweets" or "Popcorn", not the brand or flavour.</div>`;
+    <div class="hint">Name the kind of snack, not the brand or flavour.</div>`;
 }
 function countryRow(){
   const cp=placeBy('id',add.country)||{flag:'',name:''};
@@ -970,17 +1006,17 @@ async function sendAdd(){
       if(!add.dup)await checkName();
       return renderMid();
     }
-    if(/already a category/i.test(m)){Object.assign(add,{catOpen:true,catFind:add.newCat,newCat:null,catError:m});renderMid();return $('#add-cat')?.focus()}
+    if(/already a category/i.test(m)){Object.assign(add,{catOpen:true,catFind:add.newCat,newCat:null,catError:`${add.newCat} is already here. Pick it below.`});renderMid();return $('#add-cat')?.focus()}
     if(/Type the full name/i.test(m)){add.whichForced=true;add.brandFor=null;await loadBrandSnacks();renderMid();return $('#add-pack')?.focus()}
     console.error(e);add.error=m;return renderMid();
   }
   if(res&&res.duplicate){add.sending=false;add.dup=res.duplicate;return renderMid()}
-  if(review)emailOwner(`TasteRank: check new category "${add.newCat}"`,
-    `Sold in: ${cp.name}\nNew category: ${add.newCat}\nBrand: ${brand}\nName on the pack: ${pack}\nPhoto: ${path?'uploaded':url?'from Open Food Facts':'none'}\n\n`
-    +`To check it, open Supabase → SQL Editor and run:\n  select * from public.review_list();\nThen accept it, saying its type (1 Chocolate, 2 Sweets, 3 Crisps & Snacks), or decline it:\n`
-    +`  select public.accept_request(${res}, p_category => 2);\n  select public.decline_request(${res});`);
+  if(review)emailOwner(`TasteRank: check new subcategory "${add.newCat}"`,
+    `Sold in: ${cp.name}\nCategory: ${typeName(add.type)}\nNew subcategory: ${add.newCat}\nBrand: ${brand}\nName on the pack: ${pack}\nPhoto: ${path?'uploaded':url?'from Open Food Facts':'none'}\n\n`
+    +`To check it, open Supabase → SQL Editor and run:\n  select * from public.review_list();\nThen accept it in the category they chose (to file it elsewhere, change the number: 1 Chocolate, 2 Sweets, 3 Crisps & Snacks), or decline it:\n`
+    +`  select public.accept_request(${res}, p_category => ${add.type});\n  select public.decline_request(${res});`);
   track('add-sent',true);
-  add.sent={id:review?null:res.id,name:review?tidyCase(pack):res.pack_name,category:review?add.newCat:res.product,product:review?null:add.product,cc:cp.code,newCat:review};
+  add.sent={id:review?null:res.id,name:review?tidyCase(pack):res.pack_name,category:review?add.newCat:res.product,typeName:typeName(add.type),product:review?null:add.product,cc:cp.code,newCat:review};
   add.step='sent';add.sending=false;homeData=null;
   renderAdd();focusAdd();
   refresh(); // the page behind shows it (and home reloads its data)
@@ -1000,17 +1036,19 @@ const ADD_ACT={
   'add-open-match':d=>{track('add-rate-match',true);openMatch(d)},
   'add-change':d=>{clearPending();add.touched=true;
     if(d.row==='brand')add.brandOpen=true;
+    if(d.row==='type')add.typeOpen=true;
     if(d.row==='cat')Object.assign(add,{catOpen:true,catFind:add.newCat||''});
     if(d.row==='country')add.countryOpen=true;
-    renderMid();$(`#row-${d.row} :is(input,select)`)?.focus()},
+    renderMid();($(`#row-${d.row} :is(input,select)`)||$(`#row-${d.row} .chip.on`))?.focus()},
   'add-brand-pick':d=>answerBrand(d.name),
   'add-brand-near':()=>{ // the brand, and the start of the name, as the known brand spells it (A8)
     const n=add.brandNear,w=add.pack.split(' '),rest=w.slice(n.words).join(' ');
     Object.assign(add,{brand:n.name,brandState:'known',brandNear:null,brandSet:true,touched:true});
     const t=[n.name,tidyCase(rest)].filter(Boolean).join(' ');add.pack='';commitPack(t).then(()=>{if(!add)return;categoryFromBrand();renderMid();focusAdd()})},
   'add-cat-yes':()=>answerCategory(add.catAsk),
-  'add-cat-else':()=>{Object.assign(add,{catRefused:add.catAsk,catAsk:null,catOpen:true,catFind:'',touched:true});renderMid();$('#add-cat')?.focus()},
-  'add-cat-pick':d=>answerCategory(+d.id),
+  'add-cat-else':()=>{Object.assign(add,{catRefused:add.catAsk,catAsk:null,catOpen:true,catFind:'',touched:true});renderMid();($('#row-cat .chips .chip')||$('#add-cat'))?.focus()},
+  'add-type':d=>answerType(+d.id),
+  'add-cat-pick':d=>{track(d.src==='typed'?'add-subcategory-typed':'add-subcategory-chip',true);answerCategory(+d.id)},
   'add-cat-new':()=>answerCategory(null,tidyCase(add.catFind,true)),
   'add-own-photo':()=>{add.ownPhoto=true;renderMid();$('#add-photo')?.click()},
   'add-face':d=>{add.score=add.score===+d.v?null:+d.v;document.querySelectorAll('#add-body .face-btn').forEach(b=>{const on=+b.dataset.v===add.score;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)})},
@@ -1085,7 +1123,7 @@ let withdrawing=null;
 function askWithdraw(x){
   withdrawing=x;
   $('#confirm-body').innerHTML=`<h3 id="confirm-title">Withdraw ${esc(x.pack_name)}?</h3>
-    <p id="confirm-text">${x.new_category?`We won't check the new category "${esc(x.product)}", and nothing goes live. You can add it again any time.`
+    <p id="confirm-text">${x.new_category?`We won't check the new subcategory "${esc(x.product)}", and nothing goes live. You can add it again any time.`
       :'It leaves the vote, and its approvals go with it. You can add it again any time.'}</p>
     <button class="btn btn-block btn-danger-solid" data-act="withdraw-yes">Withdraw it</button>
     <button class="btn btn-block" data-act="close" data-autofocus>Keep it</button>`;
@@ -1113,7 +1151,7 @@ async function checkMoments(){
       <p>${n} people approved it. Be the first to rate it.</p>
       <button class="btn btn-primary btn-block" data-act="moment-rate">Rate it now</button><button class="btn btn-block" data-act="close">Later</button></div>`
     :m.status==='declined'?`<div class="moment"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-sad"/></svg><h3 id="moment-title">Not this time</h3>
-      <p>We couldn't add ${esc(m.new_ranking)} as a new category, so ${esc(m.pack_name)} wasn't added. If it fits a category that's already here, you can add it there.</p>
+      <p>We couldn't add ${esc(m.new_ranking)} as a new subcategory, so ${esc(m.pack_name)} wasn't added. If it fits one that's already here, you can add it there.</p>
       <button class="btn btn-primary btn-block" data-act="close">OK</button></div>`
     :`<div class="moment"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-sad"/></svg><h3 id="moment-title">Not this time</h3>
       <p>${esc(m.pack_name)} didn't get ${n} approvals in ${settings.close_after_days} days. You can send it in again; it starts afresh.</p>
@@ -1304,7 +1342,7 @@ function drawBrand(){
     <button class="crumb" data-act="home-brands" data-cc="${d.cc}">← ${esc(d.country.short_name)} <span>· Brands</span></button>
     <h1 class="page-title">${esc(d.name)}: which one wins?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${plural(items.length,'snack')}${ratingsPart(total)}</div>
-    ${multi?chipsHtml('Categories','bp-cat',[{id:null,name:'All',count:d.items.length},...d.products],prod):''}
+    ${multi?chipsHtml('Subcategories','bp-cat',[{id:null,name:'All',count:d.items.length},...d.products],prod):''}
     ${fls.length>=2?chipsHtml('Flavours','bp-flavour',[{id:null,name:multi?`All ${(d.products.find(p=>p.id===prod)||{name:''}).name.toLowerCase()}`:'All',count:fls.reduce((s,f)=>s+f.count,0)},...fls],v):''}
     ${winnerHtml(items,`${possessive(d.name)} best so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet')}
     <div class="list">${items.map((it,k)=>listRow(it,k,it.place?listLink(d.cc,it.product_id,`#${it.place} in ${esc(it.product)}`)
@@ -1468,7 +1506,7 @@ let mySubs=[];
 function subRow(x,i){ // a snack you sent in, and where it's got to: "🇬🇧 · Toffee", then "Waiting for approval · 2 of 5"
   const n=settings.approval_votes,pl=placeBy('id',x.country_id)||{},newCat=!!x.new_category;
   const st={pending:['⏳',`Waiting for approval · ${x.approvals} of ${n}`],live:['✅','Live: rate it'],
-    review:['🔎',newCat?'Waiting for us to check the new category':'Waiting for us to check it'],declined:['✖️','Not this time'],
+    review:['🔎',newCat?'Waiting for us to check the new subcategory':'Waiting for us to check it'],declined:['✖️','Not this time'],
     closed:['✖️',`Closed: it didn't get ${n} approvals in ${settings.close_after_days} days`]}[x.status]||['',x.status];
   const inner=`<span class="rk" aria-hidden="true">${st[0]}</span><span></span>
     <span class="in"><span class="bn">${esc(x.pack_name||x.brand)}</span><span class="pk">${x.country_flag||pl.flag||''} · ${esc(x.product||'')}${newCat?NEW_TAG:''}</span><span class="pk">${esc(st[1])}</span></span>`;
