@@ -150,6 +150,7 @@ const D={
   country:id=>{const pl=DEMO.places.find(x=>x.id===id);return pl&&{id:pl.id,name:pl.name,short_name:pl.short_name,flag:pl.flag,code:pl.code}},
   vsort:(a,b)=>!!a.is_other-!!b.is_other||a.id-b.id,
   pic:x=>({image_url:x.image_url,image_path:null,emoji:x.emoji}),
+  pics:l=>[...l].sort((a,b)=>!a.image_url-!b.image_url||b.total-a.total||a.id-b.id).slice(0,4).map(D.pic), // a card's photos: ones with a photo first, then most rated
   sum:l=>l.reduce((s,x)=>s+x.total,0),
   approvals:(it,st)=>it.approvals+(st.approvals.includes(it.id)?1:0)+(st.extra[it.id]||0),
   live:(it,st)=>!it.withdrawn&&(!it.pending||D.approvals(it,st)>=DEMO.settings.approval_votes),
@@ -179,7 +180,7 @@ const DEMO_RPC={
     return DEMO.products.filter(p=>t.some(x=>x.product_id===p.id)).map(p=>{
       const mine=t.filter(x=>x.product_id===p.id).sort(D.order),ranked=mine.filter(x=>x.ranked);
       return {id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,type:D.type(p.id).name,type_id:p.category_id,snacks:mine.length,ratings:D.sum(mine),
-        thumbs:mine.slice(0,3).map(D.pic),top:ranked.slice(0,3).map(x=>({item_id:x.id,pack_name:x.pack_name,brand:x.brand,avg:x.avg,total:x.total})),
+        lead:Math.max(0,...mine.map(x=>x.total)),thumbs:D.pics(mine),top:ranked.slice(0,3).map(x=>({item_id:x.id,pack_name:x.pack_name,brand:x.brand,avg:x.avg,total:x.total})),
         to_rate:ranked.length?[]:mine.slice(0,2).map(x=>({item_id:x.id,pack_name:x.pack_name,total:x.total}))};
     }).sort((a,b)=>b.ratings-a.ratings||a.type_id-b.type_id||a.id-b.id);
   },
@@ -188,7 +189,7 @@ const DEMO_RPC={
     return [...new Set(t.map(x=>x.brand_id))].map(id=>{
       const mine=t.filter(x=>x.brand_id===id).sort(D.order);if(mine.length<2)return null;
       const ps=DEMO.products.map(p=>({p,n:mine.filter(x=>x.product_id===p.id).length})).filter(x=>x.n).sort((a,b)=>b.n-a.n||a.p.id-b.p.id),best=mine.find(x=>x.ranked);
-      return {id,name:mine[0].brand,snacks:mine.length,ratings:D.sum(mine),categories:ps.map(x=>D.product(x.p.id,p_country)),type_ids:[...new Set(ps.map(x=>x.p.category_id))],
+      return {id,name:mine[0].brand,snacks:mine.length,ratings:D.sum(mine),lead:Math.max(0,...mine.map(x=>x.total)),thumbs:D.pics(mine),categories:ps.map(x=>D.product(x.p.id,p_country)),type_ids:[...new Set(ps.map(x=>x.p.category_id))],
         thumb:D.pic([...mine].sort((a,b)=>!a.image_url-!b.image_url||b.total-a.total||a.id-b.id)[0]),
         best:best?{item_id:best.id,pack_name:best.pack_name,avg:best.avg,total:best.total}:null};
     }).filter(Boolean).sort((a,b)=>b.ratings-a.ratings||a.name.localeCompare(b.name));
@@ -764,12 +765,12 @@ function catMatches(t){
   return categoriesIn(add.country).filter(c=>c.id!==add.catRefused&&tw.every(x=>snackKey(c.name).split(' ').some(y=>y.startsWith(x))))
     .sort((a,b)=>(snackKey(b.name)===snackKey(t))-(snackKey(a.name)===snackKey(t))||(a.type!==add.type)-(b.type!==add.type)||a.name.length-b.name.length).slice(0,4);
 }
-function catSuggestions(){ // the chips: this category's subcategories, the brand's own and where you came from first, then those with most snacks
+function catSuggestions(){ // the chips: this category's subcategories, the brand's own and where you came from first, then the home order
   const mine=new Set([...add.ctxBrandProducts,...(add.brandSnacks||[]).map(x=>x.product_id)]);
-  const n=new Map((homeData&&homeData.country===add.country?homeData.cats:[]).map(c=>[c.id,c.snacks||0]));
+  const h=new Map(homeCats(add.country).map(c=>[c.id,c])),r=c=>(h.get(c.id)||{}).ratings||0,n=c=>(h.get(c.id)||{}).snacks||0;
   const rank=c=>mine.has(c.id)?0:c.id===add.ctxProduct?1:2;
   return categoriesIn(add.country).filter(c=>c.type===add.type&&c.id!==add.catRefused)
-    .sort((a,b)=>rank(a)-rank(b)||(n.get(b.id)||0)-(n.get(a.id)||0)).slice(0,6);
+    .sort((a,b)=>rank(a)-rank(b)||r(b)-r(a)||n(b)-n(a)||a.name.localeCompare(b.name)).slice(0,6);
 }
 // The box's example is a subcategory that isn't here yet, so it never repeats a chip (category ids: 1 Chocolate, 2 Sweets, 3 Crisps & Snacks)
 const SUB_EXAMPLES={1:['Chocolate buttons','Chocolate eggs','Truffles'],2:['Jelly sweets','Liquorice','Marshmallows','Mints'],3:['Popcorn','Pretzels','Nuts','Tortilla chips']};
@@ -779,7 +780,7 @@ function catExample(){const have=new Set(categoriesIn(add.country).map(c=>snackK
 const stepBar=n=>`<div class="flow-top"><button class="link" data-act="${n===1?'add-cancel':'add-back'}">${n===1?'Cancel':'← Back'}</button><div class="steps" aria-label="Step ${n} of 2">${[1,2].map(k=>`<i${k<=n?' class="on"':''}></i>`).join('')}<span aria-hidden="true">${n} of 2</span></div></div>`;
 function searchExample(){ // "Brand or name, e.g. Walkers crisps", from the list you're on or the categories on home
   const c=onCategory();if(c&&c.items.length)return `Brand or name, e.g. ${c.items[0].brand} ${c.name.toLowerCase()}`;
-  const cs=(homeData&&homeData.country===add.country?homeData.cats:[]).filter(c=>!add.ctxType||c.type_id===add.ctxType),top=cs.find(c=>c.top.length);
+  const cs=homeCats(add.country).filter(c=>!add.ctxType||c.type_id===add.ctxType),top=cs.find(c=>c.top.length);
   return top?`Brand or name, e.g. ${top.top[0].brand} ${top.name.toLowerCase()}`:cs[0]?`Brand or name, e.g. ${cs[0].name.toLowerCase()}`:'Brand or name, e.g. Walkers salt';
 }
 function renderAdd(){
@@ -907,7 +908,7 @@ function typeRow(){ // the category: chips, as there are only a few
   const q=!add.type;
   return `<div class="row ask" role="group" aria-labelledby="rl-type${q?' type-q':''}" id="row-type"><span class="lab" id="rl-type">Category</span>
     ${q?'<div class="q" id="type-q">Which category is it?</div>':''}
-    <div class="chips wrap">${(catalogues[add.country]||[]).map(t=>`<button class="chip${t.id===add.type?' on':''}" aria-pressed="${t.id===add.type}" data-act="add-type" data-id="${t.id}">${esc(t.name)}</button>`).join('')}</div></div>`;
+    <div class="chips wrap">${typesInOrder(add.country).map(t=>`<button class="chip${t.id===add.type?' on':''}" aria-pressed="${t.id===add.type}" data-act="add-type" data-id="${t.id}">${esc(t.name)}</button>`).join('')}</div></div>`;
 }
 function catRow(){ // the subcategory: tap one of the category's own; type only one that isn't there
   if(add.catAsk){
@@ -1178,6 +1179,19 @@ const homeCountry=()=>placeBy('code',prefs.country)||placeBy('code',detected)||p
 
 /* ---------- Home: one card per category, or per brand (the switch shows once 3 brands have 2+ snacks here) ---------- */
 let homeData=null, homeBy=null;
+const homeCats=c=>homeData&&homeData.country===c?homeData.cats:[];
+// The order rule for categories and subcategories: most ratings, then most snacks, then A to Z
+const byUse=(a,b)=>b.ratings-a.ratings||b.snacks-a.snacks||a.name.localeCompare(b.name);
+function homeTypes(cats){
+  const m=new Map();
+  for(const x of cats){const t=m.get(x.type_id)||{id:x.type_id,name:x.type,ratings:0,snacks:0};t.ratings+=x.ratings;t.snacks+=x.snacks;m.set(x.type_id,t)}
+  return [...m.values()].sort(byUse);
+}
+// The adding form's category chips: the home order, then any without snacks yet, A to Z
+function typesInOrder(c){
+  const ord=homeTypes(homeCats(c)).map(t=>t.id),at=t=>{const i=ord.indexOf(t.id);return i<0?ord.length:i};
+  return [...(catalogues[c]||[])].sort((a,b)=>at(a)-at(b)||a.name.localeCompare(b.name));
+}
 async function renderHome(r){
   const c=homeCountry();
   $('#country').innerHTML=places.map(p=>`<option value="${esc(p.code)}"${p===c?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('');
@@ -1190,30 +1204,37 @@ async function renderHome(r){
   }
   renderHomeCards();
 }
-const andList=l=>l.length<2?l.join(''):`${l.slice(0,-1).join(', ')} and ${l[l.length-1]}`; // "Toffee, chocolate bars and crisps"
 const ratingsPart=n=>n?' · '+plural(n,'rating'):'';
+// A card's photos: up to 4, one emoji at most; with more snacks than that, the last tile says "+5"
+function cardPics(list,snacks){
+  let emoji=false;const ps=list.filter(p=>photoUrl(p)||(!emoji&&(emoji=true)));
+  const shown=ps.slice(0,snacks>4?3:4),more=snacks-shown.length;
+  return `<span class="pics" aria-hidden="true">${shown.map(p=>thumb(p)).join('')}${more>0?`<span class="thumb more">+${more}</span>`:''}</span>`;
+}
+// One line under the name: the winner, or how far the top snack is from a winner (never "1/10", which reads like a score)
+function cardStatus(win,label,lead,goal){
+  if(win)return `<span class="status win"><span class="k">${label}</span><span class="nm">${esc(win.pack_name)}</span><span class="sc">${faceFor(win.avg).e} ${score1(win.avg)}</span></span>`;
+  if(lead==null)return `<span class="status"><b>No ${label.toLowerCase()} yet</b></span>`; // before migration 009
+  if(!lead)return `<span class="status"><b>No ratings yet</b><span class="cta">· Be the first</span></span>`;
+  return `<span class="status"><span class="cta">Top snack needs <b>${plural(Math.max(1,settings.rank_after_ratings-lead),'more rating')}</b> ${goal}</span></span>`;
+}
+const cardTitle=(name,snacks)=>`<span class="tl"><b>${esc(name)}</b><span class="n">${plural(snacks,'snack')}</span></span>`;
 function renderHomeCards(){
   if(!homeData)return;
-  const c=places.find(p=>p.id===homeData.country),need=settings.rank_after_ratings,seg=homeData.brands.length>=3;
+  const c=places.find(p=>p.id===homeData.country),seg=homeData.brands.length>=3;
   if(homeBy==='brands'&&!seg){homeBy=null;if(location.hash==='#/brands'){history.replaceState(null,'',location.pathname);currentUrl=location.href}}
   const byBrand=homeBy==='brands';
   $('#home-seg').hidden=!seg;
   document.querySelectorAll('#home-seg [role=tab]').forEach(b=>{const on=(b.dataset.by==='brands')===byBrand;b.setAttribute('aria-selected',on);b.tabIndex=on?0:-1});
-  const types=[...new Map(homeData.cats.map(x=>[x.type_id,x.type])).entries()].sort((a,b)=>a[0]-b[0]);
+  const types=homeTypes(homeData.cats).map(t=>[t.id,t.name]);
   if(prefs.cat!=='all'&&!types.some(([id])=>String(id)===String(prefs.cat)))prefs.cat='all';
   $('#cats').innerHTML=[['all','All'],...types].map(([id,name])=>`<button class="chip${String(id)===String(prefs.cat)?' on':''}" data-act="cat" data-cat="${id}" aria-pressed="${String(id)===String(prefs.cat)}">${esc(name)}</button>`).join('');
   const inType=id=>prefs.cat==='all'||String(id)===String(prefs.cat);
   const cards=byBrand
-    ?homeData.brands.filter(b=>b.type_ids.some(inType)).map(b=>`<a class="pcard" href="${esc(hashFor({v:'brand',cc:c.code,brand:b.id}))}" data-act="brand" data-cc="${c.code}" data-brand="${b.id}">
-        <span class="pc-head">${thumb(b.thumb||{},'sm')}<span class="pc-t"><b>${esc(b.name)}</b><span class="meta">${esc(andList(b.categories.map((n,i)=>i?n.toLowerCase():n)))} · ${plural(b.snacks,'snack')}${ratingsPart(b.ratings)}</span></span></span>
-        ${b.best?`<span class="best"><span class="k">Best</span><span class="nm">${esc(b.best.pack_name)}</span><span class="sc">${faceFor(b.best.avg).e} ${score1(b.best.avg)}</span></span>`
-          :`<span class="nowin"><b>No best yet</b> · each snack needs ${need} ratings</span>`}</a>`).join('')
-    :homeData.cats.filter(x=>inType(x.type_id)).map(x=>`<a class="pcard" href="${esc(hashFor({v:'category',cc:c.code,product:x.id}))}" data-act="category" data-cc="${c.code}" data-product="${x.id}">
-        <span class="pc-head"><span class="thumbs">${x.thumbs.map(p=>thumb(p,'xs')).join('')}</span><span class="pc-t"><b>${esc(x.name)}</b><span class="meta">${esc(x.type)} · ${plural(x.snacks,'snack')}${ratingsPart(x.ratings)}</span></span></span>
-        ${x.top.length?`<ol class="toplist">${x.top.map((t,k)=>`<li><span class="r">${k+1}</span><span class="nm">${esc(t.pack_name)}</span><span class="sc">${faceFor(t.avg).e} ${score1(t.avg)}</span></li>`).join('')}</ol>`
-          // nothing ranked yet: the snacks closest to 10 ratings, in a neutral style so they never look like winners
-          :`<span class="nowin"><b>No winner yet</b> · ${x.to_rate.length?'rate these first:':`each snack needs ${need} ratings`}</span>
-            ${x.to_rate.length?`<ol class="toplist todo">${x.to_rate.map(t=>`<li><span class="r">–</span><span class="nm">${esc(t.pack_name)}</span><span class="sc">${t.total} of ${need}</span></li>`).join('')}</ol>`:''}`}</a>`).join('');
+    ?[...homeData.brands].sort(byUse).filter(b=>b.type_ids.some(inType)).map(b=>`<a class="pcard" href="${esc(hashFor({v:'brand',cc:c.code,brand:b.id}))}" data-act="brand" data-cc="${c.code}" data-brand="${b.id}">
+        ${cardPics(b.thumbs||[b.thumb||{}],b.snacks)}${cardTitle(b.name,b.snacks)}${cardStatus(b.best,'Best',b.lead,'to be the best')}</a>`).join('')
+    :[...homeData.cats].sort(byUse).filter(x=>inType(x.type_id)).map(x=>`<a class="pcard" href="${esc(hashFor({v:'category',cc:c.code,product:x.id}))}" data-act="category" data-cc="${c.code}" data-product="${x.id}">
+        ${cardPics(x.thumbs,x.snacks)}${cardTitle(x.name,x.snacks)}${cardStatus(x.top[0],'Winner',x.lead??(x.to_rate[0]||{}).total,'to win')}</a>`).join('');
   $('#cards').innerHTML=cards||`<div class="card empty">${byBrand?'No brand has 2 snacks of this type here yet.':'No snacks here yet. Know one? Tap + to add it.'}</div>`;
   setFab();
 }

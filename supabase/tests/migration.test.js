@@ -591,4 +591,15 @@ ok('nobody can call the internal steps (duplicate check, flavour guess, Other)',
 // The old site keeps working on 008
 ok('old site still works: home_rankings, ranking, brand_view, next_to_rate',!(await as(null,'select public.home_rankings(1)')).err&&(await one(null,'select public.ranking(3,4,1)')).items.length>0&&!(await as(null,`select public.brand_view(${walkersId},3,1)`)).err&&!(await as(1,`select public.next_to_rate(${walkersSV},false)`)).err);
 ok('…and no empty "Other" ranking appears on the old home',!(await one(null,'select public.home_rankings(1)')).some(r=>/^Other/.test(r.title)));
+
+// 009: lighter home cards
+const hcBefore=await one(null,'select public.home_categories(1)'),hbBefore=await one(null,'select public.home_brands(1)');
+const mig9=fs.readFileSync(R+'migrate-009-home-cards.sql','utf8');
+try{await db.exec(mig9);await db.exec(mig9);ok('migration 009 runs (twice) without errors',true)}catch(e){ok('migration 009 runs (twice) without errors',false,e.message);return}
+const hc9=await one(null,'select public.home_categories(1)'),hb9=await one(null,'select public.home_brands(1)');
+ok('…same cards in the same order, every old field kept',JSON.stringify(hc9.map(c=>[c.id,c.snacks,c.ratings,c.top,c.to_rate]))===JSON.stringify(hcBefore.map(c=>[c.id,c.snacks,c.ratings,c.top,c.to_rate]))&&JSON.stringify(hb9.map(b=>[b.id,b.thumb,b.best]))===JSON.stringify(hbBefore.map(b=>[b.id,b.thumb,b.best])));
+const totals9=await q('select product_id,brand_id,total from public.item_totals(1)');
+ok('…lead is the most ratings one snack has (category and brand)',hc9.every(c=>c.lead===Math.max(...totals9.filter(t=>t.product_id===c.id).map(t=>t.total)))&&hb9.every(b=>b.lead===Math.max(...totals9.filter(t=>t.brand_id===b.id).map(t=>t.total))),JSON.stringify(hc9.map(c=>[c.name,c.lead])));
+const noPic=x=>!x.image_url&&!x.image_path;
+ok('…up to 4 photos (never more than the snacks), photos before emoji-only ones',[...hc9,...hb9].every(c=>c.thumbs.length===Math.min(4,c.snacks)&&!c.thumbs.some((x,i)=>i&&!noPic(x)&&noPic(c.thumbs[i-1]))),JSON.stringify(hc9.map(c=>[c.name,c.thumbs.length,c.snacks])));
 }
