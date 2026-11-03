@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–008 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–011 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -624,4 +624,108 @@ const kept10=(await lq(`select p.proname from pg_proc p join pg_namespace s on s
 const site=['app_settings','approve_item','brand_page','brand_suggest','catalogue','category_page','delete_me','home_brands','home_categories','my_profile','my_ratings','my_submissions','next_snack','place_list','rate_item','search_items','unrate_item','withdraw_submission','submit_snack','submit_new_category','set_home_place','to_sort','review_list','accept_request','decline_request'];
 ok('…everything the site, the owner and prompt 06 use is still there',site.every(n=>kept10.includes(n)),site.filter(n=>!kept10.includes(n)).join(' '));
 ok('…and the pages still load',(await lq('select jsonb_array_length(public.home_categories(1)) n'))[0].n>0&&!!(await lq('select public.category_page(3,1) p'))[0].p&&(await lq('select jsonb_array_length(public.search_items(\'walkers\')) n'))[0].n>0);
+
+// ---- Migration 011: the owner page, on the database 010 just tidied ----
+console.log('\n---- Migration 011 ----');
+{ // its own block, so its names don't clash with the tests above
+const mig11=fs.readFileSync(R+'migrate-011-owner-page.sql','utf8');
+await live.exec('alter table auth.users add column if not exists email text');
+for(const n of [2,3,4]) await live.query('insert into auth.users(id,email) values ($1,$2) on conflict do nothing',[U(n),n===2?'Owner@Example.com':`t${n}@example.com`]);
+const las=async(who,sql,params)=>{
+  await live.exec(`set role ${who?'authenticated':'anon'}`);
+  await live.query(`select set_config('request.jwt.claim.sub',$1,false)`,[who?U(who):'']);
+  try{return {rows:(await live.query(sql,params)).rows}}catch(e){return {err:e.message}}finally{await live.exec('reset role')}
+};
+const lone=async(who,sql,params)=>{const r=await las(who,sql,params);if(r.err)throw new Error(sql+': '+r.err);return Object.values(r.rows[0])[0]};
+const ldenied=x=>!!x.err&&/permission denied/.test(x.err);
+const nc11=await las(3,`select public.submit_new_category(1,'Jelly sweets','Haribo','Haribo Starmix') id`); // the live site's call, before 011
+ok('before 011: a new subcategory is saved without its category',!!nc11.rows,nc11.err);
+const r11a=nc11.rows[0].id;
+try{const out=await live.exec(mig11);ok('011 runs without errors (email not typed yet)',true);
+  ok('…and says owners 0',out[out.length-2]?.rows?.[0]?.owners==0||(await lq('select count(*)::int n from public.owners'))[0].n===0)}catch(e){ok('011 runs without errors (email not typed yet)',false,e.message);return}
+const yes11=mig11.replace(`'type-your-email-here'`,`' owner@example.com '`);
+try{await live.exec(yes11);await live.exec(yes11);ok('with an email (any capitals, spaces), 011 runs twice',true)}catch(e){ok('with an email (any capitals, spaces), 011 runs twice',false,e.message);return}
+ok('…and that account is the one owner',JSON.stringify((await lq('select user_id from public.owners')).map(r=>r.user_id))===JSON.stringify([U(2)]));
+
+// Who may use it
+ok('signed out: no owner calls at all',ldenied(await las(null,'select public.owner_status()'))&&ldenied(await las(null,'select public.owner_queue()'))&&ldenied(await las(null,"select public.owner_set_status(1,'hide')")));
+ok('someone else: owner_status says no, and every owner action refuses',(await lone(3,'select public.owner_status()')).owner===false
+  &&(await Promise.all(['select public.owner_queue()','select public.owner_snacks(1)','select public.owner_catalogue()',`select public.owner_decline(${r11a})`,`select public.owner_accept(${r11a})`,
+     "select public.owner_set_status(1,'hide')","select public.owner_save_snack(1,'x','y',1,1,'Crisps',null)","select public.owner_save_subcategory(1,'x',1)",'select public.owner_move_snacks(1,2)']
+     .map(async sql=>/for TasteRank's owner/.test((await las(3,sql)).err||'')))).every(Boolean));
+ok('…and nobody can call the helpers or read the owners list',(await Promise.all(['select public.is_owner()','select public.require_owner()',"select public.owner_product('x',1)","select public.owner_variant(1,'x')","select public.owner_emoji('x')",'select * from public.owners'].map(async sql=>ldenied(await las(2,sql))))).every(Boolean));
+const st11=await lone(2,'select public.owner_status()');
+ok('the owner: owner_status says yes, with 1 to check',st11.owner===true&&st11.to_check===1,JSON.stringify(st11));
+
+// The sender's category is kept now
+const nc11b=await las(4,`select public.submit_new_category(1,'Gummies','Haribo','Haribo Goldbears',null,null,null,4,2) id`);
+ok('011: a new subcategory keeps the category picked (and the old 8-argument call still works)',!!nc11b.rows&&(await lq(`select category_id from public.item_requests where id=${nc11b.rows[0].id}`))[0].category_id===2,nc11b.err);
+ok('…review_list names it instead of "you pick"',(await lq('select * from public.review_list()')).find(r=>r.id==nc11b.rows[0].id).type==='Sweets');
+ok('…an unknown category is refused',/Pick the category/.test((await las(4,`select public.submit_new_category(1,'Toffee apples','Haribo','Haribo Apples',null,null,null,null,99)`)).err||''));
+const queue=await lone(2,'select public.owner_queue()');
+ok('owner_queue: both waiting, oldest first, with what was sent and never who',queue.length===2&&queue[0].id==r11a&&queue[1].category_id===2&&queue[0].pack_name==='Haribo Starmix'&&!JSON.stringify(queue).includes(U(3))&&!('user_id' in queue[0]),JSON.stringify(queue));
+
+// Accept, with changes
+ok('accept refuses an emoji that isn\'t one',/Just one emoji/.test((await las(2,`select public.owner_accept(${r11a},2,'Jelly Sweets',null,'ab')`)).err||'')&&/Just one emoji/.test((await las(2,`select public.owner_accept(${r11a},2,'Jelly Sweets',null,'🐻 🐻')`)).err||'')&&/Just one emoji/.test((await las(2,`select public.owner_accept(${r11a},2,'Jelly Sweets',null,'グミ')`)).err||''));
+const acc=await lone(2,`select public.owner_accept(${r11a},2,'Jelly Sweets',null,'🐻',' haribo ','Haribo Starmix Sweets')`);
+const jelly=(await lq(`select * from public.products where name='Jelly sweets'`))[0];
+ok('accept: a new subcategory in the chosen category, with your emoji',!!jelly&&jelly.category_id===2&&jelly.emoji==='🐻'&&/in the vote/.test(acc.message),JSON.stringify(acc));
+const starmix=(await lq(`select i.*,b.name brand from public.items i join public.brands b on b.id=i.brand_id where i.id=${acc.item_id}`))[0];
+ok('…the snack is in the vote, with your name and the brand as it is on TasteRank',starmix.status==='pending'&&starmix.pack_name==='Haribo Starmix Sweets'&&starmix.brand==='Haribo'&&acc.product==='Jelly sweets');
+ok('…with the sender\'s approval counted',(await lq(`select count(*)::int n from public.approvals where item_id=${acc.item_id}`))[0].n===1);
+ok('…and it isn\'t waiting any more',/isn't waiting any more/.test((await las(2,`select public.owner_accept(${r11a})`)).err||'')&&(await lone(2,'select public.owner_status()')).to_check===1);
+const r11b=nc11b.rows[0].id;
+ok('decline',/Declined/.test(await lone(2,`select public.owner_decline(${r11b})`))&&(await lq(`select status from public.item_requests where id=${r11b}`))[0].status==='declined');
+
+// Snacks
+const sn=await lone(2,'select public.owner_snacks(1)');
+const mine=sn.find(x=>x.id==acc.item_id);
+ok('owner_snacks: newest first, with status, ratings, approvals and days left',sn[0].id==acc.item_id&&mine.status==='pending'&&mine.approvals===1&&mine.ratings===0&&mine.days_left===30&&mine.product==='Jelly sweets',JSON.stringify(mine));
+ok('…all countries with null, one snack with p_item',(await lone(2,'select public.owner_snacks(null)')).length>=sn.length&&(await lone(2,`select public.owner_snacks(null,${acc.item_id})`)).length===1);
+const lv=await lone(2,`select public.owner_set_status(${acc.item_id},'live')`);
+ok('put live now: live straight away, brand too, and on the home page',lv.status==='live'&&(await lq(`select b.status from public.brands b where name='Haribo'`))[0].status==='live'
+  &&(await lq('select public.home_categories(1) h'))[0].h.some(c=>c.name==='Jelly sweets'));
+ok('…a live snack can\'t be put live again',/in the vote or closed/.test((await las(2,`select public.owner_set_status(${acc.item_id},'live')`)).err||''));
+await live.query(`insert into public.item_ratings(item_id,user_id,score) values ($1,$2,5)`,[acc.item_id,U(4)]);
+const hd=await lone(2,`select public.owner_set_status(${acc.item_id},'hide')`);
+ok('hide: off the home page, search and its list; ratings kept; can\'t be rated',hd.status==='hidden'&&hd.ratings===1
+  &&!(await lq('select public.home_categories(1) h'))[0].h.some(c=>c.name==='Jelly sweets')
+  &&!(await lq(`select public.search_items('starmix') s`))[0].s.length&&/live|rate/i.test((await las(4,`select public.rate_item(${acc.item_id},3)`)).err||'x'));
+const again=await las(3,`select public.submit_snack(1,${jelly.id},'Haribo','Haribo Starmix Sweets') r`);
+ok('…someone can add the same snack again (it goes to the vote)',!!again.rows?.[0].r.id&&!again.rows[0].r.duplicate,JSON.stringify(again));
+ok('…then showing the hidden one again is refused, saying why',/Another snack with this name is listed now/.test((await las(2,`select public.owner_set_status(${acc.item_id},'show')`)).err||''));
+await lone(3,`select public.withdraw_submission('${again.rows[0].r.id}')`);
+const sh=await lone(2,`select public.owner_set_status(${acc.item_id},'show')`);
+ok('…once that copy is gone, show again puts it back as it was (live)',sh.status==='live'&&sh.ratings===1);
+ok('…the sender\'s list copes with a hidden snack',!(await las(3,'select public.my_submissions()')).err);
+
+// Change a snack
+const kk=(await lq(`select id,country_id,pack_name from public.items where status='live' and id<>${acc.item_id} order by id limit 1`))[0];
+ok('change: a name another snack has is refused, saying so',/Another snack in UK already has that name/.test((await las(2,`select public.owner_save_snack(${acc.item_id},$1,'Haribo',1,2,'Jelly Sweets',null)`,[kk.pack_name])).err||''));
+const ch=await lone(2,`select public.owner_save_snack(${acc.item_id},'haribo starmix','Haribo UK',1,2,'jelly sweets','sour')`);
+ok('change: name tidied, new brand, a new flavour made in the subcategory',ch.pack_name==='Haribo Starmix'&&ch.brand==='Haribo UK'&&ch.flavour==='Sour'&&ch.product==='Jelly sweets',JSON.stringify(ch));
+ok('…a new subcategory by name, in the category given',(await lone(2,`select public.owner_save_snack(${acc.item_id},'Haribo Starmix','Haribo',1,2,'Fizzy sweets','Other')`)).product==='Fizzy sweets'&&(await lq(`select category_id from public.products where name='Fizzy sweets'`))[0].category_id===2);
+ok('photos: only Open Food Facts links or your own folder; empty removes it',
+  /only come from Open Food Facts/.test((await las(2,`select public.owner_save_snack(${acc.item_id},'Haribo Starmix','Haribo',1,2,'Jelly Sweets',null,'https://evil.example/x.jpg')`)).err||'')
+  &&/your own folder/.test((await las(2,`select public.owner_save_snack(${acc.item_id},'Haribo Starmix','Haribo',1,2,'Jelly Sweets',null,'${U(3)}/a.jpg')`)).err||'')
+  &&(await lone(2,`select public.owner_save_snack(${acc.item_id},'Haribo Starmix','Haribo',1,2,'Jelly Sweets',null,'${U(2)}/a.jpg')`)).image_path===`${U(2)}/a.jpg`
+  &&(await lone(2,`select public.owner_save_snack(${acc.item_id},'Haribo Starmix','Haribo',1,2,'Jelly Sweets',null,'https://images.openfoodfacts.org/x.jpg')`)).image_url==='https://images.openfoodfacts.org/x.jpg'
+  &&(await lone(2,`select public.owner_save_snack(${acc.item_id},'Haribo Starmix','Haribo',1,2,'Jelly Sweets',null,'')`)).image_url===null);
+ok('…an empty flavour keeps it in the same subcategory',(await lone(2,`select public.owner_save_snack(${acc.item_id},'Haribo Starmix','Haribo',1,2,'Jelly Sweets',null)`)).flavour==='Other');
+
+// Subcategories
+const cat11=await lone(2,'select public.owner_catalogue()');
+ok('owner_catalogue: categories, and subcategories with emoji, snacks and flavours',cat11.categories.filter(c=>c.visible).length===3&&cat11.products.find(p=>p.name==='Jelly sweets').snacks===1&&cat11.products.find(p=>p.name==='Jelly sweets').flavours.some(f=>f.name==='Sour'));
+ok('rename to a name that\'s taken: refused, pointing to Move',/already a subcategory called Toffee.*Move its snacks/.test((await las(2,`select public.owner_save_subcategory(${jelly.id},'toffee',2)`)).err||''));
+const sv11=await lone(2,`select public.owner_save_subcategory(${jelly.id},'jelly sweets',2,'🍬')`);
+ok('rename, category and emoji saved (an empty emoji keeps the old one)',sv11.name==='Jelly sweets'&&sv11.emoji==='🍬'&&(await lone(2,`select public.owner_save_subcategory(${jelly.id},'Jelly Sweets',2,'')`)).emoji==='🍬');
+const fizzy=(await lq(`select id from public.products where name='Fizzy sweets'`))[0].id;
+await lone(2,`select public.owner_save_snack(${acc.item_id},'Haribo Starmix','Haribo',1,2,'Fizzy Sweets','Sour')`);
+const mv=await lone(2,`select public.owner_move_snacks(${fizzy},${jelly.id})`);
+ok('move: the snacks go across with their flavour, and the empty subcategory goes',mv===1&&(await lone(2,`select public.owner_snacks(null,${acc.item_id})`))[0].product==='Jelly sweets'
+  &&(await lone(2,`select public.owner_snacks(null,${acc.item_id})`))[0].flavour==='Sour'&&!(await lq(`select 1 from public.products where id=${fizzy}`)).length,JSON.stringify(mv));
+ok('…ratings come along',(await lq(`select count(*)::int n from public.item_ratings where item_id=${acc.item_id}`))[0].n===1);
+ok('…and moving into itself is refused',/different subcategory/.test((await las(2,`select public.owner_move_snacks(${jelly.id},${jelly.id})`)).err||''));
+ok('after it all, the pages still load',(await lq('select jsonb_array_length(public.home_categories(1)) n'))[0].n>0&&!!(await lq(`select public.category_page(${jelly.id},1) p`))[0].p&&!(await las(null,'select public.catalogue(1)')).err);
+}
 }

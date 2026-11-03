@@ -48,7 +48,10 @@ function thumb(it,cls=''){
   const inner=u?`<img src="${esc(u)}" alt="" loading="lazy" data-e="${e}" onerror="this.replaceWith(this.dataset.e)">`:e;
   return `<span class="thumb${cls?' '+cls:''}" aria-hidden="true">${inner}</span>`;
 }
-function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,2600)}
+function toast(msg,btn){ // btn: {label, act, id}: a button in the note (kept up longer, so there's time to tap it)
+  const t=$('#toast');t.innerHTML=esc(msg)+(btn?` <button class="link" data-act="${esc(btn.act)}" data-id="${esc(btn.id)}">${esc(btn.label)}</button>`:'');
+  t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,btn?6000:2600);
+}
 function oops(e){console.error(e);toast('Something went wrong. Please try again.')}
 function withTimeout(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))])}
 
@@ -134,11 +137,12 @@ const demoApi={
   async signIn(){const d=demoState();d.user={id:'demo'};demoSave(d)},
   async signOut(){const d=demoState();d.user=null;demoSave(d)},
   async deleteAccount(){store.del(DEMO_KEY)},
-  async rpc(name,args){const f=DEMO_RPC[name];if(!f)throw new Error('Demo mode has no '+name);return f(args||{},demoState())}
+  async rpc(name,args){const f=DEMO_RPC[name];if(!f)throw new Error('Demo mode has no '+name);const st=demoState();ownDemoApply(st);return f(args||{},st)}
 };
 /* The same rules as the database functions, worked out from the sample data */
 const D={
-  all:()=>[...DEMO.items,...(demoState().added||[])],   // the sample items plus anything added on this device
+  all:()=>{const st=demoState(),o=(st.own||{}).items||{};   // the sample items plus anything added on this device, with the owner's changes
+    return [...DEMO.items,...(st.added||[])].map(i=>o[i.id]?{...i,...o[i.id]}:i)},
   brandId:name=>[...new Set(D.all().map(i=>i.b))].indexOf(name)+1,
   brandName:id=>[...new Set(D.all().map(i=>i.b))][id-1],
   local:(kind,id,c)=>DEMO.local[`${kind}:${id}:${c}`],
@@ -153,8 +157,8 @@ const D={
   pics:l=>[...l].sort((a,b)=>!a.image_url-!b.image_url||b.total-a.total||a.id-b.id).slice(0,4).map(D.pic), // a card's photos: ones with a photo first, then most rated
   sum:l=>l.reduce((s,x)=>s+x.total,0),
   approvals:(it,st)=>it.approvals+(st.approvals.includes(it.id)?1:0)+(st.extra[it.id]||0),
-  live:(it,st)=>!it.withdrawn&&(!it.pending||D.approvals(it,st)>=DEMO.settings.approval_votes),
-  waiting:(it,st)=>it.pending&&!it.closed&&!it.withdrawn&&!D.live(it,st),
+  live:(it,st)=>!it.withdrawn&&!it.hidden&&(!it.pending||D.approvals(it,st)>=DEMO.settings.approval_votes),
+  waiting:(it,st)=>it.pending&&!it.closed&&!it.withdrawn&&!it.hidden&&!D.live(it,st),
   totals(c,st){
     return D.all().filter(i=>i.c===c&&D.live(i,st)).map(i=>{
       const r=[...i.r],mine=st.user?st.ratings[i.id]:null;if(mine)r[mine-1]++;
@@ -265,14 +269,14 @@ const DEMO_RPC={
     if(p_score)st.planned[id]=p_score;
     demoSave(st);return {id,pack_name:pack,product_id:p_product,product:pname,variant_id:v,status:'pending'};
   },
-  submit_new_category({p_country,p_new_category,p_brand_name,p_pack_name},st){
+  submit_new_category({p_country,p_new_category,p_brand_name,p_pack_name,p_category},st){
     const nc=tidyCase(p_new_category,true),pack=tidyCase(p_pack_name);
     const found=DEMO.products.find(p=>norm(p.name)===norm(nc)||Object.entries(DEMO.local).some(([k,n])=>k.startsWith(`product:${p.id}:`)&&norm(n)===norm(nc)));
     if(found)throw new Error(`${D.product(found.id,p_country)} is already a category. Pick it from the list.`);
     const dup=D.same(p_country,pack,null,st);
     if(dup)throw Object.assign(new Error(`Already on TasteRank: ${dup.pack} is in ${D.product(dup.p,dup.c)}.`),{code:'23505'});
     const n=Date.now();
-    (st.requests=st.requests||[]).push({id:'r'+n,kind:'category',country_id:p_country,new_ranking:nc,brand:D.all().map(i=>i.b).find(b=>norm(b)===norm(p_brand_name))||tidyCase(p_brand_name),pack_name:pack,status:'review'});
+    (st.requests=st.requests||[]).push({id:'r'+n,kind:'category',country_id:p_country,category_id:p_category||null,sent:new Date().toISOString(),new_ranking:nc,brand:D.all().map(i=>i.b).find(b=>norm(b)===norm(p_brand_name))||tidyCase(p_brand_name),pack_name:pack,status:'review'});
     demoSave(st);return n;
   },
   withdraw_submission({p_id},st){
@@ -283,15 +287,114 @@ const DEMO_RPC={
     demoSave(st);return 'Withdrawn';
   },
   my_submissions(_,st){return [...(st.added||[]).filter(i=>!i.withdrawn).map(i=>({id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,variant_id:i.v,country_id:i.c,
-    product:D.product(i.p,i.c),country_flag:(D.country(i.c)||{}).flag,status:i.closed?'closed':D.live(i,st)?'live':'pending',approvals:D.approvals(i,st)})),
-    ...(st.requests||[]).filter(r=>r.status!=='withdrawn').map(r=>({...r,new_category:r.kind==='category',product:r.new_ranking,country_flag:(D.country(r.country_id)||{}).flag,approvals:0}))]},
+    product:D.product(i.p,i.c),country_flag:(D.country(i.c)||{}).flag,status:i.hidden?'hidden':i.closed?'closed':D.live(i,st)?'live':'pending',approvals:D.approvals(i,st)})),
+    ...(st.requests||[]).filter(r=>!['withdrawn','accepted'].includes(r.status)).map(r=>({...r,new_category:r.kind==='category',product:r.new_ranking,country_flag:(D.country(r.country_id)||{}).flag,approvals:0}))]},
   my_profile(_,st){return st.user?{taster_id:'#DEMO00',home_place:{id:0,level:'unknown',name:'Unknown'},rated:Object.keys(st.ratings).length,
     rankings_helped:new Set(Object.keys(st.ratings).map(id=>{const i=D.all().find(x=>x.id==id);return i&&`${i.p}-${i.v}-${i.c}`})).size}:null},
   my_ratings(_,st){return Object.entries(st.ratings).map(([id,score])=>{const i=D.all().find(x=>x.id==id);if(!i)return null;
     const pl=DEMO.places.find(p=>p.id===i.c);return {item_id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,variant_id:i.v,country_id:i.c,flag:pl.flag,
       ranking_title:D.title(i.v,i.c),score,image_url:i.img||null,image_path:null,emoji:D.emoji(i.p)}}).filter(Boolean)},
-  my_rating_count(_,st){return Object.keys(st.ratings).length}
+  my_rating_count(_,st){return Object.keys(st.ratings).length},
+  // The owner page: in demo mode you're the owner, and two sample additions wait for a check
+  owner_status(_,st){return st.user?{owner:true,to_check:ownDemoQueue(st).length}:{owner:false}},
+  owner_queue(_,st){return ownDemoQueue(st)},
+  owner_snacks({p_country,p_item},st){
+    const n=DEMO.settings.approval_votes;
+    return D.all().filter(i=>!i.withdrawn&&(p_country==null||i.c===p_country)&&(p_item==null||i.id===p_item)).map(i=>{
+      const p=DEMO.products.find(x=>x.id===i.p),v=DEMO.variants.find(x=>x.id===i.v),r=[...i.r];if(st.ratings[i.id])r[st.ratings[i.id]-1]++;
+      const total=r.reduce((a,b)=>a+b,0),approvals=D.approvals(i,st);
+      return {id:i.id,pack_name:i.pack,brand:i.b,brand_id:D.brandId(i.b),product_id:i.p,product:p.name,category_id:p.category_id,emoji:p.emoji,variant_id:i.v,flavour:v.name,is_other:!!v.is_other,
+        country_id:i.c,status:i.hidden?'hidden':i.closed?'closed':approvals>=n||!i.pending?'live':'pending',hidden_from:i.hidden_from||null,ratings:total,
+        avg:total?Math.round(r.reduce((s,x,k)=>s+x*(k+1),0)/total*100)/100:null,approvals,days_left:i.days_left??30,image_url:i.img||null,image_path:null};
+    }).sort((a,b)=>b.id-a.id);
+  },
+  owner_catalogue(_,st){
+    const all=D.all().filter(i=>!i.withdrawn&&!i.closed);
+    return {categories:DEMO.categories.map(c=>({...c,visible:true})),products:DEMO.products.map(p=>({id:p.id,name:p.name,emoji:p.emoji,category_id:p.category_id,
+      snacks:all.filter(i=>i.p===p.id).length,ratings:all.filter(i=>i.p===p.id).reduce((s,i)=>s+i.r.reduce((a,b)=>a+b,0)+(st.ratings[i.id]?1:0),0),
+      flavours:DEMO.variants.filter(v=>v.product_id===p.id).sort(D.vsort).map(v=>({id:v.id,name:v.name,is_other:!!v.is_other}))}))};
+  },
+  owner_accept({p_request,p_category,p_subcategory,p_flavour,p_emoji,p_brand_name,p_pack_name},st){
+    const r=ownDemoQueue(st).find(x=>String(x.id)===String(p_request));if(!r)throw new Error("That one isn't waiting any more");
+    const cat=p_category||r.category_id,pack=tidyCase(p_pack_name||r.pack_name),brand=D.all().map(i=>i.b).find(b=>norm(b)===norm(p_brand_name||r.brand_name))||tidyCase(p_brand_name||r.brand_name);
+    const pid=ownDemoProduct(st,p_subcategory||r.product||r.new_ranking,cat,p_emoji);
+    const v=p_flavour?ownDemoVariant(st,pid,p_flavour):D.guessVariant(pid,pack,null);
+    (st.reviewed=st.reviewed||{})[r.id]='accepted';const mine=(st.requests||[]).find(x=>x.id===r.id);if(mine)mine.status='accepted';
+    const dup=D.same(r.country_id,pack,null,st);
+    if(dup){demoSave(st);return {message:`That snack was already there (${dup.pack}), so nothing new was sent to the vote.`,item_id:dup.id,pack_name:pack,product:DEMO.products.find(x=>x.id===dup.p).name}}
+    const id=Date.now();st.added.push({id,c:r.country_id,p:pid,v,b:brand,pack,r:[0,0,0,0,0],pending:true,approvals:1,days_left:30});
+    demoSave(st);return {message:'in the vote',item_id:id,pack_name:pack,product:DEMO.products.find(x=>x.id===pid).name};
+  },
+  owner_decline({p_request},st){
+    (st.reviewed=st.reviewed||{})[p_request]='declined';const mine=(st.requests||[]).find(x=>x.id===p_request);if(mine)mine.status='declined';
+    demoSave(st);return 'Declined. The sender will see "Not this time".';
+  },
+  owner_save_snack({p_item,p_pack_name,p_brand_name,p_country,p_category,p_subcategory,p_flavour,p_photo},st){
+    const it=D.all().find(i=>i.id===p_item),pack=tidyCase(p_pack_name);
+    if(!pack)throw new Error('Type the name on the pack');if(!norm(p_brand_name))throw new Error('Add the brand');
+    if(D.all().some(i=>i.id!==p_item&&i.c===p_country&&!i.hidden&&(D.live(i,st)||D.waiting(i,st))&&snackKey(i.pack)===snackKey(pack)))
+      throw new Error(`Another snack in ${D.country(p_country).short_name} already has that name. Change one of them, or hide the extra one.`);
+    const pid=ownDemoProduct(st,p_subcategory,p_category),v=p_flavour?ownDemoVariant(st,pid,p_flavour):pid===it.p?it.v:D.guessVariant(pid,pack,null);
+    const o={pack,b:D.all().map(i=>i.b).find(b=>norm(b)===norm(p_brand_name))||tidyCase(p_brand_name),c:p_country,p:pid,v};
+    if(p_photo!=null)o.img=p_photo||null;
+    ownDemoItem(st,p_item,o);return DEMO_RPC.owner_snacks({p_item},st)[0];
+  },
+  owner_set_status({p_item,p_action},st){
+    const s=DEMO_RPC.owner_snacks({p_item},st)[0];
+    if(p_action==='hide')ownDemoItem(st,p_item,{hidden:true,hidden_from:s.status});
+    if(p_action==='show'){
+      const it=D.all().find(i=>i.id===p_item);
+      if(D.all().some(i=>i.id!==p_item&&i.c===it.c&&(D.live(i,st)||D.waiting(i,st))&&snackKey(i.pack)===snackKey(it.pack)))throw new Error('Another snack with this name is listed now. Hide that one first.');
+      ownDemoItem(st,p_item,{hidden:false,hidden_from:null});
+    }
+    if(p_action==='live'){if(!['pending','closed'].includes(s.status))throw new Error('Only a snack in the vote or closed can be put live');ownDemoItem(st,p_item,{pending:false,closed:false})}
+    return DEMO_RPC.owner_snacks({p_item},demoState())[0];
+  },
+  owner_save_subcategory({p_product,p_name,p_category,p_emoji},st){
+    const name=tidyCase(p_name,true),other=DEMO.products.find(p=>p.id!==p_product&&norm(p.name)===norm(name));
+    if(!name)throw new Error('Name the subcategory');
+    if(other)throw new Error(`There's already a subcategory called ${other.name}. To join them, use "Move its snacks into…".`);
+    const p={...DEMO.products.find(x=>x.id===p_product),name,category_id:p_category,emoji:p_emoji||DEMO.products.find(x=>x.id===p_product).emoji};
+    ownDemoKeep(st,'products',p);demoSave(st);ownDemoApply(st);return p;
+  },
+  owner_move_snacks({p_from,p_into},st){
+    if(p_from===p_into)throw new Error('Pick a different subcategory');
+    const moved=D.all().filter(i=>i.p===p_from);
+    for(const i of moved){const v=DEMO.variants.find(x=>x.id===i.v);ownDemoItem(st,i.id,{p:p_into,v:v.is_other?ownDemoVariant(st,p_into,'Other'):ownDemoVariant(st,p_into,v.name)})}
+    const o=st.own;o.removed=[...(o.removed||[]),p_from];demoSave(st);ownDemoApply(st);return moved.length;
+  }
 };
+// Demo owner changes are kept in the demo data (own: products, variants, items, removed) and laid over the sample data before each call
+DEMO.requests=[
+  {id:'d1',kind:'category',country_id:1,category_id:2,new_ranking:'Jelly sweets',brand_name:'Haribo',pack_name:'Haribo Starmix',sent:'2026-11-03T09:00:00Z'},
+  {id:'d2',kind:'ranking',country_id:1,category_id:2,product_id:2,new_ranking:'Salted caramel',new_variant:'Salted Caramel',brand_name:"Werther's Original",pack_name:"Werther's Original Salted Caramel",sent:'2026-11-02T09:00:00Z'}];
+function ownDemoQueue(st){
+  const done=st.reviewed||{};
+  return [...DEMO.requests,...(st.requests||[]).filter(r=>r.status==='review').map(r=>({...r,brand_name:r.brand,sent:r.sent||new Date().toISOString()}))]
+    .filter(r=>!done[r.id]).map(r=>({...r,product:r.product_id?DEMO.products.find(p=>p.id===r.product_id)?.name:null}))
+    .sort((a,b)=>String(a.sent).localeCompare(String(b.sent)));
+}
+function ownDemoKeep(st,kind,x){const o=st.own=st.own||{};o[kind]=(o[kind]||[]).filter(y=>y.id!==x.id).concat([x])}
+function ownDemoItem(st,id,change){const o=st.own=st.own||{};o.items=o.items||{};o.items[id]={...(o.items[id]||{}),...change};demoSave(st)}
+function ownDemoApply(st){
+  const o=st.own||{};
+  for(const p of o.products||[]){const i=DEMO.products.findIndex(x=>x.id===p.id);if(i<0)DEMO.products.push({...p});else Object.assign(DEMO.products[i],p)}
+  for(const v of o.variants||[])if(!DEMO.variants.some(x=>x.id===v.id))DEMO.variants.push({...v});
+  for(const id of o.removed||[]){const i=DEMO.products.findIndex(x=>x.id===id);if(i>=0)DEMO.products.splice(i,1)}
+}
+function ownDemoProduct(st,name,cat,emoji){
+  const n=tidyCase(name||'',true);if(!n)throw new Error('Name the subcategory');
+  const found=DEMO.products.find(p=>norm(p.name)===norm(n));if(found)return found.id;
+  if(!cat)throw new Error('Pick the category');
+  const id=Math.max(...DEMO.products.map(p=>p.id),...((st.own||{}).removed||[]))+1;
+  ownDemoKeep(st,'products',{id,category_id:cat,name:n,emoji:emoji||'🍽️',off_tags:[]});ownDemoApply(st);ownDemoVariant(st,id,'Other');return id;
+}
+function ownDemoVariant(st,pid,name){
+  const n=tidyCase(name,true),p=DEMO.products.find(x=>x.id===pid),other=norm(n)==='other';
+  const found=DEMO.variants.find(v=>v.product_id===pid&&(other?v.is_other:norm(v.name)===norm(n)));if(found)return found.id;
+  const v={id:Math.max(...DEMO.variants.map(x=>x.id))+1,product_id:pid,name:other?'Other':n,title:other?'Other '+p.name.toLowerCase():`${n} ${p.name.toLowerCase()}`,is_other:other,keywords:other?[]:[snackKey(n)]};
+  const o=st.own=st.own||{};o.variants=[...(o.variants||[]),v];DEMO.variants.push(v);demoSave(st);return v.id;
+}
 const api=LIVE?liveApi:demoApi;
 const rpc=(name,args)=>api.rpc(name,args);
 
@@ -356,8 +459,8 @@ document.addEventListener('keydown',e=>{
 });
 
 /* ---------- Navigation: #/ home · #/brands home by brand · #/p/gb/3[/4] category (and flavour; ?snack=57 scrolls to a waiting snack)
-   · #/b/gb/12[/3[/4]] brand (and category, flavour) · #/me profile. Old #/r/gb/3/4 ranking links open #/p/gb/3/4. ---------- */
-const VIEWS=['home','category','brand','profile'];
+   · #/b/gb/12[/3[/4]] brand (and category, flavour) · #/me profile · #/owner the owner page. Old #/r/gb/3/4 ranking links open #/p/gb/3/4. ---------- */
+const VIEWS=['home','category','brand','profile','owner'];
 function parseHash(){
   const h=location.hash;let m;
   if((m=h.match(/^#\/p\/([a-z]{2})\/(\d+)(?:\/(\d+))?(?:\?snack=(\d+))?$/i)))return {v:'category',cc:m[1],product:+m[2],variant:m[3]?+m[3]:null,snack:m[4]?+m[4]:null};
@@ -365,12 +468,13 @@ function parseHash(){
   if((m=h.match(/^#\/r\/([a-z]{2})\/(\d+)\/(\d+)$/i))){const r={v:'category',cc:m[1],product:+m[2],variant:+m[3]};history.replaceState(null,'',hashFor(r));return r}
   if(h==='#/brands')return {v:'home',by:'brands'};
   if(h==='#/me')return {v:'profile'};
+  if(h==='#/owner')return {v:'owner'};
   return {v:'home'}; // includes old #/item/5 links: those foods aren't in the new structure
 }
 const hashFor=r=>{const cc=String(r.cc||'').toLowerCase();
   return r.v==='category'?`#/p/${cc}/${r.product}${r.variant?'/'+r.variant:''}${r.snack?'?snack='+r.snack:''}`
     :r.v==='brand'?`#/b/${cc}/${r.brand}${r.product?`/${r.product}${r.variant?'/'+r.variant:''}`:''}`
-    :r.v==='profile'?'#/me':r.by==='brands'?'#/brands':''};
+    :r.v==='profile'?'#/me':r.v==='owner'?'#/owner':r.by==='brands'?'#/brands':''};
 async function show(r){
   view=r.v;
   VIEWS.forEach(x=>$('#v-'+x).hidden=x!==r.v);
@@ -379,6 +483,7 @@ async function show(r){
   if(r.v==='category')await renderCategory(r);
   if(r.v==='brand')await renderBrandPage(r);
   if(r.v==='profile')await renderProfile();
+  if(r.v==='owner')await renderOwner();
   setFab(); // its label names the list now showing
   currentUrl=location.href;
   track(pagePath());
@@ -432,13 +537,14 @@ const ACT={
   privacy:()=>{showSettings(false);openM('m-privacy')},
   about:()=>{showSettings(false);toast('About Crispy is coming soon')},
   settings:()=>showSettings($('#settings-pop').hidden),
-  'set-theme':d=>setTheme(d.theme)
+  'set-theme':d=>setTheme(d.theme),
+  owner:()=>{showSettings(false);go({v:'owner'})}
 };
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');
   if(!el||el.disabled)return;
   if(el.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button))return; // a link opened in a new tab
-  const f=ACT[el.dataset.act]||ADD_ACT[el.dataset.act];if(!f)return;
+  const f=ACT[el.dataset.act]||ADD_ACT[el.dataset.act]||OWN_ACT[el.dataset.act];if(!f)return;
   e.preventDefault();f(el.dataset);
 });
 $('#country').addEventListener('change',e=>{prefs.country=e.target.value;prefs.cat='all';savePrefs();renderHome({by:homeBy})});
@@ -449,7 +555,8 @@ const AFTER={
   profile:()=>go({v:'profile'}),
   rate:a=>openRate(a.item),
   approve:a=>doApprove(a.item,a.brand,a.mine),
-  add:a=>startAdd()
+  add:a=>startAdd(),
+  owner:()=>go({v:'owner'})
 };
 function needUser(a){
   if(me)return AFTER[a.name](a);
@@ -465,7 +572,7 @@ async function afterSignIn(){
   me=await api.session();
   const next=store.get('tasterank-after',true);store.del('tasterank-after',true);
   closeM();
-  if(me)await loadProfile();
+  if(me)await Promise.all([loadProfile(),loadOwner()]);
   renderHeader();
   if(next&&next.hash&&next.hash!==location.hash)history.replaceState(null,'',next.hash);
   await route();
@@ -485,7 +592,7 @@ const onCategory=()=>view==='category'&&page&&page.kind==='category'?page:null;
 const onBrandPage=()=>view==='brand'&&page&&page.kind==='brandpage'?page:null;
 function setFab(){
   const f=$('#add-fab'),c=onCategory(),b=onBrandPage();
-  f.hidden=view==='profile';
+  f.hidden=view==='profile'||view==='owner';
   f.setAttribute('aria-label',c?`Add a snack to ${c.name}`:b?`Add a ${b.name} snack`:'Add a snack');
 }
 function openAdd(){needUser({name:'add'})}  // a declaration, so the click map above can use it
@@ -1003,10 +1110,11 @@ async function sendAdd(){
   try{
     if(add.photo&&LIVE){path=await uploadPhoto(add.photo.blob);track('photo-upload',true)}
     const extra={p_image_path:path,p_image_url:url,p_barcode:add.barcode,p_score:add.score};
-    const args=review?{p_country:add.country,p_new_category:add.newCat,p_brand_name:brand,p_pack_name:pack,...extra}
+    const args=review?{p_country:add.country,p_new_category:add.newCat,p_brand_name:brand,p_pack_name:pack,p_category:add.type,...extra}
       :{p_country:add.country,p_product:add.product,p_brand_name:brand,p_pack_name:pack,p_variant_hint:variantHint(),...extra};
     if(!LIVE&&add.photo)args.p_demo_image=add.photo.dataUrl;
-    res=await rpc(review?'submit_new_category':'submit_snack',args);
+    res=await rpc(review?'submit_new_category':'submit_snack',args).catch(e=>{ // before migration 011, the database doesn't know p_category yet
+      if(review&&e.code==='PGRST202'){delete args.p_category;return rpc('submit_new_category',args)}throw e});
   }catch(e){
     add.sending=false;const m=e.message||String(e);
     if(e.code==='23505'){ // a new category's snack that's already here
@@ -1021,8 +1129,7 @@ async function sendAdd(){
   if(res&&res.duplicate){add.sending=false;add.dup=res.duplicate;return renderMid()}
   if(review)emailOwner(`TasteRank: check new subcategory "${add.newCat}"`,
     `Sold in: ${cp.name}\nCategory: ${typeName(add.type)}\nNew subcategory: ${add.newCat}\nBrand: ${brand}\nName on the pack: ${pack}\nPhoto: ${path?'uploaded':url?'from Open Food Facts':'none'}\n\n`
-    +`To check it, open Supabase → SQL Editor and run:\n  select * from public.review_list();\nThen accept it in the category they chose (to file it elsewhere, change the number: 1 Chocolate, 2 Sweets, 3 Crisps & Snacks), or decline it:\n`
-    +`  select public.accept_request(${res}, p_category => ${add.type});\n  select public.decline_request(${res});`);
+    +`Check it on the owner page: https://tasterank.app/#/owner`);
   track('add-sent',true);
   add.sent={id:review?null:res.id,name:review?tidyCase(pack):res.pack_name,category:review?add.newCat:res.product,typeName:typeName(add.type),product:review?null:add.product,cc:cp.code,newCat:review};
   add.step='sent';add.sending=false;homeData=null;
@@ -1500,6 +1607,290 @@ async function sendFeedback(e){
   e.target.reset();closeM();toast('Thank you! Your feedback has been sent.');
 }
 
+/* ---------- Owner page (#/owner, design/mockups/owner.html): check additions, change or hide snacks, tidy subcategories.
+   Only accounts on the database's owners list can use it: every owner call checks that list, so this page is a convenience, not the lock.
+   It never shows who sent anything. ---------- */
+let ownerInfo=null, own=null;
+async function loadOwner(){try{ownerInfo=me?await rpc('owner_status'):null}catch(e){ownerInfo=e?.code==='PGRST202'?null:{owner:false,failed:true}}renderOwnerLink()} // null before migration 011
+function renderOwnerLink(){
+  const b=$('#owner-link');if(!b)return;
+  b.hidden=!ownerInfo?.owner;
+  if(ownerInfo?.owner)b.textContent=`🛠️ Owner page${ownerInfo.to_check?` · ${ownerInfo.to_check} to check`:''}`;
+}
+const OWN_EMOJI={1:['🍫','🍪','🍩','🥜','🍓'],2:['🍬','🍭','🍫','🍪','🍯'],3:['🥔','🥨','🍿','🧀','🥜']};
+// One emoji, as owner_emoji() in the database allows: flags and joined ones (👩‍🍳) too, but no letters, numbers or spaces
+const OWN_EMOJI_RE=/^[©®‍‰-⯿〰〽㊗㊙︎️\u{1F000}-\u{1FAFF}\u{E0020}-\u{E007F}]+$/u;
+const okEmoji=e=>!e||([...e].length<=10&&OWN_EMOJI_RE.test(e));
+const OWN_FILTERS=[['all','All'],['live','Live'],['pending','In the vote'],['closed','Closed'],['hidden','Hidden'],['sort','Flavour to sort']];
+const ownIn=(x,f)=>f==='all'||(f==='sort'?x.is_other&&x.status!=='hidden':x.status===f);
+const ownCats=()=>own.cat.categories.filter(c=>c.visible);
+const ownProduct=name=>own.cat.products.find(p=>norm(p.name)===norm(tidyCase(name||'',true)));
+const ownQ=id=>own.queue.find(x=>String(x.id)===String(id));
+const ownDate=d=>new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+const ownErr=e=>e.message||String(e);
+
+async function renderOwner(){
+  const el=$('#v-owner'),top=`<button class="crumb" data-act="home">← Back to the site</button><h1 class="page-title">Owner page</h1>`;
+  if(!me){el.innerHTML=`${top}<div class="card empty"><p>Sign in to check additions and look after the snacks.</p><button class="btn btn-primary" data-act="own-sign-in">Sign in</button></div>`;return}
+  if(!ownerInfo?.owner)await loadOwner();
+  if(!ownerInfo?.owner){
+    el.innerHTML=`<button class="crumb" data-act="home">← Back</button><div class="card empty own-empty"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-confused"/></svg>
+      <h1 class="own-h">${ownerInfo?.failed?"Couldn't open the owner page":ownerInfo?"This page is for TasteRank's owner":'The owner page isn\'t ready yet'}</h1>
+      <p>${ownerInfo?.failed?'Check your connection, then reload.':ownerInfo?'Looking for snacks? <button class="link" data-act="home">Go to the home page</button>':'Run migration 011 in Supabase first, then reload.'}</p></div>`;
+    return;
+  }
+  if(!own)own={tab:'check',filter:'all',q:'',country:homeCountry()?.id??null,req:{}};
+  el.innerHTML=`${top}<div class="own-tabs" role="tablist" aria-label="Owner page" id="own-tabs"></div><div id="own-body"><div class="card empty">Loading…</div></div>`;
+  try{await ownFetch()}catch(e){console.error(e);$('#own-body').innerHTML=`<div class="card empty">Couldn't load the owner page. Check your connection and refresh.</div>`;return}
+  drawOwner();
+}
+async function ownFetch(){
+  const [queue,cat,snacks]=await Promise.all([rpc('owner_queue'),rpc('owner_catalogue'),rpc('owner_snacks',{p_country:own.country})]);
+  Object.assign(own,{queue,cat,snacks});
+  if(ownerInfo){ownerInfo.to_check=queue.length;renderOwnerLink()}
+}
+function ownRefresh(){ // after a change: everything reloads, and the rest of the site forgets what it had kept
+  homeData=null;for(const k in catalogues)delete catalogues[k];
+  return ownFetch().then(()=>{const f=document.activeElement;if(!(f&&$('#own-body')?.contains(f)&&f.tagName!=='BUTTON'))drawOwner()}).catch(oops);
+}
+function drawOwner(){
+  if(view!=='owner'||!own?.queue||!$('#own-body'))return;
+  $('#own-tabs').innerHTML=[['check',`To check <span class="n">${own.queue.length}</span>`],['snacks','Snacks'],['subs','Subcategories']]
+    .map(([k,l])=>`<button class="chip${own.tab===k?' on':''}" role="tab" aria-selected="${own.tab===k}" data-act="own-tab" data-tab="${k}">${l}</button>`).join('');
+  $('#own-body').innerHTML=own.tab==='check'?ownCheckHtml():own.tab==='snacks'?ownSnacksHtml():ownSubsHtml();
+}
+
+/* To check: one card per addition, filled in with what the sender chose */
+function ownReq(r){
+  return own.req[r.id]||(own.req[r.id]={cat:r.category_id||null,sub:r.product||tidyCase(r.new_ranking,true),flavour:r.kind==='ranking'?tidyCase(r.new_variant||'Original',true):'',
+    emoji:null,other:false,names:false,pack:r.pack_name,brand:r.brand_name,confirm:false,error:null,busy:false});
+}
+function ownCheckHtml(){
+  if(!own.queue.length)return `<div class="card empty own-empty"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><h2 class="own-h">Nothing to check</h2><p>New additions appear here, and you'll get an email too.</p></div>`;
+  return own.queue.map(ownReqCard).join('');
+}
+function ownSubNote(sub){const p=ownProduct(sub);return !norm(sub)?'Type the subcategory':p?`Already listed: it goes into ${p.name}`:'New subcategory'}
+function ownEmojiHtml(cat,value,otherOpen,act,id,attr){ // five that suit the category, then Other… (any emoji, typed or pasted)
+  const list=OWN_EMOJI[cat]||OWN_EMOJI[2],mine=!!value&&!list.includes(value)&&okEmoji(value),other=mine||otherOpen;
+  return `<div class="own-emo" role="group" aria-label="Emoji">${list.map(e=>`<button type="button" class="${e===value&&!otherOpen?'on':''}" aria-pressed="${e===value&&!otherOpen}" data-act="${act}" data-id="${id}" data-e="${e}">${e}</button>`).join('')}
+    <button type="button" class="other${other?' on':''}" aria-pressed="${other}" data-act="${act}" data-id="${id}" data-e="">${mine?`<b>${esc(value)}</b> Yours`:'Other…'}</button></div>
+    ${otherOpen?`<label class="field own-custom">Your own emoji<input ${attr}="custom" data-id="${id}" value="${value&&!list.includes(value)?esc(value):''}" autocomplete="off" maxlength="16"><span class="hint">Type or paste one emoji. It shows on cards with no photo.</span></label>`:''}`;
+}
+const ownCatChips=(on,act,id)=>`<div class="chips wrap" role="group" aria-label="Category">${ownCats().map(c=>`<button class="chip${c.id===on?' on':''}" aria-pressed="${c.id===on}" data-act="${act}"${id!=null?` data-id="${id}"`:''} data-cat="${c.id}">${esc(c.name)}</button>`).join('')}</div>`;
+function ownReqCard(r){
+  const s=ownReq(r),pl=placeBy('id',r.country_id)||{},isNew=!ownProduct(s.sub),emo=s.emoji||(OWN_EMOJI[s.cat]||OWN_EMOJI[2])[0];
+  const what=r.kind==='category'?`subcategory "${esc(r.new_ranking)}"`:r.product?`flavour "${esc(r.new_variant||r.new_ranking)}" in ${esc(r.product)}`:`"${esc(r.new_ranking)}"`;
+  const head=`<div class="own-top">${thumb({...r,emoji:okEmoji(emo)?emo:(OWN_EMOJI[s.cat]||OWN_EMOJI[2])[0]})}<div><h3 class="own-name">${esc(s.pack)}</h3><p class="meta">${esc(s.brand)} · ${esc(pl.short_name||'')} · sent ${ownDate(r.sent)}</p>
+    <p class="own-what"><span class="newtag sm">New</span> ${what}</p></div></div>`;
+  if(s.confirm)return `<div class="card own-req" id="own-r-${r.id}">${head}<div class="own-confirm"><p>Decline ${esc(s.pack)}? The sender sees "Not this time".</p>
+    <div class="own-acts"><button class="btn btn-danger-solid" data-act="own-decline-yes" data-id="${r.id}"${s.busy?' disabled':''}>Decline</button><button class="btn" data-act="own-decline-no" data-id="${r.id}">Keep</button></div></div></div>`;
+  return `<div class="card own-req" id="own-r-${r.id}">${head}
+    <div class="own-f"><span class="lab">Category</span>${ownCatChips(s.cat,'own-req-cat',r.id)}</div>
+    <label class="field">Subcategory<input data-own="sub" data-id="${r.id}" value="${esc(s.sub)}" autocomplete="off"><span class="hint" id="own-sn-${r.id}">${esc(ownSubNote(s.sub))}</span></label>
+    ${r.kind==='ranking'?`<label class="field">Flavour<input data-own="flavour" data-id="${r.id}" value="${esc(s.flavour)}" autocomplete="off"></label>`:''}
+    <div class="own-f" id="own-emo-${r.id}"${isNew?'':' hidden'}><span class="lab">Emoji</span>${ownEmojiHtml(s.cat,emo,s.other,'own-req-emoji',r.id,'data-own')}</div>
+    ${s.names?`<label class="field">Name on the pack<input data-own="pack" data-id="${r.id}" value="${esc(s.pack)}" autocomplete="off"></label><label class="field">Brand<input data-own="brand" data-id="${r.id}" value="${esc(s.brand)}" autocomplete="off"></label>`
+      :`<button class="link own-edit" data-act="own-req-names" data-id="${r.id}">Edit name or brand</button>`}
+    ${s.error?`<p class="sheet-error" role="alert">${esc(s.error)}</p>`:''}
+    <div class="own-acts"><button class="btn btn-primary" data-act="own-accept" data-id="${r.id}"${s.busy?' disabled':''}>Accept</button><button class="btn btn-danger" data-act="own-decline" data-id="${r.id}">Decline</button></div></div>`;
+}
+function ownRedrawReq(id,focus){ // one card, keeping your place: focus goes back to the control you used
+  const r=ownQ(id),el=$(`#own-r-${CSS.escape(String(id))}`);if(!r||!el)return;
+  el.outerHTML=ownReqCard(r);
+  if(focus)$(`#own-r-${CSS.escape(String(id))} ${focus}`)?.focus();
+}
+async function ownAccept(id){
+  const r=ownQ(id),s=ownReq(r);if(s.busy)return;
+  const isNew=!ownProduct(s.sub),emo=isNew?(s.emoji||(OWN_EMOJI[s.cat]||OWN_EMOJI[2])[0]):null;
+  s.error=!norm(s.sub)?'Type the subcategory':isNew&&!s.cat?'Pick the category':isNew&&s.other&&!s.emoji?'Type or paste an emoji, or pick one':isNew&&!okEmoji(emo)?'Just one emoji':!norm(s.pack)?'Type the name on the pack':!norm(s.brand)?'Add the brand':null;
+  if(s.error)return ownRedrawReq(id,'[role="alert"]');
+  s.busy=true;ownRedrawReq(id);
+  try{
+    const res=await rpc('owner_accept',{p_request:r.id,p_category:s.cat,p_subcategory:s.sub,p_flavour:r.kind==='ranking'?s.flavour||null:null,p_emoji:emo,
+      p_brand_name:s.brand!==r.brand_name?s.brand:null,p_pack_name:s.pack!==r.pack_name?s.pack:null});
+    ownDone(r);
+    toast(/in the vote/.test(res.message)?`${res.pack_name} is in the vote, in ${res.product}.`:res.message,res.item_id?{label:'Change it',act:'own-open',id:res.item_id}:null);
+  }catch(e){s.busy=false;s.error=ownErr(e);ownRedrawReq(id,'[role="alert"]')}
+}
+async function ownDecline(id){
+  const r=ownQ(id),s=ownReq(r);if(s.busy)return;
+  s.busy=true;ownRedrawReq(id);
+  try{await rpc('owner_decline',{p_request:r.id});ownDone(r);toast('Declined. The sender sees "Not this time".')}
+  catch(e){Object.assign(s,{busy:false,confirm:false,error:ownErr(e)});ownRedrawReq(id,'[role="alert"]')}
+}
+function ownDone(r){ // accepted or declined: it leaves the list now, and the rest reloads
+  own.queue=own.queue.filter(x=>x!==r);delete own.req[r.id];
+  if(ownerInfo){ownerInfo.to_check=own.queue.length;renderOwnerLink()}
+  drawOwner();$('#own-tabs .chip.on')?.focus();ownRefresh();
+}
+
+/* Snacks: every snack in a country (or all), with a search and filters; a row opens "Change this snack" */
+function ownSnacksHtml(){
+  const list=own.snacks||[];
+  return `<div class="own-srow"><input id="own-q" type="search" placeholder="Find a snack or brand" aria-label="Find a snack or brand" value="${esc(own.q)}" autocomplete="off">
+    <select id="own-country" aria-label="Country"><option value="">All countries</option>${places.map(p=>`<option value="${p.id}"${p.id===own.country?' selected':''}>${p.flag} ${esc(p.short_name)}</option>`).join('')}</select></div>
+    <div class="chips own-filters" role="group" aria-label="Show">${OWN_FILTERS.map(([k,l])=>`<button class="chip sm${own.filter===k?' on':''}" aria-pressed="${own.filter===k}" data-act="own-filter" data-f="${k}">${l} <span class="n">${list.filter(x=>ownIn(x,k)).length}</span></button>`).join('')}</div>
+    <div id="own-list">${ownListHtml()}</div>`;
+}
+const ownPill=st=>`<span class="own-pill ${st}">${{live:'Live',pending:'In the vote',closed:'Closed',hidden:'Hidden'}[st]||esc(st)}</span>`;
+function ownListHtml(){
+  const words=snackKey(own.q).split(' ').filter(Boolean),n=settings.approval_votes;
+  const l=(own.snacks||[]).filter(x=>ownIn(x,own.filter)&&words.every(w=>snackKey(`${x.pack_name} ${x.brand}`).includes(w)));
+  if(!l.length)return `<div class="card empty">${own.snacks?.length?'No snacks match.':'No snacks here yet.'}</div>`;
+  return `<div class="list">${l.map(x=>{
+    const pl=own.country?null:placeBy('id',x.country_id);
+    const more=x.status==='pending'?`${x.approvals} of ${n} approvals`:x.status==='closed'?`closed, ${x.approvals} of ${n} approvals`
+      :x.status==='hidden'?`${plural(x.ratings,'rating')} kept`:x.ratings?plural(x.ratings,'rating'):'no ratings yet';
+    return `<button class="ir own-row${x.status==='hidden'?' hid':''}" data-act="own-open" data-id="${x.id}">${thumb(x,'sm')}
+      <span class="in"><span class="bn">${esc(x.pack_name)}</span><span class="pk">${pl?pl.flag+' ':''}${esc(x.product)} · ${esc(x.brand)} · ${more}</span></span>${ownPill(x.status)}</button>`}).join('')}</div>`;
+}
+function ownDrawList(){const el=$('#own-list');if(el)el.innerHTML=ownListHtml()}
+async function ownOpenSnack(id){
+  let x=own?.snacks?.find(s=>String(s.id)===String(id));
+  if(!x)try{x=(await rpc('owner_snacks',{p_country:null,p_item:+id}))[0]}catch(e){return oops(e)}
+  if(!x)return toast("That snack isn't here any more.");
+  own.sub=null;own.edit={...x,sub:x.product,newSub:false,cat:x.category_id,photo:null,removePhoto:false,error:null,busy:false};
+  ownDrawSheet();openM('m-owner');
+}
+function ownDrawSheet(){$('#owner-body').innerHTML=own.edit?ownSnackSheet():own.sub?ownSubSheet():''}
+function ownStatusLine(x){
+  const n=settings.approval_votes;
+  return x.status==='live'?`Live · ${x.ratings?plural(x.ratings,'rating')+(x.avg!=null?` · average ${score1(x.avg)}`:''):'no ratings yet'}`
+    :x.status==='pending'?`In the vote · ${x.approvals} of ${n} approvals · closes in ${plural(x.days_left,'day')}`
+    :x.status==='closed'?`Closed · ${x.approvals} of ${n} approvals`:`Hidden · ${plural(x.ratings,'rating')} kept`;
+}
+function ownSnackSheet(){
+  const e=own.edit,pl=placeBy('id',e.country_id)||{},prods=own.cat.products.filter(p=>p.category_id===e.cat),cur=e.newSub?null:ownProduct(e.sub);
+  const pic=e.photo?{image_url:e.photo.url}:e.removePhoto?{emoji:e.emoji}:e,hasPic=!!(e.photo||(!e.removePhoto&&(e.image_url||e.image_path)));
+  const link=['live','pending'].includes(e.status)?` · <a href="${esc(hashFor({v:'category',cc:pl.code,product:e.product_id,snack:e.status==='pending'?e.id:null}))}" target="_blank" rel="noopener">Open on TasteRank</a>`:'';
+  return `<h3 id="own-sheet-title">Change this snack</h3><p class="own-sum">${esc(ownStatusLine(e))}${link}</p>
+    <div class="own-photo">${thumb(pic,'big')}<label class="btn sm">Change photo<input type="file" id="own-photo" accept="image/*" class="sr-only"></label>${hasPic?'<button class="link btn-danger" data-act="own-photo-remove">Remove</button>':''}</div>
+    <label class="field">Name on the pack<input data-edit="pack_name" value="${esc(e.pack_name)}" autocomplete="off"></label>
+    <label class="field">Brand<input data-edit="brand" value="${esc(e.brand)}" autocomplete="off"></label>
+    <label class="field">Sold in<select id="own-e-country">${places.map(p=>`<option value="${p.id}"${p.id===e.country_id?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('')}</select></label>
+    <div class="own-f"><span class="lab">Category</span>${ownCatChips(e.cat,'own-edit-cat')}</div>
+    <div class="own-two"><label class="field">Subcategory<select id="own-e-sub">${prods.map(p=>`<option value="${esc(p.name)}"${cur?.id===p.id?' selected':''}>${esc(p.name)}</option>`).join('')}<option value="new"${cur?'':' selected'}>＋ New…</option></select></label>
+      <label class="field">Flavour<input data-edit="flavour" value="${esc(e.flavour)}" list="own-flavours" autocomplete="off" placeholder="Guess it"><datalist id="own-flavours">${(cur?.flavours||[]).map(f=>`<option value="${esc(f.name)}">`).join('')}</datalist></label></div>
+    ${cur?'':`<label class="field">New subcategory<input data-edit="sub" value="${esc(e.newSub?e.sub:'')}" autocomplete="off"><span class="hint" id="own-e-sn">${esc(ownSubNote(e.newSub?e.sub:''))}</span></label>`}
+    ${e.error?`<p class="sheet-error" role="alert">${esc(e.error)}</p>`:''}
+    <button class="btn btn-primary btn-block" data-act="own-save"${e.busy?' disabled':''}>Save changes</button>
+    <div class="own-more">
+      ${['pending','closed'].includes(e.status)?`<button class="btn btn-block" data-act="own-status" data-a="live"${e.busy?' disabled':''}>Put live now (skip the vote)</button>`:''}
+      ${e.status==='hidden'?`<button class="btn btn-block" data-act="own-status" data-a="show"${e.busy?' disabled':''}>Show it again</button>`
+        :`<button class="btn btn-block btn-danger" data-act="own-status" data-a="hide"${e.busy?' disabled':''}>Hide from TasteRank</button><p class="hint">It disappears from the site, but its ratings are kept and you can show it again.</p>`}
+    </div>`;
+}
+async function ownSave(){
+  const e=own.edit;if(e.busy)return;
+  const sub=(e.sub||'').trim();
+  e.error=!sub?'Pick or name the subcategory':!norm(e.pack_name)?'Type the name on the pack':!norm(e.brand)?'Add the brand':null;
+  if(e.error)return ownDrawSheet();
+  e.busy=true;ownDrawSheet();
+  try{
+    const photo=e.photo?(LIVE?await uploadPhoto(e.photo.blob):e.photo.dataUrl):e.removePhoto?'':null;
+    await rpc('owner_save_snack',{p_item:e.id,p_pack_name:e.pack_name,p_brand_name:e.brand,p_country:e.country_id,p_category:e.cat,p_subcategory:sub,p_flavour:e.flavour||null,p_photo:photo});
+    closeM();toast('Saved');ownRefresh();
+  }catch(err){e.busy=false;e.error=ownErr(err);ownDrawSheet()}
+}
+async function ownStatus(a,id){ // from the sheet, or (with id) from the Undo in the note
+  const e=id==null?own.edit:null;if(e?.busy)return;if(e){e.busy=true;ownDrawSheet()}
+  try{
+    const x=await rpc('owner_set_status',{p_item:id??e.id,p_action:a});
+    if(e)closeM();
+    toast(a==='hide'?`${x.pack_name} is hidden`:a==='show'?`${x.pack_name} is back on TasteRank`:`🎉 ${x.pack_name} is live`,a==='hide'?{label:'Undo',act:'own-unhide',id:x.id}:null);
+    ownRefresh();
+  }catch(err){if(e){e.busy=false;e.error=ownErr(err);ownDrawSheet()}else toast(ownErr(err))}
+}
+
+/* Subcategories: by category; a row opens "Change …": name, category, emoji, and moving its snacks into another */
+function ownSubsHtml(){
+  return own.cat.categories.map(c=>{const ps=own.cat.products.filter(p=>p.category_id===c.id);if(!ps.length)return '';
+    return `<h2>${esc(c.name)}</h2><div class="list">${ps.map(p=>`<button class="ir own-row" data-act="own-sub" data-id="${p.id}"><span class="thumb sm" aria-hidden="true">${esc(p.emoji)}</span>
+      <span class="in"><span class="bn">${esc(p.name)}</span><span class="pk">${plural(p.snacks,'snack')} · ${p.ratings?plural(p.ratings,'rating'):'no ratings yet'}</span></span><span class="go" aria-hidden="true">›</span></button>`).join('')}</div>`}).join('');
+}
+function ownOpenSub(id){
+  const p=own.cat.products.find(x=>x.id===+id);if(!p)return;
+  own.edit=null;own.sub={...p,name0:p.name,cat:p.category_id,other:false,move:false,into:null,error:null,busy:false};
+  ownDrawSheet();openM('m-owner');
+}
+function ownSubSheet(){
+  const s=own.sub,others=own.cat.products.filter(p=>p.id!==s.id&&p.category_id===s.category_id),into=others.find(p=>p.id===s.into)||others[0];
+  const catName=(own.cat.categories.find(c=>c.id===s.category_id)||{}).name||'';
+  return `<h3 id="own-sheet-title">Change ${esc(s.name0)}</h3><p class="own-sum">${plural(s.snacks,'snack')} · ${s.ratings?plural(s.ratings,'rating'):'no ratings yet'}</p>
+    <label class="field">Name<input data-sub="name" value="${esc(s.name)}" autocomplete="off"></label>
+    <div class="own-f"><span class="lab">Category</span>${ownCatChips(s.cat,'own-sub-cat')}</div>
+    <div class="own-f"><span class="lab">Emoji</span>${ownEmojiHtml(s.cat,s.emoji,s.other,'own-sub-emoji',s.id,'data-sub')}</div>
+    ${s.error?`<p class="sheet-error" role="alert">${esc(s.error)}</p>`:''}
+    <button class="btn btn-primary btn-block" data-act="own-sub-save"${s.busy?' disabled':''}>Save changes</button>
+    <div class="own-more">${!s.move?`<button class="btn btn-block" data-act="own-move-open">Move its snacks into…</button><p class="hint">For a duplicate: its snacks and their ratings move across, then ${esc(s.name0)} goes.</p>`
+      :!into?`<p class="hint">There's no other subcategory in ${esc(catName)} to move them into.</p>`
+      :`<label class="field">Move its snacks into<select id="own-move-into">${others.map(p=>`<option value="${p.id}"${p.id===into.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+        <div class="own-confirm"><p>Move ${plural(s.snacks,'snack')} from ${esc(s.name0)} into ${esc(into.name)}? ${esc(s.name0)} then goes.</p>
+        <div class="own-acts"><button class="btn btn-danger-solid" data-act="own-move" data-into="${into.id}"${s.busy?' disabled':''}>Move them</button><button class="btn" data-act="own-move-cancel">Keep</button></div></div>`}</div>`;
+}
+async function ownSubSave(){
+  const s=own.sub;if(s.busy)return;
+  s.error=!norm(s.name)?'Name the subcategory':s.other&&!s.emoji?'Type or paste an emoji, or pick one':!okEmoji(s.emoji)?'Just one emoji':null;
+  if(s.error)return ownDrawSheet();
+  s.busy=true;ownDrawSheet();
+  try{await rpc('owner_save_subcategory',{p_product:s.id,p_name:s.name,p_category:s.cat,p_emoji:s.emoji||null});closeM();toast('Saved');ownRefresh()}
+  catch(e){s.busy=false;s.error=ownErr(e);ownDrawSheet()}
+}
+async function ownMove(into){
+  const s=own.sub;if(s.busy)return;s.busy=true;ownDrawSheet();
+  try{const n=await rpc('owner_move_snacks',{p_from:s.id,p_into:+into});closeM();
+    toast(`Moved ${plural(n,'snack')} into ${(own.cat.products.find(p=>p.id===+into)||{}).name}`);ownRefresh()}
+  catch(e){s.busy=false;s.error=ownErr(e);ownDrawSheet()}
+}
+const OWN_ACT={
+  'own-sign-in':()=>needUser({name:'owner'}),
+  'own-tab':d=>{own.tab=d.tab;drawOwner();$(`#own-tabs [data-tab="${d.tab}"]`)?.focus()},
+  'own-req-cat':d=>{const s=own.req[d.id];s.cat=+d.cat;s.error=null;ownRedrawReq(d.id,`[data-act="own-req-cat"][data-cat="${d.cat}"]`)},
+  'own-req-emoji':d=>{const s=own.req[d.id];if(d.e){s.emoji=d.e;s.other=false}else{s.other=true;if((OWN_EMOJI[s.cat]||OWN_EMOJI[2]).includes(s.emoji))s.emoji=null}
+    ownRedrawReq(d.id,d.e?`[data-e="${d.e}"]`:'[data-own="custom"]')},
+  'own-req-names':d=>{own.req[d.id].names=true;ownRedrawReq(d.id,'[data-own="pack"]')},
+  'own-accept':d=>ownAccept(d.id),
+  'own-decline':d=>{own.req[d.id].confirm=true;ownRedrawReq(d.id,'[data-act="own-decline-no"]')},
+  'own-decline-no':d=>{own.req[d.id].confirm=false;ownRedrawReq(d.id,'[data-act="own-decline"]')},
+  'own-decline-yes':d=>ownDecline(d.id),
+  'own-filter':d=>{own.filter=d.f;drawOwner();$(`#own-body [data-f="${d.f}"]`)?.focus()},
+  'own-open':d=>{$('#toast').hidden=true;ownOpenSnack(d.id)},
+  'own-edit-cat':d=>{const e=own.edit;if(e.cat===+d.cat)return;e.cat=+d.cat;const first=own.cat.products.find(p=>p.category_id===e.cat);
+    Object.assign(e,{sub:first?.name||'',newSub:!first,flavour:'',error:null});ownDrawSheet();$(`#owner-body [data-cat="${d.cat}"]`)?.focus()},
+  'own-photo-remove':()=>{Object.assign(own.edit,{photo:null,removePhoto:true});ownDrawSheet();$('#own-photo')?.focus()},
+  'own-save':ownSave,
+  'own-status':d=>ownStatus(d.a),
+  'own-unhide':d=>{$('#toast').hidden=true;ownStatus('show',+d.id)},
+  'own-sub':d=>ownOpenSub(d.id),
+  'own-sub-cat':d=>{own.sub.cat=+d.cat;ownDrawSheet();$(`#owner-body [data-cat="${d.cat}"]`)?.focus()},
+  'own-sub-emoji':d=>{const s=own.sub;if(d.e){s.emoji=d.e;s.other=false}else{s.other=true;if((OWN_EMOJI[s.cat]||OWN_EMOJI[2]).includes(s.emoji))s.emoji=null}
+    ownDrawSheet();$(`#owner-body ${d.e?`[data-e="${d.e}"]`:'[data-sub="custom"]'}`)?.focus()},
+  'own-sub-save':ownSubSave,
+  'own-move-open':()=>{own.sub.move=true;ownDrawSheet();$('#own-move-into')?.focus()},
+  'own-move-cancel':()=>{own.sub.move=false;ownDrawSheet();$('#owner-body [data-act="own-move-open"]')?.focus()},
+  'own-move':d=>ownMove(d.into)
+};
+document.addEventListener('input',e=>{
+  if(!own)return;const t=e.target,d=t.dataset||{};
+  if(t.id==='own-q'){own.q=t.value;return ownDrawList()}
+  if(d.own&&own.req[d.id]){const s=own.req[d.id];
+    if(d.own==='custom')s.emoji=t.value.trim()||null;else s[d.own]=t.value;
+    if(d.own==='sub'){$('#own-sn-'+CSS.escape(d.id)).textContent=ownSubNote(s.sub);$('#own-emo-'+CSS.escape(d.id)).hidden=!!ownProduct(s.sub)}}
+  if(d.edit&&own.edit){own.edit[d.edit]=t.value;if(d.edit==='sub'){const n=$('#own-e-sn');if(n)n.textContent=ownSubNote(t.value)}}
+  if(d.sub&&own.sub){if(d.sub==='custom')own.sub.emoji=t.value.trim()||null;else own.sub[d.sub]=t.value}
+});
+document.addEventListener('change',async e=>{
+  if(!own)return;const t=e.target;
+  if(t.id==='own-country'){own.country=t.value?+t.value:null;await ownRefresh();$('#own-country')?.focus()}
+  if(t.id==='own-e-country'&&own.edit)own.edit.country_id=+t.value;
+  if(t.id==='own-e-sub'&&own.edit){Object.assign(own.edit,t.value==='new'?{newSub:true,sub:''}:{newSub:false,sub:t.value},{flavour:''});ownDrawSheet();$(t.value==='new'?'#owner-body [data-edit="sub"]':'#own-e-sub')?.focus()}
+  if(t.id==='own-move-into'&&own.sub){own.sub.into=+t.value;ownDrawSheet();$('#own-move-into')?.focus()}
+  if(t.id==='own-photo'&&t.files[0]&&own.edit){
+    try{own.edit.photo=await shrinkPhoto(t.files[0]);own.edit.removePhoto=false;own.edit.error=null}catch(x){own.edit.error=x.message}
+    ownDrawSheet();$('#own-photo')?.focus();
+  }
+});
+
 /* ---------- Profile ---------- */
 async function renderProfile(){
   if(!me)return go({v:'home'});
@@ -1537,7 +1928,7 @@ function subRow(x,i){ // a snack you sent in, and where it's got to: "🇬🇧 �
   const n=settings.approval_votes,pl=placeBy('id',x.country_id)||{},newCat=!!x.new_category;
   const st={pending:['⏳',`Waiting for approval · ${x.approvals} of ${n}`],live:['✅','Live: rate it'],
     review:['🔎',newCat?'Waiting for us to check the new subcategory':'Waiting for us to check it'],declined:['✖️','Not this time'],
-    closed:['✖️',`Closed: it didn't get ${n} approvals in ${settings.close_after_days} days`]}[x.status]||['',x.status];
+    closed:['✖️',`Closed: it didn't get ${n} approvals in ${settings.close_after_days} days`],hidden:['✖️','Taken off TasteRank']}[x.status]||['',x.status];
   const inner=`<span class="rk" aria-hidden="true">${st[0]}</span><span></span>
     <span class="in"><span class="bn">${esc(x.pack_name||x.brand)}</span><span class="pk">${x.country_flag||pl.flag||''} · ${esc(x.product||'')}${newCat?NEW_TAG:''}</span><span class="pk">${esc(st[1])}</span></span>`;
   if(x.status==='live')return `<button class="ir subr" data-act="category" data-cc="${esc(pl.code||DEFAULT_COUNTRY)}" data-product="${x.product_id}">${inner}<span class="go" aria-hidden="true">›</span></button>`;
@@ -1550,7 +1941,7 @@ async function share(text,url=location.href){
   try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(url);toast('Link copied')}}catch(e){}
 }
 async function signedOut(msg){
-  me=null;profile=null;homeData=null;
+  me=null;profile=null;homeData=null;ownerInfo=null;own=null;renderOwnerLink();
   renderHeader();await go({v:'home'});toast(msg);
 }
 async function signOut(){try{await api.signOut()}catch(e){}signedOut('Signed out')}
@@ -1593,7 +1984,7 @@ async function start(){
     if(params.has('error_description'))toast('Sign-in was cancelled or failed. Please try again.');
     me=await api.session();
     if(params.has('code')||params.has('error'))history.replaceState(null,'',location.pathname+location.hash); // tidy the address bar after Google sign-in
-    [settings,places]=await Promise.all([rpc('app_settings'),rpc('place_list'),me?loadProfile():null]);
+    [settings,places]=await Promise.all([rpc('app_settings'),rpc('place_list'),me?loadProfile():null,loadOwner()]);
   }catch(e){console.error(e);$('#cards').innerHTML='<div class="card empty">Couldn\'t load snacks. Check your connection and refresh.</div>';return}
   if(!prefs.country)await geo; // only wait for the guess when it decides what to show
   renderHeader();
@@ -1604,7 +1995,7 @@ async function start(){
     const u=userFrom(session);
     if((u&&u.id)===(me&&me.id))return;
     if(!u)return signedOut('Signed out');
-    me=u;await loadProfile();homeData=null;renderHeader();refresh();
+    me=u;own=null;await Promise.all([loadProfile(),loadOwner()]);homeData=null;renderHeader();refresh();
   },0));
 }
 start();

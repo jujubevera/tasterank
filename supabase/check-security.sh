@@ -69,5 +69,24 @@ else
   echo "SKIP  category and brand checks (migration 008 not run yet)"
 fi
 
+# The owner page (migration 011). Skipped until it has been run.
+if [ "$(call owner_status '{}' | grep -c 'PGRST202')" = "0" ]; then
+  check "nobody signed out can read owners"     "$(get 'owners?select=*&limit=1')" 'permission denied'
+  check "signed out isn't the owner"            "$(call owner_status '{}')" 'permission denied'
+  check "signed out can't see what to check"    "$(call owner_queue '{}')" 'permission denied'
+  check "signed out can't list the snacks"      "$(call owner_snacks '{}')" 'permission denied'
+  check "signed out can't read the catalogue"   "$(call owner_catalogue '{}')" 'permission denied'
+  check "signed out can't accept"               "$(call owner_accept '{"p_request":1,"p_category":1,"p_subcategory":"X","p_flavour":null,"p_emoji":null,"p_brand_name":"X","p_pack_name":"X"}')" 'permission denied'
+  check "signed out can't decline"              "$(call owner_decline '{"p_request":1}')" 'permission denied'
+  check "signed out can't change a snack"       "$(call owner_save_snack '{"p_item":1,"p_pack_name":"X","p_brand_name":"X","p_country":1,"p_category":1,"p_subcategory":"X","p_flavour":null}')" 'permission denied'
+  check "signed out can't hide a snack"         "$(call owner_set_status '{"p_item":1,"p_action":"hide"}')" 'permission denied'
+  check "signed out can't rename a subcategory" "$(call owner_save_subcategory '{"p_product":1,"p_name":"X","p_category":1,"p_emoji":null}')" 'permission denied'
+  check "signed out can't move snacks"          "$(call owner_move_snacks '{"p_from":1,"p_into":2}')" 'permission denied'
+  check "nobody can run the owner check"        "$(call require_owner '{}')" 'permission denied'
+  check "nobody can run the emoji check"        "$(call owner_emoji '{"p_emoji":"x"}')" 'permission denied|PGRST202'
+else
+  echo "SKIP  owner page checks (migration 011 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }
