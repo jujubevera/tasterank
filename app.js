@@ -607,7 +607,7 @@ const offDisagrees=(p,id)=>{const t=((p&&p.categories_tags)||[]).filter(x=>/^en:
 const freshAdd=o=>Object.assign({from:'home',where:'',step:'find',country:null,ctxProduct:null,ctxVariant:null,ctxBrand:null,ctxBrandProducts:[],ctxType:null,
   q:'',results:null,off:null,offFor:null,sent:null},checkState(),o);
 const checkState=()=>({pack:'',offPick:null,offBrand:'',barcode:null,brand:'',brandState:null,brandNear:null,brandSet:false,brandOpen:false,brandSnacks:null,brandFor:null,
-  type:null,typeOpen:false,product:null,newCat:null,catAsk:null,catOpen:false,catFind:'',catRefused:null,catError:null,
+  type:null,typeOpen:false,product:null,newCat:null,catAsk:null,catOpen:false,catFind:'',catRefused:null,catError:null,nudge:null,
   dup:null,dupTracked:null,whichForced:false,whichTracked:false,checking:false,checkSeq:0,checkPromise:null,
   touched:false,photo:null,photoUrl:null,ownPhoto:false,score:null,error:null,sending:false});
 const whereNow=()=>{const c=onCategory(),b=onBrandPage();return c?`c${c.id}/${c.country.id}`:b?`b${b.id}/${b.country.id}`:'home'};
@@ -740,7 +740,7 @@ async function answerBrand(name){
 function answerType(id){ // a subcategory that isn't in the new category is asked again; a new one moves with it
   clearPending();
   const ok=x=>x&&typeOf(x)===id;
-  Object.assign(add,{type:id,typeOpen:false,touched:true});
+  Object.assign(add,{type:id,typeOpen:false,nudge:null,touched:true});
   if(add.product&&!ok(add.product))Object.assign(add,{product:null,catOpen:true});
   if(add.catAsk&&!ok(add.catAsk))Object.assign(add,{catAsk:null,catOpen:true});
   if(add.catRefused&&!ok(add.catRefused))add.catRefused=null;
@@ -748,7 +748,7 @@ function answerType(id){ // a subcategory that isn't in the new category is aske
 }
 function answerCategory(id,newName){ // picking a subcategory from another category moves the category too
   clearPending();
-  Object.assign(add,{product:newName?null:id,type:newName?add.type:typeOf(id)||add.type,newCat:newName||null,catAsk:null,catOpen:false,catFind:'',catError:null,touched:true});
+  Object.assign(add,{product:newName?null:id,type:newName?add.type:typeOf(id)||add.type,newCat:newName||null,catAsk:null,catOpen:false,catFind:'',catError:null,nudge:null,touched:true});
   if(newName)track('add-new-subcategory',true);
   renderMid();focusAdd();
 }
@@ -891,7 +891,7 @@ function drawMid(el){
 }
 function sendHtml(){
   return `<div id="add-error">${add.error?`<div class="sheet-error" role="alert"><b>It didn't send.</b> Please try again.<small>${esc(add.error)}</small></div>`:''}</div>
-    <button class="btn btn-primary btn-block" id="add-send" data-act="add-send"${add.sending?' disabled':''}>${add.sending?'Sending…':add.checking?'Checking…':hasQuestion()?'Send':add.newCat?'Send for a check':'Send for approval'}</button>`;
+    <button class="btn btn-primary btn-block" id="add-send" data-act="add-send"${add.sending?' disabled':''}>${add.sending?'Sending…':add.checking?'Checking…':hasQuestion()?'Next':add.newCat?'Send for a check':'Send for approval'}</button>`;
 }
 const answered=(row,label,val,sub)=>`<div class="row" role="group" aria-labelledby="rl-${row}" id="row-${row}"><span class="lab" id="rl-${row}">${label}</span>
   <button class="link" data-act="add-change" data-row="${row}" aria-label="Change ${label.toLowerCase()}">Change</button><span class="val">${val}</span>${sub?`<span class="sub">${sub}</span>`:''}</div>`;
@@ -901,28 +901,30 @@ function brandRow(){
   return `<div class="row ask" role="group" aria-labelledby="rl-brand" id="row-brand"><label class="lab" id="rl-brand" for="add-brand">Brand</label>
     <input id="add-brand" class="row-input" value="${esc(add.brand)}" maxlength="60" autocomplete="off" placeholder="Who makes it?" aria-describedby="brand-help"><div id="brand-help" class="hint"></div></div>`;
 }
+// What Next needs goes in a line that's already there (the question, or the box's label), never a new line or box
+const nudged=row=>add.nudge?.row===`row-${row}`,nudge=(row,text)=>nudged(row)?esc(add.nudge.text||text):'',alertIf=on=>on?' role="alert"':'';
 const waitRow=(row,label,text)=>`<div class="row wait" id="row-${row}"><span class="lab">${label}</span><span class="val hint">${text}</span></div>`;
 function typeRow(){ // the category: chips, as there are only a few
   if(add.checking&&!add.touched&&!add.type)return waitRow('type','Category','Checking…');
   if(add.type&&!add.typeOpen)return answered('type','Category',esc(typeName(add.type)));
   const q=!add.type;
   return `<div class="row ask" role="group" aria-labelledby="rl-type${q?' type-q':''}" id="row-type"><span class="lab" id="rl-type">Category</span>
-    ${q?'<div class="q" id="type-q">Which category is it?</div>':''}
+    ${q?`<div class="q" id="type-q"${alertIf(nudged('type'))}>Which category is it?${nudge('type',' Pick one to go on.')}</div>`:''}
     <div class="chips wrap">${typesInOrder(add.country).map(t=>`<button class="chip${t.id===add.type?' on':''}" aria-pressed="${t.id===add.type}" data-act="add-type" data-id="${t.id}">${esc(t.name)}</button>`).join('')}</div></div>`;
 }
 function catRow(){ // the subcategory: tap one of the category's own; type only one that isn't there
   if(add.catAsk){
     const p=categoryBy(add.country,add.catAsk)||{name:''};
     return `<div class="row ask" role="group" aria-labelledby="rl-cat cat-q" id="row-cat"><span class="lab" id="rl-cat">Subcategory</span>
-      <div class="q" id="cat-q">Does it belong in ${esc(p.name)}?</div>
+      <div class="q" id="cat-q"${alertIf(nudged('cat'))}>Does it belong in ${esc(p.name)}?${nudge('cat',' Tap Yes or Something else.')}</div>
       <div class="chips wrap"><button class="chip" data-act="add-cat-yes">Yes</button><button class="chip" data-act="add-cat-else">Something else</button></div></div>`;
   }
   if(add.checking&&!add.touched&&add.catOpen)return waitRow('cat','Subcategory','Checking…');
   if(!add.type&&!add.product)return waitRow('cat','Subcategory','Pick the category first');
   if(add.catOpen||(!add.product&&!add.newCat)){
-    const sug=catSuggestions(),ex=catExample();
+    const sug=catSuggestions(),ex=catExample(),n=nudge('cat',sug.length?'Pick one above, or add a new one:':'Type the kind of snack to go on:');
     return `<div class="row ask" role="group" aria-labelledby="rl-cat" id="row-cat">${sug.length?'<span class="lab" id="rl-cat">Subcategory</span>':'<label class="lab" id="rl-cat" for="add-cat">Subcategory</label>'}
-      ${sug.length?`<div class="chips wrap">${sug.map(c=>catChip(c,'list')).join('')}</div><label class="hint add-it" for="add-cat">Not listed? Add it:</label>`:''}
+      ${sug.length?`<div class="chips wrap">${sug.map(c=>catChip(c,'list')).join('')}</div><label class="hint add-it" for="add-cat"${alertIf(n)}>${n||'Not listed? Add it:'}</label>`:n?`<label class="hint add-it" for="add-cat" role="alert">${n}</label>`:''}
       <input id="add-cat" class="row-input" type="search" maxlength="60" autocomplete="off" value="${esc(add.catFind)}"${ex?` placeholder="e.g. ${esc(ex)}"`:''} aria-describedby="cat-find">
       <div id="cat-find" aria-live="polite">${catFindHtml()}</div>
       ${add.catError?`<p class="sheet-error" role="alert">${esc(add.catError)}</p>`:''}</div>`;
@@ -982,8 +984,13 @@ async function sendAdd(){
   await flushPending();
   if(add.checking){const b=$('#add-send');if(b)b.textContent='Checking…';await add.checkPromise;if(!add)return}
   const bb=add.brandOpen&&$('#add-brand');if(bb&&tidyCase(bb.value))await answerBrand(bb.value);if(!add)return;
-  const q=openQuestion();
-  if(q){ // never a silently greyed-out button: take them to what's left
+  if(add.catOpen&&norm(tidyCase(add.catFind,true)).length&&commitCatTyped())return; // Next takes what's typed, then stops so it can be checked
+  if(add.typeOpen&&add.type)return answerType(add.type); // opened with Change and left as it was: keep it
+  if(add.catOpen&&add.product&&!add.catFind.trim())return answerCategory(add.product);
+  let q=openQuestion();
+  if(q){ // never a silently greyed-out button: take them to what's left, saying what it needs
+    const r=q.closest('.row')?.id;
+    if((r==='row-type'||r==='row-cat')&&add.nudge?.row!==r){add.nudge={row:r};renderMid();q=openQuestion()}
     (q.closest('.row,.mustq')||q).scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
     if(whichSnack())$('#add-mid .mustq')?.scrollIntoView({block:'center'});
     return q.focus();
@@ -1047,7 +1054,7 @@ const ADD_ACT={
     Object.assign(add,{brand:n.name,brandState:'known',brandNear:null,brandSet:true,touched:true});
     const t=[n.name,tidyCase(rest)].filter(Boolean).join(' ');add.pack='';commitPack(t).then(()=>{if(!add)return;categoryFromBrand();renderMid();focusAdd()})},
   'add-cat-yes':()=>answerCategory(add.catAsk),
-  'add-cat-else':()=>{Object.assign(add,{catRefused:add.catAsk,catAsk:null,catOpen:true,catFind:'',touched:true});renderMid();($('#row-cat .chips .chip')||$('#add-cat'))?.focus()},
+  'add-cat-else':()=>{Object.assign(add,{catRefused:add.catAsk,catAsk:null,catOpen:true,catFind:'',nudge:null,touched:true});renderMid();($('#row-cat .chips .chip')||$('#add-cat'))?.focus()},
   'add-type':d=>answerType(+d.id),
   'add-cat-pick':d=>{track(d.src==='typed'?'add-subcategory-typed':'add-subcategory-chip',true);answerCategory(+d.id)},
   'add-cat-new':()=>answerCategory(null,tidyCase(add.catFind,true)),
@@ -1067,24 +1074,26 @@ function commitField(el){
     if(ex)return answerCategory(ex.id);
   }
 }
+// What's typed in the subcategory box, on Enter or Next: an exact name picks it, part of one shows the matches, a new name adds it
+function commitCatTyped(){
+  const t=tidyCase(add.catFind,true),ms=catMatches(t),ex=ms.find(c=>snackKey(c.name)===snackKey(t));
+  if(ex){answerCategory(ex.id);return true}
+  if(ms.length){add.nudge={row:'row-cat',text:`Tap ${ms[0].name} below if that's it, or type the full name:`};renderMid();$('#cat-find .chip')?.focus();return true}
+  if(norm(t).length>=2){answerCategory(null,t);return true}
+  return false;
+}
 document.addEventListener('input',e=>{
   if(!add)return;
   const id=e.target.id,v=e.target.value;
   if(id==='add-q'){add.q=v;runTyped()}
   if(id==='add-pack')fitPack();
   if(id==='add-brand'){clearTimeout(brandTimer);brandTimer=setTimeout(renderBrandHelp,200)}
-  if(id==='add-cat'){add.catFind=v;add.catError=null;const f=$('#cat-find');if(f)f.innerHTML=catFindHtml()}
+  if(id==='add-cat'){add.catFind=v;add.catError=null;if(add.nudge?.row==='row-cat'){add.nudge=null;const l=$('#row-cat label.add-it');if(l&&$('#row-cat .chip[data-src="list"]')){l.textContent='Not listed? Add it:';l.removeAttribute('role')}else l?.remove()}const f=$('#cat-find');if(f)f.innerHTML=catFindHtml()}
 });
 document.addEventListener('keydown',e=>{
   if(!add||e.key!=='Enter'||!['add-pack','add-brand','add-cat'].includes(e.target.id))return;
   e.preventDefault();clearPending();
-  if(e.target.id==='add-cat'){
-    const t=tidyCase(e.target.value,true),ms=catMatches(t),ex=ms.find(c=>snackKey(c.name)===snackKey(t));
-    if(ex)return answerCategory(ex.id);
-    if(ms.length)return $('#cat-find .chip')?.focus();
-    if(norm(t).length>=2)return answerCategory(null,t);
-    return;
-  }
+  if(e.target.id==='add-cat'){add.catFind=e.target.value;return commitCatTyped()}
   commitField(e.target);
 });
 document.addEventListener('change',async e=>{
