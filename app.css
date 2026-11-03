@@ -396,7 +396,7 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:900;color:var(--in
 .toast button{pointer-events:auto;color:inherit;text-decoration:underline;margin-left:6px;font-weight:900;min-height:24px}
 
 /* ---------- Crispy's tips (app.js "Crispy's tips"): inline in the page, never covering it, except tip 7 beside the + ---------- */
-.tip{display:grid;grid-template-columns:38px minmax(0,1fr);gap:10px;align-items:start;background:var(--hint);border-radius:14px;padding:10px 12px;margin:12px 0;max-width:560px}
+.tip{display:grid;grid-template-columns:38px minmax(0,1fr);gap:10px;align-items:start;background:var(--hint);border-radius:14px;padding:10px 12px;margin:12px 0}
 .tip svg{width:38px;height:38px}
 .tip p{margin:0;font-size:14px;font-weight:700}
 .tip .acts{display:flex;gap:18px;flex-wrap:wrap}
@@ -420,4 +420,11 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:900;color:var(--in
 #signin-meta{margin:-4px 0 2px}
 .faces.ghost{opacity:.45;margin:8px 0 12px;pointer-events:none}
 #signin-back{margin-top:10px}
-#tips-label{margin-top:14px}
+/* "Crispy's tips" in the gear menu, with an ⓘ that shows what they are (a tap, so it works on phones and with screen readers) */
+.pop-label-row{display:flex;align-items:center;gap:2px;margin-top:14px}
+.pop-label-row .pop-label{margin:0}
+.info-btn{display:grid;place-items:center;width:44px;height:44px;margin:-13px -8px -13px -6px;border:0;background:none;color:var(--muted);border-radius:50%}
+.info-btn svg{width:18px;height:18px}
+.info-btn:hover,.info-btn[aria-expanded="true"]{color:var(--primary)}
+.pop-info{margin:4px 0 8px;font-size:13px;font-weight:600;color:var(--muted);line-height:1.4}
+#tips-info+.seg{margin-top:6px}

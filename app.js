@@ -549,6 +549,7 @@ const ACT={
   settings:()=>showSettings($('#settings-pop').hidden),
   'set-theme':d=>setTheme(d.theme),
   'set-tips':d=>setTips(!!d.on),
+  'tips-info':()=>{const p=$('#tips-info'),b=$('[data-act="tips-info"]');p.hidden=!p.hidden;b.setAttribute('aria-expanded',!p.hidden)},
   how:()=>{showSettings(false);openHow()},
   'tip-ok':d=>tipClose(+d.n,'dismissed'),
   owner:()=>{showSettings(false);go({v:'owner'})}
@@ -2001,10 +2002,12 @@ const tipSeen=n=>tips.seen.includes(n);
 function tipMark(n){if(!tipSeen(n)){tips.seen.push(n);saveTips()}}
 const tipKey=()=>view==='home'?'home':page?.key||view;
 const myRated=()=>profile?profile.rated:0;
-const TIPS={
-  2:['crisp-happy',()=>`Know any of these? Tap a snack and pick a face. Each snack needs ${settings.rank_after_ratings} ratings to be ranked.`,true],
-  5:['crisp-happy',()=>`New snacks need ${settings.approval_votes} approvals to join the list. Know one of these? Approve it.`],
-  6:['crisp-joy',()=>"Think the crowd's wrong? Share this list and settle it."]};
+const TIPS={ // [Crispy's face, the words, whether it links to How it works]
+  // under a "No winner yet" note, tip 2 leaves out what the note already says (10 ratings, How it works)
+  2:()=>$(`#v-${view} .early`)?['crisp-happy','Know any of these? Tap a snack and pick a face.']
+    :['crisp-happy',`Know any of these? Tap a snack and pick a face. Each snack needs ${settings.rank_after_ratings} ratings to be ranked.`,true],
+  5:()=>['crisp-happy',`New snacks need ${settings.approval_votes} approvals to join the list. Know one of these? Approve it.`],
+  6:()=>['crisp-joy',"Think the crowd's wrong? Share this list and settle it."]};
 function tipFits(n){
   if(tipSeen(n))return false;
   const c=onCategory();
@@ -2034,8 +2037,8 @@ function drawTip(){
   if(tipNow)tipNow.fresh=false;
 }
 function tipHtml(n,fresh){
-  const [face,text,how]=TIPS[n];
-  return `<div class="tip${fresh?' tip-in':''}" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#${face}"/></svg><div><p>${esc(text())}</p>
+  const [face,text,how]=TIPS[n]();
+  return `<div class="tip${fresh?' tip-in':''}" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#${face}"/></svg><div><p>${esc(text)}</p>
     <div class="acts"><button class="link" data-act="tip-ok" data-n="${n}">Got it</button>${how?'<button class="link" data-act="how">How it works</button>':''}</div></div></div>`;
 }
 function tipClose(n,how){ // Got it, or doing what the tip suggests
