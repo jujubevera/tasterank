@@ -15,3 +15,6 @@ package-lock.json
 
 # Persona test reports (simulated, internal)
 testing/
+
+# Claude Code connection to Supabase (local only; the site doesn't need it)
+.mcp.json

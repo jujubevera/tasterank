@@ -1,3 +1,5 @@
+-- REPLACED by migrate-010-cleanup.sql (2026-11-03): don't run this one. 007 was never run on the live database;
+-- 010 does the same and also removes the old ranking functions. Kept so the tests can replay the history.
 -- TasteRank migration 007: remove the old site's tables and functions
 -- Run this ONLY after the new add flow (prompts 09 + 10) is pushed and you've checked the live site works:
 -- the site before that still calls suggest_catalogue().

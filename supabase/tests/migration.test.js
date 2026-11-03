@@ -602,4 +602,26 @@ const totals9=await q('select product_id,brand_id,total from public.item_totals(
 ok('…lead is the most ratings one snack has (category and brand)',hc9.every(c=>c.lead===Math.max(...totals9.filter(t=>t.product_id===c.id).map(t=>t.total)))&&hb9.every(b=>b.lead===Math.max(...totals9.filter(t=>t.brand_id===b.id).map(t=>t.total))),JSON.stringify(hc9.map(c=>[c.name,c.lead])));
 const noPic=x=>!x.image_url&&!x.image_path;
 ok('…up to 4 photos (never more than the snacks), photos before emoji-only ones',[...hc9,...hb9].every(c=>c.thumbs.length===Math.min(4,c.snacks)&&!c.thumbs.some((x,i)=>i&&!noPic(x)&&noPic(c.thumbs[i-1]))),JSON.stringify(hc9.map(c=>[c.name,c.thumbs.length,c.snacks])));
+
+// ---- Migration 010: the clean-up, in the live order (008 and 009 run, 007 never run) ----
+console.log('\n---- Migration 010 ----');
+const mig10=fs.readFileSync(R+'migrate-010-cleanup.sql','utf8');
+const live=new PGlite(); await live.exec(STUB);
+for(const f of ['setup.sql','migrate-002-flavours.sql','migrate-003-no-names.sql','migrate-004-brands.sql','migrate-005-remove-rating.sql','migrate-006-new-kinds.sql','migrate-008-browse.sql','migrate-009-home-cards.sql']) await live.exec(fs.readFileSync(R+f,'utf8'));
+await live.query('insert into auth.users(id) values ($1)',[U(1)]);
+await live.query(`insert into public.ratings(item_id,user_id,score) select min(id),$1,5 from public.legacy_items`,[U(1)]);
+await live.query(`insert into public.catalogue_suggestions(user_id,kind,text) values ($1,'variant','Dark chocolate')`,[U(1)]);
+const lq=async s=>(await live.query(s)).rows;
+const oldLeft=async()=>(await lq(`select (select count(*)::int from pg_tables where schemaname='public' and tablename in ('ratings','votes','legacy_items','suggestions','catalogue_suggestions')) t,
+  (select count(*)::int from pg_proc p join pg_namespace s on s.oid=p.pronamespace where s.nspname='public' and p.proname in ('ranking','home_rankings','brand_cards','brand_view','next_to_rate','submit_item','submit_item_request','guess_title','my_rating_count','item_list','suggest_catalogue','vote_for_own_item','promote_when_approved')) f`))[0];
+{let err=null;try{await live.exec(mig10)}catch(e){err=e.message;await live.exec('rollback')}
+ ok('010 stops when old tables hold things people sent, naming them',/ratings \(1\).*catalogue_suggestions \(1\)/.test(err||''),err);
+ ok('…and changes nothing',JSON.stringify(await oldLeft())===JSON.stringify({t:5,f:13}),JSON.stringify(await oldLeft()));}
+const yes10=mig10.replace(`'tasterank.old_data_saved', 'no'`,`'tasterank.old_data_saved', 'yes'`);
+try{await live.exec(yes10);await live.exec(yes10);ok('with yes, 010 runs (twice) without errors',true)}catch(e){ok('with yes, 010 runs (twice) without errors',false,e.message)}
+ok('…every old table and function is gone',JSON.stringify(await oldLeft())==='{"t":0,"f":0}',JSON.stringify(await oldLeft()));
+const kept10=(await lq(`select p.proname from pg_proc p join pg_namespace s on s.oid=p.pronamespace where s.nspname='public'`)).map(r=>r.proname);
+const site=['app_settings','approve_item','brand_page','brand_suggest','catalogue','category_page','delete_me','home_brands','home_categories','my_profile','my_ratings','my_submissions','next_snack','place_list','rate_item','search_items','unrate_item','withdraw_submission','submit_snack','submit_new_category','set_home_place','to_sort','review_list','accept_request','decline_request'];
+ok('…everything the site, the owner and prompt 06 use is still there',site.every(n=>kept10.includes(n)),site.filter(n=>!kept10.includes(n)).join(' '));
+ok('…and the pages still load',(await lq('select jsonb_array_length(public.home_categories(1)) n'))[0].n>0&&!!(await lq('select public.category_page(3,1) p'))[0].p&&(await lq('select jsonb_array_length(public.search_items(\'walkers\')) n'))[0].n>0);
 }
