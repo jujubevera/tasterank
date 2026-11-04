@@ -1314,7 +1314,9 @@ Object.assign(ADD_ACT,{
   'moment-again':()=>{const m=moment;closeM();addAgain(m)},
   withdraw:d=>askWithdraw(mySubs[+d.i]),
   'withdraw-yes':doWithdraw,
-  'add-again':d=>addAgain(mySubs[+d.i])
+  'add-again':d=>addAgain(mySubs[+d.i]),
+  'subs-group':d=>subsGo(d.id||null),
+  'subs-page':d=>subsGo(undefined,+d.p,d.dir)
 });
 
 /* ---------- Starting country: last choice, else where you are (from your internet address), else UK ---------- */
@@ -1943,6 +1945,7 @@ async function renderProfile(){
   if(!me)return go({v:'home'});
   const el=$('#v-profile');
   let mine=[],subs=[];mySubs=[];try{await loadProfile();[mine,subs]=await Promise.all([rpc('my_ratings'),rpc('my_submissions').catch(()=>[])])}catch(e){oops(e)}
+  subsView={group:null,page:1};
   for(const c of new Set([...subs,...mine].map(x=>x.country_id)))try{await loadCatalogue(c)}catch(e){} // for the category names
   const p=profile||{taster_id:'',rated:0},lists=new Set(mine.map(r=>`${r.product_id}-${r.country_id}`)).size;
   const category=r=>((catalogues[r.country_id]||[]).flatMap(t=>t.products).find(x=>x.id===r.product_id)||{}).name||r.ranking_title;
@@ -1963,14 +1966,40 @@ async function renderProfile(){
         <span class="in"><span class="bn">${esc(r.pack_name)}</span><span class="pk">${esc(category(r))} · ${r.flag}</span></span><span></span></button>`}).join('')}</div>`
       :`<div class="card empty">You haven't rated anything yet. <button class="link" data-act="home">Find something to rate</button></div>`}
     <h2 id="subs-h" tabindex="-1">Your additions</h2>
-    ${(mySubs=subs).length?`<div class="list">${subs.map(subRow).join('')}</div>`
-      :`<div class="card empty">Nothing yet. Missing a snack? Tap + and type what's on the pack.</div>`}
+    <div id="subs-box"></div>
     <div class="profile-foot">
       <button class="btn" data-act="sign-out">Sign out</button>
       ${LIVE?'<button class="link btn-danger" data-act="delete-account">Delete my account</button>':'<button class="link" style="color:var(--muted)" data-act="reset-demo">Reset demo data</button>'}
     </div>`;
+  mySubs=subs;drawSubs();
 }
-let mySubs=[];
+let mySubs=[],subsView={group:null,page:1};
+/* Your additions: chips by where each one has got to, then 10 per page, newest first (design/mockups/profile-additions.html) */
+const SUB_GROUPS=[['waiting','Waiting',['review','pending']],['live','Live',['live']],['closed','Closed',['closed','declined','hidden']]];
+const subGroup=x=>(SUB_GROUPS.find(g=>g[2].includes(x.status))||SUB_GROUPS[2])[0];
+const SUBS_PER_PAGE=10;
+const chev=d=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+function drawSubs(){
+  const box=$('#subs-box');if(!box)return;
+  if(!mySubs.length){box.innerHTML=`<div class="card empty">Nothing yet. Missing a snack? Tap + and type what's on the pack.</div>`;return}
+  const groups=SUB_GROUPS.map(([id,name])=>({id,name,count:mySubs.filter(x=>subGroup(x)===id).length})).filter(g=>g.count);
+  if(!groups.some(g=>g.id===subsView.group))subsView.group=null; // a chip that's emptied (e.g. after withdrawing) goes back to All
+  const list=subsView.group?mySubs.filter(x=>subGroup(x)===subsView.group):mySubs,pages=Math.ceil(list.length/SUBS_PER_PAGE);
+  subsView.page=Math.min(Math.max(1,subsView.page),pages);
+  const from=(subsView.page-1)*SUBS_PER_PAGE,shown=list.slice(from,from+SUBS_PER_PAGE);
+  box.innerHTML=`${groups.length>=2?chipsHtml('Your additions by status','subs-group',[{id:null,name:'All',count:mySubs.length},...groups],subsView.group):''}
+    <div class="list">${shown.map(x=>subRow(x,mySubs.indexOf(x))).join('')}</div>
+    ${pages>1?`<div class="pager"><span class="of">${from+1}–${from+shown.length} of ${list.length}</span>
+      <button class="pg" data-act="subs-page" data-p="${subsView.page-1}" data-dir="prev" aria-label="Previous page"${subsView.page===1?' disabled':''}>${chev('M15 6l-6 6 6 6')}</button>
+      <button class="pg" data-act="subs-page" data-p="${subsView.page+1}" data-dir="next" aria-label="Next page"${subsView.page===pages?' disabled':''}>${chev('M9 6l6 6-6 6')}</button></div>`:''}`;
+}
+function subsGo(group,page,dir){
+  if(group!==undefined)subsView={group,page:1};else subsView.page=page;
+  redraw($('#subs-box'),drawSubs,'subs-group');
+  if(dir)($(`#subs-box .pg[data-dir="${dir}"]:not([disabled])`)||$('#subs-box .pg:not([disabled])'))?.focus({preventScroll:true});
+  const h=$('#subs-h'),bar=$('.bar')?.offsetHeight||0; // a new page starts at the top of Your additions, below the sticky header
+  if(h&&h.getBoundingClientRect().top<bar)scrollTo({top:scrollY+h.getBoundingClientRect().top-bar-8,behavior:'instant'});
+}
 function subRow(x,i){ // a snack you sent in, and where it's got to: "🇬🇧 · Toffee", then "Waiting for approval · 2 of 5"
   const n=settings.approval_votes,pl=placeBy('id',x.country_id)||{},newCat=!!x.new_category;
   const st={pending:['⏳',`Waiting for approval · ${x.approvals} of ${n}`],live:['✅','Live: rate it'],
@@ -1980,7 +2009,7 @@ function subRow(x,i){ // a snack you sent in, and where it's got to: "🇬🇧 �
     <span class="in"><span class="bn">${esc(x.pack_name||x.brand)}</span><span class="pk">${x.country_flag||pl.flag||''} · ${esc(x.product||'')}${newCat?NEW_TAG:''}</span><span class="pk">${esc(st[1])}</span></span>`;
   if(x.status==='live')return `<button class="ir subr" data-act="category" data-cc="${esc(pl.code||DEFAULT_COUNTRY)}" data-product="${x.product_id}">${inner}<span class="go" aria-hidden="true">›</span></button>`;
   const act=['pending','review'].includes(x.status)?`<button class="btn sm" data-act="withdraw" data-i="${i}" aria-label="Withdraw ${esc(x.pack_name)}">Withdraw</button>`
-    :x.status==='closed'&&x.product_id?`<button class="link" data-act="add-again" data-i="${i}" aria-label="Add ${esc(x.pack_name)} again">Add again</button>`:'<span></span>';
+    :x.status==='closed'&&x.product_id?`<button class="btn sm" data-act="add-again" data-i="${i}" aria-label="Add ${esc(x.pack_name)} again">Add again</button>`:'<span></span>';
   return `<div class="ir subr">${inner}${act}</div>`;
 }
 async function share(text,url=location.href){

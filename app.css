@@ -305,6 +305,11 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* headings take f
 #confirm-body p{color:var(--ink);font-weight:600}
 .btn.sm{padding:6px 14px;min-height:40px;font-size:13.5px}
 .subr .pk{white-space:normal}
+.pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:10px} /* Your additions: "1–10 of 23" ‹ › at the bottom right */
+.pager .of{font-size:13px;font-weight:800;color:var(--muted);margin-right:2px;font-variant-numeric:tabular-nums}
+.pg{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;padding:0;cursor:pointer}
+.pg svg{width:18px;height:18px}
+.pg:disabled{opacity:.35;cursor:default}
 .ir .go{font-size:20px;font-weight:900;color:var(--primary);padding:0 4px}
 .ir>.link{min-height:44px;font-size:14px;color:var(--primary)}
 /* A waiting snack reached from a shared link, and one that was withdrawn (R14) */
