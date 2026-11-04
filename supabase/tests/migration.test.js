@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–013 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–014 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -784,5 +784,48 @@ await lone(2,`select public.owner_set_status(${gItem},'live')`);
 const g13b=(await lone(null,'select public.home_categories(1)')).find(c=>c.id==gummy);
 ok('…once it goes live, it\'s an ordinary card (1 snack, 0 waiting)',g13b.snacks===1&&g13b.waiting===0,JSON.stringify(g13b));
 ok('…and its page still loads',!!(await lone(null,`select public.category_page(${gummy},1)`)));
+
+// ---- Migration 014: new categories ----
+console.log('\n---- Migration 014 ----');
+const mig14=fs.readFileSync(R+'migrate-014-new-categories.sql','utf8');
+for(let i=15;i<=19;i++)await live.query('insert into auth.users(id) values ($1) on conflict do nothing',[U(i)]);
+try{await live.exec(mig14);await live.exec(mig14);ok('014 runs twice without errors',true)}catch(e){ok('014 runs twice without errors',false,e.message);return}
+const cl=(await las(null,'select public.category_list(1) c')).rows?.[0].c||[];
+ok('category_list (signed out): every category, the ones with no snacks yet too',cl.some(c=>c.name==='Sweets'&&c.visible)&&cl.some(c=>c.name==='Biscuits & Cereal Bars'&&!c.visible),JSON.stringify(cl));
+const old14=await las(15,`select public.submit_new_category(1,'Gummy worms','Haribo','Haribo Tangfastics',p_category=>2) id`);
+ok('the live site\'s call still works (a new subcategory in Sweets)',!old14.err&&(await lq(`select category_id,new_type from public.item_requests where id=${old14.rows?.[0].id}`))[0]?.category_id===2,old14.err);
+const nt=await las(16,`select public.submit_new_category(1,'bakewell tarts','Mr Kipling','Mr Kipling Cherry Bakewells',p_new_type=>' cakes ') id`);
+const ntRow=nt.rows&&(await lq(`select * from public.item_requests where id=${nt.rows[0].id}`))[0];
+ok('a snack in a new category: saved with the category tidied, and no category picked',!nt.err&&ntRow.new_type==='Cakes'&&ntRow.category_id===null&&ntRow.new_ranking==='Bakewell tarts',nt.err||JSON.stringify(ntRow));
+ok('…a category that\'s already set up is refused, by its name (any case)',/Category Biscuits & Cereal Bars is already on TasteRank/.test((await las(16,`select public.submit_new_category(1,'Digestives','McVitie''s','McVitie''s Digestives',p_new_type=>'biscuits & cereal bars')`)).err||'')
+  &&/Category Sweets is already/.test((await las(16,`select public.submit_new_category(1,'Fizzy sweets','X','X Fizz',p_new_type=>'SWEETS')`)).err||''));
+ok('…and one over 40 letters',/under 40 letters/.test((await las(16,`select public.submit_new_category(1,'Long','X','X Long',p_new_type=>'${'a'.repeat(41)}')`)).err||''));
+ok('…with a category picked too, the new one wins',(await (async()=>{const r=await las(17,`select public.submit_new_category(1,'Pork pies','Pork Farms','Pork Farms Pork Pie',p_category=>2,p_new_type=>'Pies') id`);return r.rows&&(await lq(`select category_id,new_type from public.item_requests where id=${r.rows[0].id}`))[0]})()).new_type==='Pies');
+const pieReq=(await lq(`select id from public.item_requests where new_type='Pies'`))[0].id;
+const ms14=(await lone(16,'select public.my_submissions()')).find(x=>x.id==='r'+nt.rows[0].id);
+ok('my_submissions says the new category',ms14&&ms14.new_type==='Cakes'&&ms14.product==='Bakewell tarts'&&ms14.status==='review',JSON.stringify(ms14));
+const q14=await lone(2,'select public.owner_queue()'),q14r=q14.find(r=>r.id==nt.rows[0].id);
+ok('owner_queue says it too, and never who sent it',q14r&&q14r.new_type==='Cakes'&&q14r.category_id===null&&!JSON.stringify(q14).includes(U(16)),JSON.stringify(q14r));
+ok('signed out: can\'t accept, and nobody can call the category helpers',ldenied(await las(null,`select public.owner_accept(${nt.rows[0].id})`))&&ldenied(await las(3,"select public.owner_category('X')"))&&ldenied(await las(3,"select public.find_category('X')")));
+ok('someone else can\'t accept',/for TasteRank's owner/.test((await las(3,`select public.owner_accept(${nt.rows[0].id})`)).err||''));
+const a14=await lone(2,`select public.owner_accept(${nt.rows[0].id},p_emoji=>'🍰')`);
+const cakes=(await lq(`select * from public.categories where name='Cakes'`))[0],tarts=(await lq(`select * from public.products where name='Bakewell tarts'`))[0];
+ok('accept with no category picked: the new category is made, switched on, last in order',!!cakes&&cakes.visible&&cakes.sort===Math.max(...(await lq('select sort from public.categories')).map(r=>r.sort)),JSON.stringify(cakes));
+ok('…with the subcategory in it and the snack in the vote',!!tarts&&tarts.category_id===cakes.id&&tarts.emoji==='🍰'&&/in the vote/.test(a14.message)&&a14.product==='Bakewell tarts',JSON.stringify(a14));
+const hc14=await lone(null,'select public.home_categories(1)');
+ok('…and home shows it as a new list, under Cakes',hc14.some(c=>c.name==='Bakewell tarts'&&c.type==='Cakes'&&c.snacks===0&&c.waiting===1));
+ok('…and the add form\'s catalogue has Cakes now',(await lone(null,'select public.catalogue(1)')).some(c=>c.name==='Cakes'));
+await lone(2,`select public.owner_accept(${pieReq},p_category=>${cl.find(c=>c.name==='Biscuits & Cereal Bars').id})`);
+ok('the owner can file a new category in one that\'s set up instead: no "Pies" made, Biscuits & Cereal Bars switched on',!(await lq(`select 1 from public.categories where name='Pies'`)).length&&(await lq(`select visible from public.categories where name='Biscuits & Cereal Bars'`))[0].visible);
+const d14=await las(18,`select public.submit_new_category(1,'Doughnuts','Krispy Kreme','Krispy Kreme Original Glazed',p_new_type=>'Treats') id`);
+await lone(2,`select public.owner_accept(${d14.rows[0].id},p_new_type=>'cakes')`);
+ok('…or rename it to one that exists (Treats → Cakes): no duplicate',(await lq(`select count(*)::int n from public.categories where public.norm(name) in ('cakes','treats')`))[0].n===1
+  &&(await lq(`select c.name from public.products p join public.categories c on c.id=p.category_id where p.name='Doughnuts'`))[0].name==='Cakes');
+const e14=await las(19,`select public.submit_new_category(1,'Ice lollies','Fab','Fab Strawberry',p_new_type=>'Frozen') id`);
+await lone(2,`select public.owner_accept(${e14.rows[0].id},p_new_type=>'Frozen treats')`);
+ok('…or tidy its name before accepting (Frozen → Frozen treats)',(await lq(`select visible from public.categories where name='Frozen treats'`))[0]?.visible===true&&!(await lq(`select 1 from public.categories where name='Frozen'`)).length);
+await lone(2,`select public.owner_accept(${old14.rows[0].id},2,'Gummy worms',null,'🪱',null,null)`);
+ok('the live owner page\'s call (7 values) still works',(await lq(`select c.name from public.products p join public.categories c on c.id=p.category_id where p.name='Gummy worms'`))[0]?.name==='Sweets');
+ok('after it all, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${tarts.id},1)`))&&!(await las(16,'select public.my_submissions()')).err);
 }
 }

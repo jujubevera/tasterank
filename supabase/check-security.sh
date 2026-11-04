@@ -104,5 +104,16 @@ else
   echo "SKIP  new list checks (migration 013 not run yet)"
 fi
 
+# New categories (migration 014). Skipped until it has been run.
+if call category_list '{"p_country":1}' | grep -q '"visible"'; then
+  check "every category can be listed (for the add form)" "$(call category_list '{"p_country":1}')" '^\[\{'
+  check "signed out can't suggest a new category" "$(call submit_new_category '{"p_country":1,"p_new_category":"X","p_brand_name":"X","p_pack_name":"X","p_new_type":"X"}')" 'permission denied'
+  check "signed out can't accept a new category" "$(call owner_accept '{"p_request":1,"p_new_type":"X"}')" 'permission denied'
+  check "nobody can make a category directly"   "$(call owner_category '{"p_name":"X"}')" 'permission denied|PGRST202'
+  check "nobody can call the category lookup"   "$(call find_category '{"p_name":"X"}')" 'permission denied|PGRST202'
+else
+  echo "SKIP  new category checks (migration 014 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }
