@@ -18,7 +18,7 @@ const FACES=[
   {v:4,e:'😊',l:'Like it'},{v:5,e:'😍',l:'Love it'}
 ];
 const DEFAULT_COUNTRY='GB';
-const BUBBLE_UNTIL=3; // Crispy's speech bubble on home shows until someone has rated this many items
+const BUBBLE_UNTIL=3; // Crispy's speech bubble on home shows on the first visit only, and goes sooner once someone has rated this many items
 
 /* ---------- Small helpers ---------- */
 const $=s=>document.querySelector(s);
@@ -545,7 +545,7 @@ const ACT={
   'reset-demo':resetDemo,
   feedback:()=>{showSettings(false);track('feedback-open',true);openM('m-feedback')},
   privacy:()=>{showSettings(false);openM('m-privacy')},
-  about:()=>{showSettings(false);toast('About Crispy is coming soon')},
+  about:()=>{showSettings(false);toast('The About page is coming soon')},
   settings:()=>showSettings($('#settings-pop').hidden),
   'set-theme':d=>setTheme(d.theme),
   'set-tips':d=>setTips(!!d.on),
@@ -609,9 +609,9 @@ async function afterSignIn(){
 async function loadProfile(){try{profile=me?await rpc('my_profile'):null}catch(e){profile=null}}
 function renderHeader(){
   const b=$('#me-btn');
-  b.innerHTML=me?'👤<span class="hide-sm">Profile</span>':'Sign in';
-  b.classList.toggle('me',!!me);
-  if(me)b.setAttribute('aria-label','Profile');else b.removeAttribute('aria-label');
+  b.innerHTML=me?'<svg aria-hidden="true"><use href="#crisp-yum"/></svg><span class="hide-sm">Profile</span>':'Sign in';
+  b.classList.toggle('me',!!me);b.classList.toggle('btn-primary',!me); // signed in: a white button like the gear, with Crispy's smile and a drop of drool (design/mockups/profile-icon.html)
+  if(me){b.setAttribute('aria-label','Profile');b.title='Your profile'}else{b.removeAttribute('aria-label');b.removeAttribute('title')} // Crispy alone doesn't say "profile": a hover label on computers
 }
 
 /* ---------- The floating +: add a snack. Its label says where it adds to. ---------- */
@@ -893,17 +893,17 @@ async function setCountry(c){ // the category stays if it's sold there too; the 
   add.touched=true;add.countryOpen=false;add.brandFor=null;
   renderMid();await checkName();focusAdd();
 }
-// Subcategory words that start with what's typed: "choc" finds Chocolate bars, in this category first, then any; never the one just refused
+// Subcategory words that start with what's typed: "choc" finds Chocolate bars, in this category first, then any
 function catMatches(t){
   const tw=snackKey(t).split(' ').filter(Boolean);if(!tw.length)return [];
-  return categoriesIn(add.country).filter(c=>c.id!==add.catRefused&&tw.every(x=>snackKey(c.name).split(' ').some(y=>y.startsWith(x))))
+  return categoriesIn(add.country).filter(c=>tw.every(x=>snackKey(c.name).split(' ').some(y=>y.startsWith(x))))
     .sort((a,b)=>(snackKey(b.name)===snackKey(t))-(snackKey(a.name)===snackKey(t))||(a.type!==add.type)-(b.type!==add.type)||a.name.length-b.name.length).slice(0,4);
 }
 function catSuggestions(){ // the chips: this category's subcategories, the brand's own and where you came from first, then the home order
   const mine=new Set([...add.ctxBrandProducts,...(add.brandSnacks||[]).map(x=>x.product_id)]);
   const h=new Map(homeCats(add.country).map(c=>[c.id,c])),r=c=>(h.get(c.id)||{}).ratings||0,n=c=>(h.get(c.id)||{}).snacks||0;
   const rank=c=>mine.has(c.id)?0:c.id===add.ctxProduct?1:2;
-  return categoriesIn(add.country).filter(c=>c.type===add.type&&c.id!==add.catRefused)
+  return categoriesIn(add.country).filter(c=>c.type===add.type) // the one turned down stays, so a wrong tap on "Something else" is one tap to undo
     .sort((a,b)=>rank(a)-rank(b)||r(b)-r(a)||n(b)-n(a)||a.name.localeCompare(b.name)).slice(0,6);
 }
 // The box's example is a subcategory that isn't here yet, so it never repeats a chip (category ids: 1 Chocolate, 2 Sweets, 3 Crisps & Snacks)
@@ -1188,7 +1188,7 @@ const ADD_ACT={
     Object.assign(add,{brand:n.name,brandState:'known',brandNear:null,brandSet:true,touched:true});
     const t=[n.name,tidyCase(rest)].filter(Boolean).join(' ');add.pack='';commitPack(t).then(()=>{if(!add)return;categoryFromBrand();renderMid();focusAdd()})},
   'add-cat-yes':()=>answerCategory(add.catAsk),
-  'add-cat-else':()=>{Object.assign(add,{catRefused:add.catAsk,catAsk:null,catOpen:true,catFind:'',nudge:null,touched:true});renderMid();($('#row-cat .chips .chip')||$('#add-cat'))?.focus()},
+  'add-cat-else':()=>{Object.assign(add,{catRefused:add.catAsk,catAsk:null,catOpen:true,catFind:'',nudge:null,touched:true});renderMid();($(`#row-cat .chips .chip:not([data-id="${add.catRefused}"])`)||$('#add-cat'))?.focus()},
   'add-type':d=>answerType(+d.id),
   'add-cat-pick':d=>{track(d.src==='typed'?'add-subcategory-typed':'add-subcategory-chip',true);answerCategory(+d.id)},
   'add-cat-new':()=>answerCategory(null,tidyCase(add.catFind,true)),
@@ -1204,7 +1204,7 @@ function commitField(el){
   if(el.id==='add-pack')return commitPack(v);
   if(el.id==='add-brand')return answerBrand(v);
   if(el.id==='add-cat'){ // an exact name picks it; a new category needs its own button (or Enter)
-    const t=tidyCase(v,true),ex=categoriesIn(add.country).find(c=>c.id!==add.catRefused&&snackKey(c.name)===snackKey(t));
+    const t=tidyCase(v,true),ex=categoriesIn(add.country).find(c=>snackKey(c.name)===snackKey(t));
     if(ex)return answerCategory(ex.id);
   }
 }
@@ -1989,11 +1989,11 @@ async function deleteAccount(){
 async function resetDemo(){if(confirm('Reset all demo data in this browser?')){await api.deleteAccount();signedOut('Demo data reset')}}
 
 /* ---------- Crispy's tips: one short tip at a time, where and when it helps, each once per device (design/DESIGN.md, "First-time guide").
-   1 the home bubble, until 3 ratings · 2 the first list or brand page · 3 the sign-in pop-up's words (signInFor) · 4 the first rating, in the sheet
+   1 the home bubble, on the first visit only (or the visit the tips were turned back on), until 3 ratings · 2 the first list or brand page · 3 the sign-in pop-up's words (signInFor) · 4 the first rating, in the sheet
    · 5 above Waiting for approval · 6 above Share this list, after rating 2 in it · 7 beside the +, after 3 ratings or a second visit.
    The lowest number that fits wins; none is picked while a pop-up is open or before the page has loaded. ---------- */
 const tips=(()=>{const t=store.get('tasterank-tips')||{};
-  return {seen:Array.isArray(t.seen)?t.seen:[],visits:+t.visits||0,last:+t.last||0,off:!!t.off,checked:!!t.checked}})();
+  return {seen:Array.isArray(t.seen)?t.seen:[],visits:+t.visits||0,home:+t.home||1,last:+t.last||0,off:!!t.off,checked:!!t.checked}})();
 const saveTips=()=>store.set('tasterank-tips',tips);
 if(Date.now()-tips.last>30*60*1000)tips.visits++; // a visit: a page load more than 30 minutes after the last one
 tips.last=Date.now();saveTips();
@@ -2018,7 +2018,7 @@ function tipFits(n){
 }
 function updateTips(){
   if(profile&&!tips.checked){tips.checked=true;if(profile.rated>=3)[1,2,3,4].forEach(tipMark);saveTips()} // regulars skip the first four
-  const key=tipKey(),bubble=view==='home'&&!tips.off&&!tipSeen(1)&&myRated()<BUBBLE_UNTIL;
+  const key=tipKey(),bubble=view==='home'&&!tips.off&&!tipSeen(1)&&tips.visits<=tips.home&&myRated()<BUBBLE_UNTIL;
   $('#bubble').hidden=!bubble;
   if(tips.off||(tipNow&&tipNow.key!==key))tipNow=null;
   if(!tips.off&&!tipNow&&!bubble&&tipReady&&!openId){
@@ -2048,7 +2048,7 @@ function tipClose(n,how){ // Got it, or doing what the tip suggests
 const tipAct=n=>tipClose(n,'acted'); // doing it also counts when the tip hasn't shown yet: they found it themselves
 function setTips(on){
   if(on===!tips.off)return;
-  tips.off=!on;if(on)tips.seen=[]; // back on: they start over
+  tips.off=!on;if(on){tips.seen=[];tips.home=tips.visits} // back on: they start over, home bubble included
   tipNow=null;saveTips();track(on?'tips-on':'tips-off',true);renderTipsSwitch();updateTips();
 }
 function renderTipsSwitch(){document.querySelectorAll('[data-act="set-tips"]').forEach(b=>b.setAttribute('aria-pressed',!!b.dataset.on===!tips.off))}

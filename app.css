@@ -41,7 +41,8 @@ button:disabled{cursor:default;opacity:.6}
 .btn:hover{border-color:var(--primary)}
 .bar .btn{padding:8px 14px;font-size:14px;white-space:nowrap}
 .bar .icon-btn{width:44px;padding:0;flex:none;color:var(--muted)}
-.bar .me{min-width:44px;padding:0 12px}
+.bar .me{min-width:44px;padding:0 14px 0 7px;gap:4px;transition:none} /* no blue fade from Sign in on load */
+.bar .me svg{width:30px;height:30px;flex:none}
 .bar .icon-btn:hover,.bar .icon-btn[aria-expanded="true"]{color:var(--ink)}
 .icon-btn svg{width:22px;height:22px}
 .pop{position:absolute;top:calc(100% + 6px);right:16px;z-index:40;width:240px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px}
@@ -327,7 +328,7 @@ body:has(.modal-bg:not([hidden])) .toast{top:16px;bottom:auto}
   .logo{font-size:19px}
   .logo svg{width:26px;height:26px}
   .bar .btn{padding:8px 12px}
-  .bar .icon-btn{padding:0}
+  .bar .icon-btn,.bar .me{padding:0}
   .hide-sm{display:none}
   .pop{right:12px}
 }
