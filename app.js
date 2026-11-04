@@ -1938,7 +1938,7 @@ async function renderProfile(){
   el.innerHTML=`
     <button class="crumb" data-act="home">← Back</button>
     <div class="card profile">
-      <div class="p-head"><span class="thumb big" aria-hidden="true">😋</span><div><h1 class="page-title">Your profile</h1><div class="meta">Taster ID ${esc(p.taster_id)}</div></div></div>
+      <div class="p-head"><span class="thumb big me-pic" aria-hidden="true"><svg><use href="#crisp-yum"/></svg></span><div><h1 class="page-title">Your profile</h1><div class="meta">Taster ID ${esc(p.taster_id)}</div></div></div>
       <div class="stats">
         <div class="stat"><b>${fmt(p.rated)}</b><span>snacks rated</span></div>
         <div class="stat"><b>${fmt(lists)}</b><span>${lists===1?'list':'lists'} helped</span></div>
