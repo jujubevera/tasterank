@@ -96,5 +96,13 @@ else
   echo "SKIP  daily limit checks (migration 012 not run yet)"
 fi
 
+# New lists on home (migration 013). Skipped until it has been run.
+if call home_categories '{"p_country":1}' | grep -q '"waiting"'; then
+  check "home cards say how many snacks are waiting" "$(call home_categories '{"p_country":1}')" '"waiting": ?[0-9]'
+  check "…and never who added them"             "$(call home_categories '{"p_country":1}' | grep -c 'submitted_by\|user_id')" '^0$'
+else
+  echo "SKIP  new list checks (migration 013 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }

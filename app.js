@@ -87,7 +87,8 @@ const DEMO={
   categories:[{id:1,name:'Chocolate'},{id:2,name:'Sweets'},{id:3,name:'Crisps & Snacks'}],
   products:[{id:1,category_id:1,name:'Chocolate bars',emoji:'🍫',off_tags:['en:chocolate-bars','en:milk-chocolate-bars','en:dark-chocolate-bars']},
     {id:2,category_id:2,name:'Toffee',emoji:'🍬',off_tags:['en:caramels','en:toffees','en:toffee']},
-    {id:3,category_id:3,name:'Crisps',emoji:'🥔',off_tags:['en:crisps','en:potato-crisps']}],
+    {id:3,category_id:3,name:'Crisps',emoji:'🥔',off_tags:['en:crisps','en:potato-crisps']},
+    {id:4,category_id:2,name:'Jelly sweets',emoji:'🍓',off_tags:['en:gummies','en:jelly-sweets']}], // a new list: its only snack is in the vote
   /* flavours, in sort order; each category's "Other" holds what the owner hasn't sorted yet */
   variants:[{id:1,product_id:1,name:'Milk chocolate',title:'Milk chocolate bars',keywords:['milk'],off_tags:['en:milk-chocolate-bars']},
     {id:2,product_id:2,name:'Plain',title:'Toffee',keywords:[]},
@@ -97,7 +98,8 @@ const DEMO={
     {id:6,product_id:3,name:'Ready salted',title:'Ready salted crisps',keywords:['ready salted','lightly salted','lightly sea salted','sea salt','sea salted']},
     {id:7,product_id:1,name:'Other',title:'Other chocolate bars',is_other:true,keywords:[]},
     {id:8,product_id:2,name:'Other',title:'Other toffee',is_other:true,keywords:[]},
-    {id:9,product_id:3,name:'Other',title:'Other crisps',is_other:true,keywords:[]}],
+    {id:9,product_id:3,name:'Other',title:'Other crisps',is_other:true,keywords:[]},
+    {id:10,product_id:4,name:'Other',title:'Other jelly sweets',is_other:true,keywords:[]}],
   local:{'type:2:2':'Candy','type:3:2':'Chips & Snacks','type:2:3':'Lollies','type:3:3':'Chips & Snacks','type:2:4':'Candy','type:3:4':'Chips & Snacks',
     'type:2:5':'Candy','type:3:5':'Chips & Snacks','product:3:4':'Potato chips','variant:6:4':'Lightly salted (うすしお)','title:6:4':'Lightly salted potato chips (うすしお)','title:9:4':'Other potato chips'},
   /* r = sample ratings for faces [1,2,3,4,5]; demo numbers are allowed only here */
@@ -126,7 +128,8 @@ const DEMO={
     {id:21,c:4,p:3,v:6,b:'Calbee',pack:'Calbee Potato Chips Usushio (うすしお味)',r:[0,1,1,5,6]},
     {id:22,c:4,p:3,v:6,b:'Pringles',pack:'Pringles Original',r:[0,0,2,2,1]},
     {id:901,c:1,p:3,v:4,b:'Tyrrells',pack:'Tyrrells Cider Vinegar & Sea Salt',r:[0,0,0,0,0],pending:true,approvals:3,days_left:21},
-    {id:902,c:1,p:2,v:2,b:"Werther's Original",pack:"Werther's Original Chewy Toffees",r:[0,0,0,0,0],pending:true,approvals:2,days_left:26}
+    {id:902,c:1,p:2,v:2,b:"Werther's Original",pack:"Werther's Original Chewy Toffees",r:[0,0,0,0,0],pending:true,approvals:2,days_left:26},
+    {id:903,c:1,p:4,v:10,b:'Haribo',pack:'Haribo Starmix',r:[0,0,0,0,0],pending:true,approvals:1,days_left:28}
   ]
 };
 const DEMO_KEY='tasterank-demo-v3';
@@ -186,13 +189,14 @@ const DEMO_RPC={
   app_settings:()=>DEMO.settings,
   place_list:()=>DEMO.places,
   home_categories({p_country},st){
-    const t=D.totals(p_country,st);
-    return DEMO.products.filter(p=>t.some(x=>x.product_id===p.id)).map(p=>{
-      const mine=t.filter(x=>x.product_id===p.id).sort(D.order),ranked=mine.filter(x=>x.ranked);
-      return {id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,type:D.typeName(p.category_id,p_country),type_id:p.category_id,snacks:mine.length,ratings:D.sum(mine),
-        lead:Math.max(0,...mine.map(x=>x.total)),thumbs:D.pics(mine),top:ranked.slice(0,3).map(x=>({item_id:x.id,pack_name:x.pack_name,brand:x.brand,avg:x.avg,total:x.total})),
+    const t=D.totals(p_country,st),w=D.all().filter(i=>D.waiting(i,st)&&i.c===p_country); // 013: also lists whose only snacks are in the vote
+    return DEMO.products.filter(p=>t.some(x=>x.product_id===p.id)||w.some(i=>i.p===p.id)).map(p=>{
+      const mine=t.filter(x=>x.product_id===p.id).sort(D.order),ranked=mine.filter(x=>x.ranked),wait=w.filter(i=>i.p===p.id);
+      return {id:p.id,name:D.product(p.id,p_country),emoji:p.emoji,type:D.typeName(p.category_id,p_country),type_id:p.category_id,snacks:mine.length,waiting:wait.length,ratings:D.sum(mine),
+        lead:Math.max(0,...mine.map(x=>x.total)),
+        thumbs:mine.length?D.pics(mine):wait.sort((a,b)=>!a.img-!b.img||D.approvals(b,st)-D.approvals(a,st)||a.id-b.id).slice(0,4).map(i=>({image_url:i.img||null,image_path:null,emoji:p.emoji})),top:ranked.slice(0,3).map(x=>({item_id:x.id,pack_name:x.pack_name,brand:x.brand,avg:x.avg,total:x.total})),
         to_rate:ranked.length?[]:mine.slice(0,2).map(x=>({item_id:x.id,pack_name:x.pack_name,total:x.total}))};
-    }).sort((a,b)=>b.ratings-a.ratings||a.type_id-b.type_id||a.id-b.id);
+    }).sort((a,b)=>!a.snacks-!b.snacks||b.ratings-a.ratings||a.type_id-b.type_id||a.id-b.id);
   },
   home_brands({p_country},st){
     const t=D.totals(p_country,st);
@@ -1360,7 +1364,12 @@ function cardStatus(win,label,lead,goal){
   if(!lead)return `<span class="status"><b>No ratings yet</b><span class="cta">· Be the first</span></span>`;
   return `<span class="status"><span class="cta">Top snack needs <b>${plural(Math.max(1,settings.rank_after_ratings-lead),'more rating')}</b> ${goal}</span></span>`;
 }
-const cardTitle=(name,snacks)=>`<span class="tl"><b>${esc(name)}</b><span class="n">${plural(snacks,'snack')}</span></span>`;
+const cardTitle=(name,snacks,n)=>`<span class="tl"><b>${esc(name)}</b><span class="n">${n||plural(snacks,'snack')}</span></span>`;
+// A new list: none of its snacks is live yet, only in the vote (migration 013), so friends can find it and approve them (design/mockups/new-lists.html)
+const isNew=x=>!x.snacks&&x.waiting>0;
+const catCard=x=>isNew(x)
+  ?`${cardPics(x.thumbs,x.waiting)}${cardTitle(x.name,0,`${x.waiting} waiting`)}<span class="status"><span class="k vote">New list</span><span class="cta">Help decide what's in it</span></span>`
+  :`${cardPics(x.thumbs,x.snacks)}${cardTitle(x.name,x.snacks)}${cardStatus(x.top[0],'Winner',x.lead??(x.to_rate[0]||{}).total,'to win')}`;
 function renderHomeCards(){
   if(!homeData)return;
   const c=places.find(p=>p.id===homeData.country),seg=homeData.brands.length>=3;
@@ -1375,8 +1384,8 @@ function renderHomeCards(){
   const cards=byBrand
     ?[...homeData.brands].sort(byUse).filter(b=>b.type_ids.some(inType)).map(b=>`<a class="pcard" href="${esc(hashFor({v:'brand',cc:c.code,brand:b.id}))}" data-act="brand" data-cc="${c.code}" data-brand="${b.id}">
         ${cardPics(b.thumbs||[b.thumb||{}],b.snacks)}${cardTitle(b.name,b.snacks)}${cardStatus(b.best,'Best',b.lead,'to be the best')}</a>`).join('')
-    :[...homeData.cats].sort(byUse).filter(x=>inType(x.type_id)).map(x=>`<a class="pcard" href="${esc(hashFor({v:'category',cc:c.code,product:x.id}))}" data-act="category" data-cc="${c.code}" data-product="${x.id}">
-        ${cardPics(x.thumbs,x.snacks)}${cardTitle(x.name,x.snacks)}${cardStatus(x.top[0],'Winner',x.lead??(x.to_rate[0]||{}).total,'to win')}</a>`).join('');
+    :[...homeData.cats].sort(byUse).filter(x=>inType(x.type_id)).map(x=>`<a class="pcard${isNew(x)?' new':''}" href="${esc(hashFor({v:'category',cc:c.code,product:x.id}))}" data-act="category" data-cc="${c.code}" data-product="${x.id}">
+        ${catCard(x)}</a>`).join('');
   $('#cards').innerHTML=cards||`<div class="card empty">${byBrand?'No brand has 2 snacks of this type here yet.':'No snacks here yet. Know one? Tap + to add it.'}</div>`;
   setFab();
 }
@@ -1442,19 +1451,21 @@ function drawCategory(){
   const items=f?d.items.filter(i=>i.variant_id===f.id):d.items,pend=f?d.pending.filter(p=>p.variant_id===f.id):d.pending;
   const flavour=id=>(d.flavours.find(x=>x.id===id)||{}).name||'',total=items.reduce((s,i)=>s+i.total,0),n=items.length;
   d.title=f?f.title:d.name;
+  const fresh=!n&&pend.length>0; // a new list: nothing live yet, so one note instead of No winner yet, the rating tip and None live yet
   $('#v-category').innerHTML=`
     <button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}">← ${esc(d.country.short_name)} <span>· ${esc(d.type)}</span></button>
     <h1 class="page-title">${esc(d.title)}: which one wins?</h1>
-    <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${plural(n,'snack')}${ratingsPart(total)}</div>
+    <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${fresh?'New list':plural(n,'snack')+ratingsPart(total)}</div>
     ${d.gone?`<div class="card gone-card" role="status"><span class="gone-e" aria-hidden="true">😶</span><b>${esc(d.gone.pack_name)} was withdrawn</b><span class="meta">The person who added it took it back before it went live, so there's nothing to approve.</span></div>`:''}
     ${chips?chipsHtml('Flavours','flavour',[{id:null,name:'All',count:d.items.length},...d.flavours],f?f.id:null):''}
-    ${winnerHtml(items,'The winner so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'No winner yet')}
-    <div class="tip-slot" data-n="2"></div>
+    ${fresh?`<div class="newnote"><b>New list: help decide what's in it</b><span>Snacks join once ${settings.approval_votes} people approve them. Know one of these? Approve it. Missing one? Tap + to add it.</span></div>`
+      :`${winnerHtml(items,'The winner so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'No winner yet')}
+    <div class="tip-slot" data-n="2"></div>`}
     ${n?`<div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
         ?`<a class="bl" href="${esc(hashFor({v:'brand',cc:d.cc,brand:it.brand_id}))}" data-act="brand" data-cc="${d.cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand))
         +(chips&&!f?` · ${esc(flavour(it.variant_id))}`:''))).join('')}</div>`:''}
-    ${n<3?`<div class="alert"><b>${n?`Only ${n===1?'one':'two'} so far`:'None live yet'}</b><span>Know ${n?`another ${esc(d.title.toLowerCase())}`:'one'} sold in ${esc(d.country.name)}? Tap + to add it. It goes live once ${settings.approval_votes} people approve.</span></div>`:''}
-    ${pend.length?`<div class="tip-slot" data-n="5"></div><h2>Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
+    ${n<3&&!fresh?`<div class="alert"><b>${n?`Only ${n===1?'one':'two'} so far`:'None live yet'}</b><span>Know ${n?`another ${esc(d.title.toLowerCase())}`:'one'} sold in ${esc(d.country.name)}? Tap + to add it. It goes live once ${settings.approval_votes} people approve.</span></div>`:''}
+    ${pend.length?`${fresh?'':'<div class="tip-slot" data-n="5"></div>'}<h2>Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
     <div class="tip-slot" data-n="6"></div>
     <button class="btn share-btn" data-act="share-list">Share this list</button>`;
   updateTips();

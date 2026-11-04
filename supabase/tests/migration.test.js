@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–012 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–013 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -756,5 +756,33 @@ ok('…and the one refused says so',/added 5 snacks today/.test(e12),e12);
 ok('an accepted subcategory counts once, not twice',n12===4,String(n12));
 let own12=0;for(let k=1;k<=6;k++)if(!(await las(2,`select public.submit_snack(1,${crisps12},'Ownbrand','Ownbrand Crisps ${k}') r`)).err)own12++;
 ok('the owner has no daily limit',own12===6,String(own12));
+
+// ---- Migration 013: new lists on home ----
+console.log('\n---- Migration 013 ----');
+const gummy=(await lq(`select id from public.products where name='Gummy bears'`))[0].id;
+const hc12=(await las(null,'select public.home_categories(1) h')).rows[0].h;
+ok('before 013: a list whose only snack is in the vote has no home card',!hc12.some(c=>c.id==gummy));
+const mig13=fs.readFileSync(R+'migrate-013-new-lists.sql','utf8');
+try{await live.exec(mig13);await live.exec(mig13);ok('013 runs twice without errors',true)}catch(e){ok('013 runs twice without errors',false,e.message);return}
+const hc13=(await las(null,'select public.home_categories(1) h')).rows[0].h;
+const keep=c=>[c.id,c.name,c.emoji,c.type,c.type_id,c.snacks,c.ratings,c.lead,c.thumbs,c.top,c.to_rate];
+ok('…the live cards are the same, in the same order, every old field kept',JSON.stringify(hc13.filter(c=>c.snacks>0).map(keep))===JSON.stringify(hc12.map(keep)));
+const g13=hc13.find(c=>c.id==gummy);
+ok('…the new list has a card: 0 live, 1 waiting, its snack\'s picture, after every live card',!!g13&&g13.snacks===0&&g13.waiting===1&&g13.thumbs.length===1&&hc13.indexOf(g13)>hc13.findLastIndex(c=>c.snacks>0)&&g13.type==='Sweets',JSON.stringify(g13));
+const pend13=await lq(`select product_id,count(*)::int n from public.items where country_id=1 and public.status_now(status,created_at)='pending' group by product_id`);
+ok('…every card says how many of its snacks are in the vote',hc13.every(c=>c.waiting===(pend13.find(x=>x.product_id==c.id)?.n||0)),JSON.stringify(hc13.map(c=>[c.name,c.waiting])));
+ok('…not in another country',!(await las(null,'select public.home_categories(2) h')).rows[0].h.some(c=>c.id==gummy));
+const gItem=(await lq(`select id from public.items where product_id=${gummy}`))[0].id;
+await lq(`update public.items set created_at=now()-interval '31 days' where id=${gItem}`);
+ok('…the card goes when its snack closes after 30 days',!(await lone(null,'select public.home_categories(1)')).some(c=>c.id==gummy));
+await lq(`update public.items set created_at=now() where id=${gItem}`);
+await lone(2,`select public.owner_set_status(${gItem},'hide')`);
+ok('…or when it\'s hidden',!(await lone(null,'select public.home_categories(1)')).some(c=>c.id==gummy));
+await lone(2,`select public.owner_set_status(${gItem},'show')`);
+ok('…and it comes back when shown again',(await lone(null,'select public.home_categories(1)')).some(c=>c.id==gummy&&c.snacks===0));
+await lone(2,`select public.owner_set_status(${gItem},'live')`);
+const g13b=(await lone(null,'select public.home_categories(1)')).find(c=>c.id==gummy);
+ok('…once it goes live, it\'s an ordinary card (1 snack, 0 waiting)',g13b.snacks===1&&g13b.waiting===0,JSON.stringify(g13b));
+ok('…and its page still loads',!!(await lone(null,`select public.category_page(${gummy},1)`)));
 }
 }

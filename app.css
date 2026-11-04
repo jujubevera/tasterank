@@ -103,6 +103,8 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .status.win .k{flex:none;background:var(--winner);color:var(--on-winner);border-radius:7px;padding:1px 7px;font-size:12px;font-weight:900}
 .status.win .nm{flex:1;min-width:0;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .status.win .sc{flex:none;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+.status .k.vote{flex:none;background:var(--amber-bg);color:var(--amber);border-radius:7px;padding:1px 7px;font-size:12px;font-weight:900}
+.pcard.new{border:1.5px dashed var(--line)} /* a new list, its snacks waiting for approval: dashed like a waiting snack */
 .thumb{width:52px;height:52px;border-radius:12px;background:var(--tile);border:1px solid var(--line);display:grid;place-items:center;font-size:27px;flex:none;overflow:hidden}
 .thumb img{width:100%;height:100%;object-fit:contain;background:var(--tile)}
 .thumb.sm{width:40px;height:40px;font-size:21px;border-radius:10px}
@@ -127,6 +129,8 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .early{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--muted);margin:12px 0}
 .early b{display:block;font-size:15px;color:var(--ink)}
 .alert{background:var(--soft);border-radius:12px;padding:12px 14px;font-size:14px;margin:12px 0;display:grid;gap:4px}
+.newnote{background:var(--amber-bg);border-radius:12px;padding:12px 14px;font-size:14px;margin:12px 0;display:grid;gap:4px;color:var(--ink)}
+.newnote b{font-size:15px}
 .alert b{font-size:15px}
 .list{display:grid;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .ir{display:grid;grid-template-columns:24px auto minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;background:none;color:var(--ink);border:0;border-top:1px solid var(--line);padding:10px 12px;min-height:60px}
