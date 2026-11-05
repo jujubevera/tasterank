@@ -97,7 +97,7 @@ html[data-theme="dark"] .lc{box-shadow:none;outline:1px solid var(--line);outlin
 .pp .emo,.wp .emo{position:absolute;inset:0;display:grid;place-items:center;font-size:56px;line-height:1}
 .pp img,.wp img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 html[data-theme="dark"] .pp img,html[data-theme="dark"] .wp img{filter:brightness(.88)}
-.lc .tx{padding:12px 14px;display:flex;flex-direction:column;justify-content:center;gap:5px;min-width:0}
+.lc .tx{padding:12px 14px;display:flex;flex-direction:column;justify-content:center;gap:5px;min-width:0;container-type:inline-size}
 .lc .nm{font-size:18px;font-weight:800;line-height:1.2;overflow-wrap:anywhere}
 .lc .mt{font-size:13px;color:var(--muted);font-weight:700}
 .lc .go{font-size:13.5px;font-weight:700;color:var(--muted)}
@@ -106,7 +106,10 @@ html[data-theme="dark"] .pp img,html[data-theme="dark"] .wp img{filter:brightnes
 .wb i{display:block;height:100%;background:var(--winner);border-radius:999px}
 .win2{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:6px;font-size:13.5px;font-weight:700;line-height:1.35} /* label, name (up to 2 lines), score pinned to the right */
 .win2 .k{background:var(--winner);color:var(--on-winner);border-radius:7px;padding:1px 7px;font-size:12px;font-weight:900}
-.win2 b{font-weight:900;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.win2 b{font-weight:900;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:break-word}
+@container (max-width:200px){ /* a narrow card: label and score on top, the name gets the whole line under them */
+  .win2{grid-template-columns:auto minmax(0,1fr);row-gap:2px}.win2 .s{justify-self:end}.win2 b{grid-column:1/-1;grid-row:2}
+}
 .win2 .s{font-weight:900;white-space:nowrap;font-variant-numeric:tabular-nums}
 .newk{align-self:flex-start;background:var(--new-bg);color:var(--new-ink);border-radius:7px;padding:1px 8px;font-size:12px;font-weight:900} /* a new list: calm blue, not a warning yellow */
 
@@ -432,6 +435,8 @@ body:has(.modal-bg:not([hidden])) .toast{top:16px;bottom:auto}
 .own-srow{display:flex;gap:8px;margin-bottom:4px}
 .own-srow input{flex:1;min-width:0;padding:11px 14px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:16px;font-weight:600}
 .own-srow select{flex:none;max-width:42%;border:1px solid var(--line);border-radius:999px;background:var(--surface);padding:0 10px;min-height:44px;font-weight:800;font-size:14px}
+.own-frow select{flex:1 1 0;min-width:0;max-width:none;color:var(--muted)}
+.own-frow select.on{color:var(--ink);border-color:var(--ink)}
 .own-row{grid-template-columns:auto minmax(0,1fr) auto}
 .own-row .pk{white-space:normal}
 .own-row.hid .bn,.own-row.hid .thumb{opacity:.55}

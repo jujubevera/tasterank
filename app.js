@@ -1467,7 +1467,7 @@ async function renderHome(r){
 const ratingsPart=n=>n?' · '+plural(n,'rating'):'';
 /* List cards (design/mockups/cat-preview.html): a square panel on the left, edge to edge, with Vera's own photo of the list,
    or its emoji on its category's soft colour; beside it the name, "3 snacks · 1 rating", then the winner or how close one is */
-const LIST_PHOTOS={1:'chocolate-bars',2:'toffee',3:'crisps',4:'jelly-sweets'}; // assets/lists/, by subcategory id (the same id in every country)
+const LIST_PHOTOS={1:'chocolate-bars',2:'toffee',3:'crisps',4:'jelly-sweets',5:'chocolate-pouch'}; // assets/lists/, by subcategory id (the same id in every country)
 const TINTS={1:'choc',2:'sweet',3:'crisp',4:'choc',5:'crisp',6:'choc',7:'crisp'}; // by category: cocoa blush, rose, blue mist
 const listPhoto=(product,country)=>product===2&&country===5?null:LIST_PHOTOS[product]; // China's Milk candy isn't toffee: it keeps its emoji
 // The emoji always sits underneath, so a photo that fails to load just leaves the emoji showing
@@ -1869,6 +1869,7 @@ const OWN_EMOJI_RE=/^[©®‍‰-⯿〰〽㊗㊙︎️\u{1F000}-\u{1FAFF}\u{E002
 const okEmoji=e=>!e||([...e].length<=10&&OWN_EMOJI_RE.test(e));
 const OWN_FILTERS=[['all','All'],['live','Live'],['pending','In the vote'],['closed','Closed'],['hidden','Hidden'],['sort','Flavour to sort']];
 const ownIn=(x,f)=>f==='all'||(f==='sort'?x.is_other&&x.status!=='hidden':x.status===f);
+const ownInCat=x=>(!own.fcat||x.category_id===own.fcat)&&(!own.fsub||x.product_id===own.fsub); // the category and subcategory pickers
 const ownCats=()=>own.cat.categories.filter(c=>c.visible);
 const ownProduct=name=>own.cat.products.find(p=>norm(p.name)===norm(tidyCase(name||'',true)));
 const ownQ=id=>own.queue.find(x=>String(x.id)===String(id));
@@ -2002,17 +2003,28 @@ function ownDone(r){ // accepted or declined: it leaves the list now, and the re
 
 /* Snacks: every snack in a country (or all), with a search and filters; a row opens "Change this snack" */
 function ownSnacksHtml(){
-  const list=own.snacks||[];
+  const all=own.snacks||[],list=all.filter(ownInCat);
   return `<div class="own-srow"><input id="own-q" type="search" placeholder="Find a snack or brand" aria-label="Find a snack or brand" value="${esc(own.q)}" autocomplete="off">
     <select id="own-country" aria-label="Country"><option value="">All countries</option>${places.map(p=>`<option value="${p.id}"${p.id===own.country?' selected':''}>${p.flag} ${esc(p.short_name)}</option>`).join('')}</select></div>
+    ${ownCatPickers(all)}
     <div class="chips own-filters" role="group" aria-label="Show">${OWN_FILTERS.map(([k,l])=>`<button class="chip sm${own.filter===k?' on':''}" aria-pressed="${own.filter===k}" data-act="own-filter" data-f="${k}">${l} <span class="n">${list.filter(x=>ownIn(x,k)).length}</span></button>`).join('')}</div>
     <div id="own-list">${ownListHtml()}</div>`;
+}
+// Only categories and subcategories with snacks in this country (plus the one picked); the number is how many snacks each has
+function ownCatPickers(list){
+  const n=f=>list.filter(f).length,on=(a,b)=>a===b?' selected':'';
+  const cats=own.cat.categories.filter(c=>c.id===own.fcat||list.some(x=>x.category_id===c.id));
+  const subs=own.cat.products.filter(p=>(!own.fcat||p.category_id===own.fcat)&&(p.id===own.fsub||list.some(x=>x.product_id===p.id)));
+  const opt=p=>`<option value="${p.id}"${on(p.id,own.fsub)}>${esc(p.name)} (${n(x=>x.product_id===p.id)})</option>`;
+  const subOpts=own.fcat?subs.map(opt).join(''):cats.map(c=>{const ps=subs.filter(p=>p.category_id===c.id);return ps.length?`<optgroup label="${esc(c.name)}">${ps.map(opt).join('')}</optgroup>`:''}).join('');
+  return `<div class="own-srow own-frow"><select id="own-fcat" aria-label="Category"${own.fcat?' class="on"':''}><option value="">All categories</option>${cats.map(c=>`<option value="${c.id}"${on(c.id,own.fcat)}>${esc(c.name)} (${n(x=>x.category_id===c.id)})</option>`).join('')}</select>
+    <select id="own-fsub" aria-label="Subcategory"${own.fsub?' class="on"':''}><option value="">All subcategories</option>${subOpts}</select></div>`;
 }
 const ownPill=st=>`<span class="own-pill ${st}">${{live:'Live',pending:'In the vote',closed:'Closed',hidden:'Hidden'}[st]||esc(st)}</span>`;
 function ownListHtml(){
   const words=snackKey(own.q).split(' ').filter(Boolean),n=settings.approval_votes;
-  const l=(own.snacks||[]).filter(x=>ownIn(x,own.filter)&&words.every(w=>snackKey(`${x.pack_name} ${x.brand}`).includes(w)));
-  if(!l.length)return `<div class="card empty">${own.snacks?.length?'No snacks match.':'No snacks here yet.'}</div>`;
+  const l=(own.snacks||[]).filter(x=>ownInCat(x)&&ownIn(x,own.filter)&&words.every(w=>snackKey(`${x.pack_name} ${x.brand}`).includes(w)));
+  if(!l.length)return `<div class="card empty">${own.snacks?.length?`<p>No snacks match.</p><button class="link" data-act="own-show-all">Show all snacks</button>`:'No snacks here yet.'}</div>`;
   return `<div class="list">${l.map(x=>{
     const pl=own.country?null:placeBy('id',x.country_id);
     const more=x.status==='pending'?`${x.approvals} of ${n} approvals`:x.status==='closed'?`closed, ${x.approvals} of ${n} approvals`
@@ -2134,6 +2146,7 @@ const OWN_ACT={
   'own-decline-no':d=>{own.req[d.id].confirm=false;ownRedrawReq(d.id,'[data-act="own-decline"]')},
   'own-decline-yes':d=>ownDecline(d.id),
   'own-filter':d=>{own.filter=d.f;drawOwner();$(`#own-body [data-f="${d.f}"]`)?.focus()},
+  'own-show-all':()=>{Object.assign(own,{q:'',filter:'all',fcat:null,fsub:null});drawOwner();$('#own-q')?.focus()},
   'own-open':d=>{$('#toast').hidden=true;ownOpenSnack(d.id)},
   'own-edit-cat':d=>{const e=own.edit;if(e.cat===+d.cat)return;e.cat=+d.cat;const first=own.cat.products.find(p=>p.category_id===e.cat);
     Object.assign(e,{sub:first?.name||'',newSub:!first,flavour:'',error:null});ownDrawSheet();$(`#owner-body [data-cat="${d.cat}"]`)?.focus()},
@@ -2162,6 +2175,10 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',async e=>{
   if(!own)return;const t=e.target;
+  if(t.id==='own-fcat'||t.id==='own-fsub'){ // a subcategory brings its category; a category drops a subcategory outside it
+    const v=t.value?+t.value:null,p=t.id==='own-fsub'&&own.cat.products.find(x=>x.id===v);
+    if(t.id==='own-fcat'){own.fcat=v;if(v&&own.cat.products.find(x=>x.id===own.fsub)?.category_id!==v)own.fsub=null}else{own.fsub=v;if(p)own.fcat=p.category_id}
+    drawOwner();$('#'+t.id)?.focus();return}
   if(t.id==='own-country'){own.country=t.value?+t.value:null;await ownRefresh();$('#own-country')?.focus()}
   if(t.id==='own-e-country'&&own.edit)own.edit.country_id=+t.value;
   if(t.id==='own-e-sub'&&own.edit){Object.assign(own.edit,t.value==='new'?{newSub:true,sub:''}:{newSub:false,sub:t.value},{flavour:''});ownDrawSheet();$(t.value==='new'?'#owner-body [data-edit="sub"]':'#own-e-sub')?.focus()}
