@@ -71,6 +71,7 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 /* bottom padding keeps the + from ever covering the last row */
 .foot{width:100%;max-width:960px;margin:0 auto;padding:0 16px 88px;color:var(--muted);font-size:13px;text-align:center}
 .foot a{color:inherit}
+.foot-about{max-width:46ch;margin:0 auto 8px;text-wrap:balance}
 
 /* Home */
 .bubble-row{display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;align-items:start;margin:4px 0 14px;max-width:560px}
