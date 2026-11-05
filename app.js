@@ -1474,7 +1474,7 @@ const listPhoto=(product,country)=>product===2&&country===5?null:LIST_PHOTOS[pro
 const panel=(emoji,type,photo,cls='pp')=>`<span class="${cls}" style="--tint:var(--t-${TINTS[type]||'crisp'})" aria-hidden="true"><span class="emo">${esc(emoji||'🍽️')}</span>${photo?`<img src="assets/lists/${photo}.jpg" alt="" loading="lazy" decoding="async">`:''}</span>`;
 // Under the name: the winner (up to 2 lines), or a bar filling up towards one (never "1/10", which reads like a score)
 function cardStatus(win,label,lead,goal){
-  if(win)return `<span class="win2"><span class="k">${label}</span> <b>${esc(win.pack_name)}</b> <span class="s">${faceFor(win.avg).e} ${score1(win.avg)}</span></span>`;
+  if(win)return `<span class="win2"><span class="k">${label}</span><b>${esc(win.pack_name)}</b><span class="s">${faceFor(win.avg).e} ${score1(win.avg)}</span></span>`;
   if(lead==null)return `<span class="go"><b>No ${label.toLowerCase()} yet</b></span>`; // before migration 009
   if(!lead)return `<span class="go"><b>No ratings yet</b> · Be the first</span>`;
   const need=settings.rank_after_ratings;
@@ -1508,7 +1508,7 @@ function renderHomeCards(){
   const empty=cards.length?'':`<div class="card empty">${byBrand?'No brand has 2 snacks of this type here yet.':'No snacks here yet. Know one? Tap + to add it.'}</div>`;
   cards.splice(wide.matches?6:4,0,bandHtml(waitList(),c.code)); // after 2 rows of lists, never further down; at the end when there are fewer
   $('#cards').innerHTML=empty+cards.join('');
-  setFab();
+  watchBand();setFab();
 }
 const inType=id=>prefs.cat==='all'||String(id)===String(prefs.cat);
 
@@ -1624,7 +1624,6 @@ function redraw(el,draw,act){
   el.querySelectorAll('.chips').forEach((c,i)=>c.scrollLeft=sx[i]||0);
   if(f&&f.act)(el.querySelector(`[data-act="${f.act}"][data-id="${f.id||''}"]`)||el.querySelector(`[data-act="${act}"]`))?.focus();
 }
-const possessive=n=>/s$/.test(n)?`${n}'`:`${n}'s`; // Walkers' best; M&S's and KETTLE's best (capitals take 's)
 const listLink=(cc,product,text)=>`<a class="bl" href="${esc(hashFor({v:'category',cc,product}))}" data-act="category" data-cc="${cc}" data-product="${product}">${text}</a>`;
 
 /* ---------- Category page: every snack in one category, with a chip per flavour ---------- */
@@ -1720,7 +1719,7 @@ function drawBrand(){
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${plural(items.length,'snack')}${ratingsPart(total)}</div>
     ${multi?chipsHtml('Subcategories','bp-cat',[{id:null,name:'All',count:d.items.length},...d.products],prod):''}
     ${fls.length>=2?chipsHtml('Flavours','bp-flavour',[{id:null,name:multi?`All ${(d.products.find(p=>p.id===prod)||{name:''}).name.toLowerCase()}`:'All',count:fls.reduce((s,f)=>s+f.count,0)},...fls],v):''}
-    ${winnerHtml(items,`${possessive(d.name)} best so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet')}
+    ${winnerHtml(items,`Best of ${d.name} so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet')}
     <div class="tip-slot" data-n="2"></div>
     <div class="list">${items.map((it,k)=>listRow(it,k,it.place?listLink(d.cc,it.product_id,`#${it.place} in ${esc(it.product)}`)
       :`${listLink(d.cc,it.product_id,esc(it.product))} · not ranked yet`)).join('')}</div>`;
@@ -2307,8 +2306,15 @@ function drawTip(){
   const show7=n===7&&!openId&&!fab.hidden;
   t7.hidden=!show7;t7.classList.toggle('tip-in',show7&&fresh);
   if(show7)fab.setAttribute('aria-describedby','tip7');else fab.removeAttribute('aria-describedby');
+  tip7Aside();
   if(tipNow)tipNow.fresh=false;
 }
+// Tip 7 sits over the bottom corner of the screen, so it steps aside while the new snacks band scrolls under it,
+// never covering Approve or "Not right?"; it comes back once the band has passed
+let bandUnder=false;
+const tip7Aside=()=>$('#tip7').classList.toggle('aside',bandUnder&&view==='home');
+const bandWatch=new IntersectionObserver(es=>{bandUnder=es[es.length-1].isIntersecting;tip7Aside()},{rootMargin:'-75% 0px 0px 0px'}); // the bottom quarter of the screen
+function watchBand(){bandWatch.disconnect();bandUnder=false;const b=$('#cards .band');if(b)bandWatch.observe(b);tip7Aside()}
 function tipHtml(n,fresh){
   const [face,text,how]=TIPS[n]();
   return `<div class="tip${fresh?' tip-in':''}" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#${face}"/></svg><div><p>${esc(text)}</p>
