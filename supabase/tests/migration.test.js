@@ -827,5 +827,59 @@ ok('…or tidy its name before accepting (Frozen → Frozen treats)',(await lq(`
 await lone(2,`select public.owner_accept(${old14.rows[0].id},2,'Gummy worms',null,'🪱',null,null)`);
 ok('the live owner page\'s call (7 values) still works',(await lq(`select c.name from public.products p join public.categories c on c.id=p.category_id where p.name='Gummy worms'`))[0]?.name==='Sweets');
 ok('after it all, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${tarts.id},1)`))&&!(await las(16,'select public.my_submissions()')).err);
+
+// ---- Migration 015: new snacks to check on home, and "Not right?" reports ----
+console.log('\n---- Migration 015 ----');
+const mig15=fs.readFileSync(R+'migrate-015-new-snacks-home.sql','utf8');
+const os14=await lone(2,'select public.owner_status()');
+try{await live.exec(mig15);await live.exec(mig15);ok('015 runs twice without errors',true)}catch(e){ok('015 runs twice without errors',false,e.message);return}
+for(const n of [21,22,23,24,25,26]) await live.query('insert into auth.users(id,email) values ($1,$2) on conflict do nothing',[U(n),`t${n}@example.com`]);
+const crisps15=(await lq(`select id from public.products where name='Crisps'`))[0].id;
+const add15=async(who,pack)=>(await lone(who,`select public.submit_snack(1,${crisps15},'Brand${who}','${pack}') r`)).id;
+const a15=await add15(21,'Brand21 Ready Salted'),b15=await add15(22,'Brand22 Prawn Cocktail'),c15=await add15(23,'Brand23 Pickled Onion');
+await lq(`update public.items set created_at=now()-interval '20 days' where id=${c15}`); // closes sooner
+await lone(24,`select public.approve_item(${b15})`);await lone(25,`select public.approve_item(${b15})`);
+const hw=await lone(null,'select public.home_waiting(1)');
+const ids15=hw.map(x=>x.id);
+ok('home_waiting (signed out): every UK snack in the vote',[a15,b15,c15].every(id=>ids15.includes(id))&&hw.every(x=>x.approved===false&&x.mine===false&&x.reported===false),JSON.stringify(hw.map(x=>[x.pack_name,x.approvals])));
+const pos=id=>ids15.indexOf(id);
+ok('…closest to going live first, then closing soonest',pos(b15)<pos(c15)&&pos(c15)<pos(a15),JSON.stringify(hw.map(x=>[x.pack_name,x.approvals,x.days_left])));
+ok('…with the list\'s name, category and emoji, and never who added it',hw.find(x=>x.id===a15).product==='Crisps'&&!!hw.find(x=>x.id===a15).emoji&&hw.find(x=>x.id===a15).type_id>0&&!JSON.stringify(hw).includes(U(21)));
+ok('…not another country\'s',!(await lone(null,'select public.home_waiting(2)')).some(x=>ids15.includes(x.id)));
+const hw24=await lone(24,'select public.home_waiting(1)');
+ok('signed in: says which ones you approved',hw24.find(x=>x.id===b15).approved===true&&hw24.find(x=>x.id===a15).approved===false);
+const hw21=await lone(21,'select public.home_waiting(1)');
+ok('…and your own comes last, marked mine',hw21[hw21.length-1].id===a15&&hw21[hw21.length-1].mine===true,JSON.stringify(hw21.map(x=>[x.pack_name,x.mine])));
+// Reports
+ok('signed out: can\'t report',ldenied(await las(null,`select public.report_item(${a15},'wrong_list')`))||/sign in|Sign in/i.test((await las(null,`select public.report_item(${a15},'wrong_list')`)).err||''));
+ok('a reason is needed',/Pick what/.test((await las(24,`select public.report_item(${a15},'rude')`)).err||''));
+ok('…and the note stays under 200 letters',/under 200 letters/.test((await las(24,`select public.report_item(${a15},'other','${'a'.repeat(201)}')`)).err||''));
+ok('you can\'t report your own snack',/You added this one/.test((await las(21,`select public.report_item(${a15},'wrong_list')`)).err||''));
+const rp=await las(24,`select public.report_item(${a15},'wrong_list','  It''s a cereal bar  ') r`);
+ok('reporting works, and the note is tidied',!rp.err&&(await lq(`select note from public.item_reports where item_id=${a15}`))[0]?.note==="It's a cereal bar",rp.err);
+await lone(24,`select public.report_item(${a15},'wrong_name','')`);
+ok('…a second report from the same person replaces the first (and an empty note is none)',JSON.stringify(await lq(`select reason,note from public.item_reports where item_id=${a15}`))==='[{"reason":"wrong_name","note":null}]');
+await lone(25,`select public.report_item(${a15},'wrong_list','Should be under Cereal bars')`);
+ok('home_waiting says which ones you reported',(await lone(24,'select public.home_waiting(1)')).find(x=>x.id===a15).reported===true&&(await lone(22,'select public.home_waiting(1)')).find(x=>x.id===a15).reported===false);
+ok('nobody can read the reports table directly',ldenied(await las(24,'select * from public.item_reports'))&&ldenied(await las(null,'select * from public.item_reports')));
+ok('only the owner sees the reports',/for TasteRank's owner/.test((await las(24,'select public.owner_reports()')).err||'')&&/for TasteRank's owner/.test((await las(24,`select public.owner_resolve_report(${a15},'clear')`)).err||''));
+const or15=await lone(2,'select public.owner_reports()'),orA=or15.find(x=>x.item_id===a15);
+ok('owner_reports: 2 reports, counted by reason, with the notes, and never who sent them',orA&&orA.reports===2&&orA.reasons.wrong_list===1&&orA.reasons.wrong_name===1&&JSON.stringify(orA.notes)==='["Should be under Cereal bars"]'&&!JSON.stringify(or15).includes(U(24))&&!JSON.stringify(or15).includes(U(25)),JSON.stringify(orA));
+const os15=await lone(2,'select public.owner_status()');
+ok('owner_status counts snacks with reports, and keeps to_check as before',os15.reports===1&&os15.to_check===os14.to_check,JSON.stringify(os15));
+await lone(2,`select public.owner_resolve_report(${a15},'clear')`);
+ok('"Keep as is" clears them: off the owner\'s list, the snack stays in the vote',!(await lone(2,'select public.owner_reports()')).some(x=>x.item_id===a15)&&(await lone(null,'select public.home_waiting(1)')).some(x=>x.id===a15));
+await lone(26,`select public.report_item(${c15},'not_sold')`);
+await lone(2,`select public.owner_resolve_report(${c15},'hide')`);
+ok('"Take it out of the vote" hides the snack and clears its reports',(await lq(`select status from public.items where id=${c15}`))[0].status==='hidden'&&!(await lone(2,'select public.owner_reports()')).some(x=>x.item_id===c15)&&!(await lone(null,'select public.home_waiting(1)')).some(x=>x.id===c15));
+ok('…an unknown action is refused',/Unknown action/.test((await las(2,`select public.owner_resolve_report(${a15},'delete')`)).err||''));
+ok('a snack that\'s no longer in the vote can\'t be reported',/isn't waiting for approval/.test((await las(24,`select public.report_item(${c15},'other')`)).err||''));
+await lone(2,`select public.owner_set_status(${b15},'live')`);
+ok('a snack that goes live leaves home_waiting',!(await lone(null,'select public.home_waiting(1)')).some(x=>x.id===b15));
+ok('Toffee\'s emoji is 🍮 now; Jelly sweets keeps its own',(await lq(`select emoji from public.products where name='Toffee'`))[0]?.emoji==='🍮');
+await lq(`delete from auth.users where id='${U(25)}'`);
+ok('deleting an account deletes its reports',!(await lq(`select 1 from public.item_reports where user_id='${U(25)}'`)).length);
+ok('after it all, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${crisps15},1)`)));
+
 }
 }

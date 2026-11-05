@@ -115,5 +115,17 @@ else
   echo "SKIP  new category checks (migration 014 not run yet)"
 fi
 
+# New snacks to check on home, and reports (migration 015). Skipped until it has been run.
+if call home_waiting '{"p_country":1}' | grep -q '^\['; then
+  check "anyone can list the snacks waiting for approval" "$(call home_waiting '{"p_country":1}')" '^\['
+  check "…and it never says who added or approved them" "$(call home_waiting '{"p_country":1}' | grep -c 'submitted_by\|user_id')" '^0$'
+  check "nobody signed out can read the reports"  "$(get 'item_reports?select=*&limit=1')" 'permission denied'
+  check "signed out can't report a snack"         "$(call report_item '{"p_item":1,"p_reason":"other"}')" 'permission denied'
+  check "signed out can't see the owner's reports" "$(call owner_reports '{}')" 'permission denied'
+  check "signed out can't clear or act on reports" "$(call owner_resolve_report '{"p_item":1,"p_action":"clear"}')" 'permission denied'
+else
+  echo "SKIP  new snacks checks (migration 015 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }

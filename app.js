@@ -87,7 +87,7 @@ const DEMO={
   categories:[{id:1,name:'Chocolate',visible:true},{id:2,name:'Sweets',visible:true},{id:3,name:'Crisps & Snacks',visible:true}, // set up with no snacks yet, as on the live site:
     {id:4,name:'Biscuits & Cereal Bars',visible:false},{id:5,name:'Mints & Chewing Gum',visible:false},{id:6,name:'Nuts & Seeds',visible:false},{id:7,name:'Crackers & Crispbreads',visible:false}],
   products:[{id:1,category_id:1,name:'Chocolate bars',emoji:'🍫',off_tags:['en:chocolate-bars','en:milk-chocolate-bars','en:dark-chocolate-bars']},
-    {id:2,category_id:2,name:'Toffee',emoji:'🍬',off_tags:['en:caramels','en:toffees','en:toffee']},
+    {id:2,category_id:2,name:'Toffee',emoji:'🍮',off_tags:['en:caramels','en:toffees','en:toffee']},
     {id:3,category_id:3,name:'Crisps',emoji:'🥔',off_tags:['en:crisps','en:potato-crisps']},
     {id:4,category_id:2,name:'Jelly sweets',emoji:'🍓',off_tags:['en:gummies','en:jelly-sweets']}], // a new list: its only snack is in the vote
   /* flavours, in sort order; each category's "Other" holds what the owner hasn't sorted yet */
@@ -131,7 +131,9 @@ const DEMO={
     {id:901,c:1,p:3,v:4,b:'Tyrrells',pack:'Tyrrells Cider Vinegar & Sea Salt',r:[0,0,0,0,0],pending:true,approvals:3,days_left:21},
     {id:902,c:1,p:2,v:2,b:"Werther's Original",pack:"Werther's Original Chewy Toffees",r:[0,0,0,0,0],pending:true,approvals:2,days_left:26},
     {id:903,c:1,p:4,v:10,b:'Haribo',pack:'Haribo Starmix',r:[0,0,0,0,0],pending:true,approvals:1,days_left:28}
-  ]
+  ],
+  // "Not right?" reports from other people, so the owner page has one to show (migration 015)
+  reports:[{item:902,reason:'wrong_list',note:'These are chewy, not hard toffees. Maybe a list of their own?'}]
 };
 const DEMO_KEY='tasterank-demo-v3';
 const demoState=()=>Object.assign({user:null,ratings:{},approvals:[],home:0,added:[],extra:{},planned:{}},store.get(DEMO_KEY)||{});
@@ -315,7 +317,38 @@ const DEMO_RPC={
       ranking_title:D.title(i.v,i.c),score,image_url:i.img||null,image_path:null,emoji:D.emoji(i.p)}}).filter(Boolean)},
   my_rating_count(_,st){return Object.keys(st.ratings).length},
   // The owner page: in demo mode you're the owner, and two sample additions wait for a check
-  owner_status(_,st){return st.user?{owner:true,to_check:ownDemoQueue(st).length}:{owner:false}},
+  owner_status(_,st){return st.user?{owner:true,to_check:ownDemoQueue(st).length,reports:DEMO_RPC.owner_reports(_,st).length}:{owner:false}},
+  // Migration 015: the snacks in the vote for home, closest to going live first, then closing soonest; yours last
+  home_waiting({p_country},st){
+    return D.all().filter(i=>D.waiting(i,st)&&i.c===p_country).map(i=>({id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,product:D.product(i.p,i.c),
+      type_id:DEMO.products.find(p=>p.id===i.p).category_id,emoji:D.emoji(i.p),variant_id:i.v,approvals:D.approvals(i,st),days_left:i.days_left??30,
+      approved:false,reported:!!(st.user&&(st.reports||{})[i.id]),mine:!!i.mine})) // demo: Approve stays clickable, as on the list page
+      .sort((a,b)=>a.mine-b.mine||b.approvals-a.approvals||a.days_left-b.days_left||a.id-b.id);
+  },
+  report_item({p_item,p_reason,p_note},st){
+    const it=D.all().find(i=>i.id===p_item),note=String(p_note||'').trim()||null;
+    if(!['not_sold','wrong_list','wrong_name','duplicate','other'].includes(p_reason))throw new Error("Pick what's not right");
+    if(note&&note.length>200)throw new Error('Please keep the note under 200 letters');
+    if(!it||!D.waiting(it,st))throw new Error("This snack isn't waiting for approval any more");
+    if(it.mine)throw new Error('You added this one. You can withdraw it from your profile.');
+    (st.reports=st.reports||{})[p_item]={reason:p_reason,note,at:Date.now()};delete (st.cleared||{})[p_item];demoSave(st);
+    return {ok:true,pack_name:it.pack};
+  },
+  owner_reports(_,st){
+    const all=[...DEMO.reports.map(r=>({...r,at:1})),...Object.entries(st.reports||{}).map(([id,r])=>({item:+id,...r}))].filter(r=>!(st.cleared||{})[r.item]);
+    return [...new Set(all.map(r=>r.item))].map(id=>{
+      const i=D.all().find(x=>x.id===id),rs=all.filter(r=>r.item===id);if(!i||i.withdrawn||i.hidden)return null;
+      const reasons={};rs.forEach(r=>reasons[r.reason]=(reasons[r.reason]||0)+1);
+      return {item_id:id,pack_name:i.pack,brand:i.b,product_id:i.p,product:D.product(i.p,i.c),emoji:D.emoji(i.p),country_id:i.c,
+        status:D.live(i,st)?'live':i.closed?'closed':'pending',approvals:D.approvals(i,st),reports:rs.length,reasons,
+        notes:rs.filter(r=>r.note).sort((a,b)=>b.at-a.at).map(r=>r.note),last_at:new Date(Math.max(...rs.map(r=>r.at))).toISOString()};
+    }).filter(Boolean).sort((a,b)=>b.last_at.localeCompare(a.last_at));
+  },
+  owner_resolve_report({p_item,p_action},st){
+    if(!['clear','hide'].includes(p_action))throw new Error('Unknown action '+p_action);
+    if(p_action==='hide')DEMO_RPC.owner_set_status({p_item,p_action:'hide'},st);
+    const s2=demoState();(s2.cleared=s2.cleared||{})[p_item]=true;if(s2.reports)delete s2.reports[p_item];demoSave(s2);return {ok:true};
+  },
   owner_queue(_,st){return ownDemoQueue(st)},
   owner_snacks({p_country,p_item},st){
     const n=DEMO.settings.approval_votes;
@@ -552,6 +585,9 @@ const ACT={
   next:nextStep,
   'sheet-second':sheetSecond,
   approve:d=>{tipAct(5);needUser({name:'approve',item:+d.id,brand:d.brand,mine:d.mine==='1'})},
+  report:d=>needUser({name:'report',item:+d.id}),
+  'wait-all':openWaitAll,
+  'open-snack':d=>{closeM();go({v:'category',cc:d.cc,product:+d.product,variant:null,snack:+d.id})},
   'share-list':()=>{if(!page)return;tipAct(6);track('share-list',true);share(`${page.title}: which one wins? Vote on TasteRank`)},
   share:()=>share(),
   'share-snack':d=>{const p=page.pending.find(x=>x.id===+d.id);if(p)share(`Know ${p.pack_name}? Help it onto TasteRank: approve it in ${page.name}.`,snackLink({cc:page.cc,product:page.id,id:p.id}))},
@@ -587,6 +623,7 @@ const AFTER={
   profile:()=>go({v:'profile'}),
   rate:a=>openRate(a.item),
   approve:a=>doApprove(a.item,a.brand,a.mine),
+  report:a=>openReport(a.item),
   add:a=>startAdd(),
   owner:()=>go({v:'owner'})
 };
@@ -597,15 +634,16 @@ function needUser(a){
 }
 // Crispy's tip 3: rating or approving signed out, the pop-up names the snack, shows the faces that come next (greyed) and says why
 function signInFor(a){
-  const it=a.name==='rate'?itemFromPage(a.item):null,p=a.name==='approve'?(page?.pending||[]).find(x=>x.id===a.item):null;
+  const it=a.name==='rate'?itemFromPage(a.item):null,p=a.name==='approve'||a.name==='report'?findWaiting(a.item):null,rep=a.name==='report';
   const name=it?it.pack_name:p?p.pack_name:null;
-  $('#signin-title').textContent=name?`${it?'Rate':'Approve'} ${name}`:'Join TasteRank';
+  $('#signin-title').textContent=name?(rep?`Something not right with ${name}?`:`${it?'Rate':'Approve'} ${name}`):'Join TasteRank';
   const m=$('#signin-meta');m.hidden=!it;if(it)m.textContent=`${it.country.flag} ${it.country.short_name} · ${it.where}`;
   const f=$('#signin-faces');f.hidden=!it;if(it)f.innerHTML=FACES.map(x=>`<span class="face-btn"><span>${x.e}</span>${x.l}</span>`).join('');
-  $('#signin-why').textContent=name?`Sign in first, so everyone ${it?'rates':'approves'} each snack once. Other people only see totals, never your name.`
+  $('#signin-why').textContent=name?(rep?'Sign in first, so each person tells us once. Only TasteRank\'s owner sees what you send, and never your name.'
+      :`Sign in first, so everyone ${it?'rates':'approves'} each snack once. Other people only see totals, never your name.`)
     :'Sign in to rate snacks and approve new ones.';
   const b=$('#signin-back');b.hidden=!name;
-  if(name)b.innerHTML=`You'll come straight back here to ${it?'pick a face':'approve it'}. <button class="link" data-act="privacy">Privacy</button>`;
+  if(name)b.innerHTML=`You'll come straight back here to ${it?'pick a face':rep?'tell us':'approve it'}. <button class="link" data-act="privacy">Privacy</button>`;
   $('#signin-fine').hidden=!!name&&LIVE; // its privacy line would repeat the one above; the demo note stays
 }
 async function signIn(){
@@ -1417,33 +1455,43 @@ async function renderHome(r){
   const c=homeCountry();
   $('#country').innerHTML=places.map(p=>`<option value="${esc(p.code)}"${p===c?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('');
   homeBy=r&&r.by==='brands'?'brands':null;
-  if(!homeData||homeData.country!==c.id){
-    $('#cards').innerHTML='<div class="card empty">Loading…</div>';
-    try{const [cats,brands]=await Promise.all([rpc('home_categories',{p_country:c.id}),rpc('home_brands',{p_country:c.id})]);homeData={country:c.id,cats,brands}}
+  const uid=me?.id||null;
+  if(!homeData||homeData.country!==c.id||homeData.uid!==uid){
+    if(!homeData||homeData.country!==c.id)$('#cards').innerHTML='<div class="card empty">Loading…</div>';
+    try{const [cats,brands,waiting]=await Promise.all([rpc('home_categories',{p_country:c.id}),rpc('home_brands',{p_country:c.id}),rpc('home_waiting',{p_country:c.id}).catch(()=>[])]); // [] before migration 015
+      homeData={country:c.id,uid,cats,brands,waiting:waitOrder(waiting||[])}}
     catch(e){console.error(e);$('#cards').innerHTML='<div class="card empty">Couldn\'t load snacks. Check your connection and refresh.</div>';return}
   }
   renderHomeCards();
 }
 const ratingsPart=n=>n?' · '+plural(n,'rating'):'';
-// A card's photos: up to 4, one emoji at most; with more snacks than that, the last tile says "+5"
-function cardPics(list,snacks){
-  let emoji=false;const ps=list.filter(p=>photoUrl(p)||(!emoji&&(emoji=true)));
-  const shown=ps.slice(0,snacks>4?3:4),more=snacks-shown.length;
-  return `<span class="pics" aria-hidden="true">${shown.map(p=>thumb(p)).join('')}${more>0?`<span class="thumb more">+${more}</span>`:''}</span>`;
-}
-// One line under the name: the winner, or how far the top snack is from a winner (never "1/10", which reads like a score)
+/* List cards (design/mockups/cat-preview.html): a square panel on the left, edge to edge, with Vera's own photo of the list,
+   or its emoji on its category's soft colour; beside it the name, "3 snacks · 1 rating", then the winner or how close one is */
+const LIST_PHOTOS={1:'chocolate-bars',2:'toffee',3:'crisps',4:'jelly-sweets'}; // assets/lists/, by subcategory id (the same id in every country)
+const TINTS={1:'choc',2:'sweet',3:'crisp',4:'choc',5:'crisp',6:'choc',7:'crisp'}; // by category: cocoa blush, rose, blue mist
+const listPhoto=(product,country)=>product===2&&country===5?null:LIST_PHOTOS[product]; // China's Milk candy isn't toffee: it keeps its emoji
+// The emoji always sits underneath, so a photo that fails to load just leaves the emoji showing
+const panel=(emoji,type,photo,cls='pp')=>`<span class="${cls}" style="--tint:var(--t-${TINTS[type]||'crisp'})" aria-hidden="true"><span class="emo">${esc(emoji||'🍽️')}</span>${photo?`<img src="assets/lists/${photo}.jpg" alt="" loading="lazy" decoding="async">`:''}</span>`;
+// Under the name: the winner (up to 2 lines), or a bar filling up towards one (never "1/10", which reads like a score)
 function cardStatus(win,label,lead,goal){
-  if(win)return `<span class="status win"><span class="k">${label}</span><span class="nm">${esc(win.pack_name)}</span><span class="sc">${faceFor(win.avg).e} ${score1(win.avg)}</span></span>`;
-  if(lead==null)return `<span class="status"><b>No ${label.toLowerCase()} yet</b></span>`; // before migration 009
-  if(!lead)return `<span class="status"><b>No ratings yet</b><span class="cta">· Be the first</span></span>`;
-  return `<span class="status"><span class="cta">Top snack needs <b>${plural(Math.max(1,settings.rank_after_ratings-lead),'more rating')}</b> ${goal}</span></span>`;
+  if(win)return `<span class="win2"><span class="k">${label}</span> <b>${esc(win.pack_name)}</b> <span class="s">${faceFor(win.avg).e} ${score1(win.avg)}</span></span>`;
+  if(lead==null)return `<span class="go"><b>No ${label.toLowerCase()} yet</b></span>`; // before migration 009
+  if(!lead)return `<span class="go"><b>No ratings yet</b> · Be the first</span>`;
+  const need=settings.rank_after_ratings;
+  return `<span class="wb" aria-hidden="true"><i style="width:${Math.min(100,Math.round(lead/need*100))}%"></i></span><span class="go"><b>${plural(Math.max(1,need-lead),'more rating')}</b> ${goal}</span>`;
 }
-const cardTitle=(name,snacks,n)=>`<span class="tl"><b>${esc(name)}</b><span class="n">${n||plural(snacks,'snack')}</span></span>`;
-// A new list: none of its snacks is live yet, only in the vote (migration 013), so friends can find it and approve them (design/mockups/new-lists.html)
+const cardText=(name,meta,status)=>`<span class="tx"><span class="nm">${esc(name)}</span><span class="mt">${meta}</span>${status}</span>`;
+// A new list: none of its snacks is live yet, only in the vote (migration 013), so friends can find it and approve them
 const isNew=x=>!x.snacks&&x.waiting>0;
-const catCard=x=>isNew(x)
-  ?`${cardPics(x.thumbs,x.waiting)}${cardTitle(x.name,0,`${x.waiting} waiting`)}<span class="status"><span class="k vote">New list</span><span class="cta">Help decide what's in it</span></span>`
-  :`${cardPics(x.thumbs,x.snacks)}${cardTitle(x.name,x.snacks)}${cardStatus(x.top[0],'Winner',x.lead??(x.to_rate[0]||{}).total,'to win')}`;
+const catCard=(x,country)=>panel(x.emoji,x.type_id,listPhoto(x.id,country))+(isNew(x)
+  ?cardText(x.name,`${plural(x.waiting,'snack')} waiting`,`<span class="newk">New list</span><span class="go">Help decide what's in it</span>`)
+  :cardText(x.name,plural(x.snacks,'snack')+ratingsPart(x.ratings),cardStatus(x.top[0],'Winner',x.lead??(x.to_rate[0]||{}).total,'to win')));
+// A brand card shows its main list's picture: the list it has most snacks in, within the category picked in the chips.
+// Matched by name, as home_brands gives the lists' names (most snacks first), not their ids.
+function brandCard(b,country){
+  const lists=(b.categories||[]).map(n=>homeData.cats.find(x=>x.name===n)).filter(Boolean),main=lists.find(x=>inType(x.type_id))||lists[0];
+  return panel(main?.emoji||((b.thumbs||[b.thumb||{}])[0]||{}).emoji,main?.type_id??(b.type_ids||[])[0],main&&listPhoto(main.id,country))+cardText(b.name,plural(b.snacks,'snack')+ratingsPart(b.ratings),cardStatus(b.best,'Best',b.lead,'to be the best'));
+}
 function renderHomeCards(){
   if(!homeData)return;
   const c=places.find(p=>p.id===homeData.country),seg=homeData.brands.length>=3;
@@ -1454,15 +1502,90 @@ function renderHomeCards(){
   const types=homeTypes(homeData.cats).map(t=>[t.id,t.name]);
   if(prefs.cat!=='all'&&!types.some(([id])=>String(id)===String(prefs.cat)))prefs.cat='all';
   $('#cats').innerHTML=[['all','All'],...types].map(([id,name])=>`<button class="chip${String(id)===String(prefs.cat)?' on':''}" data-act="cat" data-cat="${id}" aria-pressed="${String(id)===String(prefs.cat)}">${esc(name)}</button>`).join('');
-  const inType=id=>prefs.cat==='all'||String(id)===String(prefs.cat);
   const cards=byBrand
-    ?[...homeData.brands].sort(byUse).filter(b=>b.type_ids.some(inType)).map(b=>`<a class="pcard" href="${esc(hashFor({v:'brand',cc:c.code,brand:b.id}))}" data-act="brand" data-cc="${c.code}" data-brand="${b.id}">
-        ${cardPics(b.thumbs||[b.thumb||{}],b.snacks)}${cardTitle(b.name,b.snacks)}${cardStatus(b.best,'Best',b.lead,'to be the best')}</a>`).join('')
-    :[...homeData.cats].sort(byUse).filter(x=>inType(x.type_id)).map(x=>`<a class="pcard${isNew(x)?' new':''}" href="${esc(hashFor({v:'category',cc:c.code,product:x.id}))}" data-act="category" data-cc="${c.code}" data-product="${x.id}">
-        ${catCard(x)}</a>`).join('');
-  $('#cards').innerHTML=cards||`<div class="card empty">${byBrand?'No brand has 2 snacks of this type here yet.':'No snacks here yet. Know one? Tap + to add it.'}</div>`;
+    ?[...homeData.brands].sort(byUse).filter(b=>b.type_ids.some(inType)).map(b=>`<a class="lc" href="${esc(hashFor({v:'brand',cc:c.code,brand:b.id}))}" data-act="brand" data-cc="${c.code}" data-brand="${b.id}">${brandCard(b,c.id)}</a>`)
+    :[...homeData.cats].sort(byUse).filter(x=>inType(x.type_id)).map(x=>`<a class="lc${isNew(x)?' new':''}" href="${esc(hashFor({v:'category',cc:c.code,product:x.id}))}" data-act="category" data-cc="${c.code}" data-product="${x.id}">${catCard(x,c.id)}</a>`);
+  const empty=cards.length?'':`<div class="card empty">${byBrand?'No brand has 2 snacks of this type here yet.':'No snacks here yet. Know one? Tap + to add it.'}</div>`;
+  cards.splice(wide.matches?6:4,0,bandHtml(waitList(),c.code)); // after 2 rows of lists, never further down; at the end when there are fewer
+  $('#cards').innerHTML=empty+cards.join('');
   setFab();
 }
+const inType=id=>prefs.cat==='all'||String(id)===String(prefs.cat);
+
+/* ---------- New snacks to check (design/mockups/waiting-on-home.html, round 4) ----------
+   The snacks in the vote, in a white band after the first 4 lists (6 on wide screens), so rating comes first but the band never sinks.
+   Up to 8, then "See all N". Each has Approve and "Not right?" (a reason and a note, for the owner page). */
+const WAIT_CAP=8, wide=matchMedia('(min-width:900px)');
+wide.addEventListener('change',()=>{if(view==='home')renderHomeCards()});
+// Closest to going live first, then closing soonest; ties shuffled once per load, so each gets its turn at the front; your own last
+function waitOrder(list){
+  const r=new Map(list.map(w=>[w.id,Math.random()]));
+  return [...list].sort((a,b)=>a.mine-b.mine||b.approvals-a.approvals||a.days_left-b.days_left||r.get(a.id)-r.get(b.id));
+}
+// What the band shows: not ones you've approved or reported, and only the category picked in the chips
+const waitList=()=>(homeData?.waiting||[]).filter(w=>!w.approved&&!w.reported&&inType(w.type_id));
+const placeIn=p=>p?(/^(UK|US)$/.test(p.short_name)?'the ':'')+p.short_name:'this country'; // "the UK", "Japan"
+function waitCard(w,cc){
+  const n=settings.approval_votes;
+  return `<div class="wc">${panel(w.emoji,w.type_id,listPhoto(w.product_id,homeData.country),'wp')}
+    <div class="in"><a class="bn" href="${esc(hashFor({v:'category',cc,product:w.product_id,snack:w.id}))}" data-act="open-snack" data-cc="${cc}" data-product="${w.product_id}" data-id="${w.id}">${esc(w.pack_name)}</a>
+      <div class="pk">${w.mine?'<span class="mine">Added by you</span>':esc(w.product)} · ${w.approvals} of ${n}</div>
+      <div class="prog" aria-hidden="true"><i style="width:${Math.min(100,Math.round(w.approvals/n*100))}%"></i></div></div>
+    <div class="acts">${w.mine&&LIVE?'':`<button class="btn btn-primary" data-act="approve" data-id="${w.id}" data-brand="${esc(w.brand)}" data-mine="${w.mine?1:''}" aria-label="Approve ${esc(w.pack_name)}">${w.mine?'Approve (demo)':'Approve'}</button>`}
+      ${w.mine?'':`<button class="lk" data-act="report" data-id="${w.id}" aria-label="Something not right about ${esc(w.pack_name)}?">Not right?</button>`}</div></div>`;
+}
+function bandHtml(list,cc){
+  if(!list.length)return '';
+  const more=list.length>WAIT_CAP;
+  return `<section class="band" aria-labelledby="band-h"><div class="band-h"><span class="ic" aria-hidden="true">🧐</span><h2 id="band-h">New snacks to check</h2><span class="n">${list.length} waiting</span></div>
+    <p class="band-s">Know one? Approve it if it's right, or tell us what's off. Snacks join once ${settings.approval_votes} people approve.</p>
+    <div class="strip">${list.slice(0,WAIT_CAP).map(w=>waitCard(w,cc)).join('')}${more?`<button class="wc more" data-act="wait-all"><span class="arr" aria-hidden="true">→</span><b>See all ${list.length}</b></button>`:''}</div></section>`;
+}
+// "See all": every one, grouped by list, in a pop-up (no page of its own)
+function openWaitAll(){
+  const list=waitList(),c=places.find(p=>p.id===homeData.country),groups=new Map();
+  for(const w of list){const g=groups.get(w.product_id)||{name:w.product,items:[]};g.items.push(w);groups.set(w.product_id,g)}
+  $('#waiting-body').innerHTML=`<h3 id="waiting-title">New snacks to check</h3><p class="hm">${list.length} waiting in ${esc(placeIn(c))} · closest to going live first</p>
+    ${[...groups.values()].map(g=>`<h4 class="grp">${esc(g.name)} · ${g.items.length}</h4><div class="wl">${g.items.map(w=>waitCard(w,c.code)).join('')}</div>`).join('')}`;
+  track('waiting-all',true);openM('m-waiting');
+}
+// A snack in the vote, from home or the list page open now
+function findWaiting(id){
+  const p=page&&view==='category'&&(page.pending||[]).find(x=>x.id===id);
+  if(p)return {...p,product:page.name,product_id:page.id,place:placeBy('code',page.cc)};
+  const h=homeData&&(homeData.waiting||[]).find(w=>w.id===id);
+  return h?{...h,place:places.find(x=>x.id===homeData.country)}:null;
+}
+/* "Not right?": one of 5 reasons and an optional note. It goes to the owner page's "To check" and the owner's inbox; it never says who sent it */
+const REASONS=[['not_sold',w=>`Not sold in ${placeIn(w.place)}`],['wrong_list',()=>"It's in the wrong list",'It belongs in another list, or a new one'],
+  ['wrong_name',()=>'Wrong name or photo'],['duplicate',()=>"It's already listed",'The same snack under another name'],['other',()=>'Something else']];
+let reporting=null;
+function openReport(id){
+  const w=findWaiting(id);if(!w)return toast("This snack isn't waiting for approval any more.");
+  reporting=w;
+  $('#report-body').innerHTML=`<h3 id="report-title">What's not right?</h3><p class="hm">${esc(w.pack_name)} · ${esc(w.product)}</p>
+    <form id="f-report"><fieldset class="opts"><legend class="sr-only">What's not right?</legend>
+      ${REASONS.map(([k,t,sub])=>`<label class="opt"><input type="radio" name="reason" value="${k}"><span>${esc(t(w))}${sub?`<small>${esc(sub)}</small>`:''}</span></label>`).join('')}</fieldset>
+      <label class="fl" for="report-note">Anything to add? <span>(optional)</span></label>
+      <textarea id="report-note" maxlength="200" rows="3" placeholder="e.g. what it should be called, or which list"></textarea>
+      <button class="btn btn-primary btn-block" type="submit" disabled>Send</button></form>`;
+  track('report-open',true);openM('m-report');
+}
+async function sendReport(e){
+  e.preventDefault();const w=reporting,f=e.target,reason=(f.querySelector('[name=reason]:checked')||{}).value,note=$('#report-note').value.trim();
+  if(!w||!reason)return;
+  const btn=f.querySelector('[type=submit]');btn.disabled=true;
+  try{await rpc('report_item',{p_item:w.id,p_reason:reason,p_note:note||null})}
+  catch(err){btn.disabled=false;toast(err.message||'Something went wrong. Please try again.');console.error(err);return}
+  track('report-item',true);reporting=null;closeM();toast("Thanks! We'll take a look.");
+  emailOwner(`TasteRank: someone says "${w.pack_name}" isn't right`,
+    `${w.pack_name} (${w.product}, ${w.place?.name||''}) is in the vote. Someone says: ${REASONS.find(r=>r[0]===reason)[1](w)}.${note?`\n\nTheir note: ${note}`:''}\n\nSee it on the owner page, under To check.`);
+  const h=homeData?.waiting?.find(x=>x.id===w.id);if(h)h.reported=true;
+  const p=page?.pending?.find(x=>x.id===w.id);if(p)p.reported=true;
+  if(view==='home')renderHomeCards();else if(view==='category'&&p)drawCategory();
+}
+$('#m-report').addEventListener('submit',sendReport);
+$('#m-report').addEventListener('change',e=>{if(e.target.name==='reason')$('#f-report [type=submit]').disabled=false});
 // The switch is a pair of tabs: arrow keys move between them
 $('#home-seg').addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight'].includes(e.key))return;
@@ -1556,10 +1679,12 @@ function pendCard(p){
       <div class="meta">${p.approvals} of ${n} approvals${p.mine?` · closes in ${p.days_left} days`:''}</div><div class="prog"><i style="width:${w}%"></i></div></div>
     <div class="pend-acts">${p.mine?`<button class="btn" data-act="share-snack" data-id="${p.id}" aria-label="Share ${esc(p.pack_name)}">Share</button>`:''}
       ${p.mine&&LIVE?'':p.approved?'<button class="btn" disabled>Approved ✓</button>'
-        :`<button class="btn btn-primary" data-act="approve" data-id="${p.id}" data-brand="${esc(p.brand)}" data-mine="${p.mine?1:''}" aria-label="Approve ${esc(p.pack_name)}">${p.mine?'Approve (demo)':'Approve'}</button>`}</div>
+        :`<button class="btn btn-primary" data-act="approve" data-id="${p.id}" data-brand="${esc(p.brand)}" data-mine="${p.mine?1:''}" aria-label="Approve ${esc(p.pack_name)}">${p.mine?'Approve (demo)':'Approve'}</button>`}
+      ${p.mine?'':p.reported?'<span class="lk sent">Sent, thanks</span>':`<button class="lk" data-act="report" data-id="${p.id}" aria-label="Something not right about ${esc(p.pack_name)}?">Not right?</button>`}</div>
   </div>`;
 }
 async function doApprove(id,brand,mine){
+  if(openId==='m-waiting')closeM();
   let r;try{r=await rpc('approve_item',{p_item:id});track('approve-item',true)}catch(e){toast(e.message||'Something went wrong. Please try again.');console.error(e);homeData=null;return refresh()}
   toast(r.status==='live'?`🎉 ${brand||'It'} is live`:`Thanks! ${r.approvals} of ${settings.approval_votes} approvals`);
   homeData=null;await refresh();
@@ -1736,7 +1861,8 @@ async function loadOwner(){try{ownerInfo=me?await rpc('owner_status'):null}catch
 function renderOwnerLink(){
   const b=$('#owner-link');if(!b)return;
   b.hidden=!ownerInfo?.owner;
-  if(ownerInfo?.owner)b.textContent=`🛠️ Owner page${ownerInfo.to_check?` · ${ownerInfo.to_check} to check`:''}`;
+  const n=(ownerInfo?.to_check||0)+(ownerInfo?.reports||0); // additions, plus snacks someone says aren't right (migration 015)
+  if(ownerInfo?.owner)b.textContent=`🛠️ Owner page${n?` · ${n} to check`:''}`;
 }
 const OWN_EMOJI={1:['🍫','🍪','🍩','🥜','🍓'],2:['🍬','🍭','🍫','🍪','🍯'],3:['🥔','🥨','🍿','🧀','🥜']};
 // One emoji, as owner_emoji() in the database allows: flags and joined ones (👩‍🍳) too, but no letters, numbers or spaces
@@ -1766,9 +1892,9 @@ async function renderOwner(){
   drawOwner();
 }
 async function ownFetch(){
-  const [queue,cat,snacks]=await Promise.all([rpc('owner_queue'),rpc('owner_catalogue'),rpc('owner_snacks',{p_country:own.country})]);
-  Object.assign(own,{queue,cat,snacks});
-  if(ownerInfo){ownerInfo.to_check=queue.length;renderOwnerLink()}
+  const [queue,cat,snacks,reports]=await Promise.all([rpc('owner_queue'),rpc('owner_catalogue'),rpc('owner_snacks',{p_country:own.country}),rpc('owner_reports').catch(()=>[])]); // [] before migration 015
+  Object.assign(own,{queue,cat,snacks,reports:reports||[]});
+  if(ownerInfo){ownerInfo.to_check=queue.length;ownerInfo.reports=own.reports.length;renderOwnerLink()}
 }
 function ownRefresh(){ // after a change: everything reloads, and the rest of the site forgets what it had kept
   homeData=null;for(const k in catalogues)delete catalogues[k];for(const k in allTypes)delete allTypes[k];
@@ -1776,7 +1902,7 @@ function ownRefresh(){ // after a change: everything reloads, and the rest of th
 }
 function drawOwner(){
   if(view!=='owner'||!own?.queue||!$('#own-body'))return;
-  $('#own-tabs').innerHTML=[['check',`To check <span class="n">${own.queue.length}</span>`],['snacks','Snacks'],['subs','Subcategories']]
+  $('#own-tabs').innerHTML=[['check',`To check <span class="n">${own.queue.length+own.reports.length}</span>`],['snacks','Snacks'],['subs','Subcategories']]
     .map(([k,l])=>`<button class="chip${own.tab===k?' on':''}" role="tab" aria-selected="${own.tab===k}" data-act="own-tab" data-tab="${k}">${l}</button>`).join('');
   $('#own-body').innerHTML=own.tab==='check'?ownCheckHtml():own.tab==='snacks'?ownSnacksHtml():ownSubsHtml();
 }
@@ -1787,8 +1913,31 @@ function ownReq(r){
     emoji:null,other:false,names:false,pack:r.pack_name,brand:r.brand_name,confirm:false,error:null,busy:false});
 }
 function ownCheckHtml(){
-  if(!own.queue.length)return `<div class="card empty own-empty"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><h2 class="own-h">Nothing to check</h2><p>New additions appear here, and you'll get an email too.</p></div>`;
-  return own.queue.map(ownReqCard).join('');
+  if(!own.queue.length&&!own.reports.length)return `<div class="card empty own-empty"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><h2 class="own-h">Nothing to check</h2><p>New additions, and snacks someone says aren't right, appear here. You'll get an email too.</p></div>`;
+  return own.reports.map(ownReportCard).join('')+own.queue.map(ownReqCard).join(''); // reports first: those snacks are in the vote now
+}
+/* "Not right?" reports (migration 015): one card per snack, with how many said what and their notes; never who sent them */
+const REPORT_LABEL={not_sold:'Not sold here',wrong_list:'In the wrong list',wrong_name:'Wrong name or photo',duplicate:'Already listed',other:'Something else'};
+function ownReportCard(x){
+  const pl=placeBy('id',x.country_id)||{},busy=own.repBusy===x.item_id?' disabled':'';
+  return `<div class="card own-req own-rep" id="own-rep-${x.item_id}"><div class="own-top">${thumb({emoji:x.emoji})}<div><h3 class="own-name">${esc(x.pack_name)}</h3>
+    <p class="meta">${esc(x.brand)} · ${esc(x.product)} · ${esc(pl.short_name||'')} · ${x.approvals} of ${settings.approval_votes} approvals</p>
+    <p class="own-what"><span class="reptag">${x.reports===1?'1 person says':`${x.reports} people say`} it's not right</span> ${ownPill(x.status)}</p></div></div>
+    <ul class="own-reasons">${Object.entries(x.reasons||{}).sort((a,b)=>b[1]-a[1]).map(([k,c])=>`<li>${esc(REPORT_LABEL[k]||k)}${c>1?` <b>×${c}</b>`:''}</li>`).join('')}</ul>
+    ${(x.notes||[]).length?`<div class="own-notes">${x.notes.map(t=>`<p>“${esc(t)}”</p>`).join('')}</div>`:''}
+    <div class="own-acts"><button class="btn btn-primary" data-act="own-rep-fix" data-id="${x.item_id}"${busy}>Fix it</button>
+      <button class="btn btn-danger" data-act="own-rep-hide" data-id="${x.item_id}"${busy}>${x.status==='pending'?'Take it out of the vote':'Hide it'}</button>
+      <button class="btn" data-act="own-rep-keep" data-id="${x.item_id}"${busy}>Keep as is</button></div></div>`;
+}
+async function ownResolve(id,action){
+  const x=own.reports.find(r=>r.item_id===id);if(!x||own.repBusy)return;
+  own.repBusy=id;drawOwner();
+  try{
+    await rpc('owner_resolve_report',{p_item:id,p_action:action});
+    own.reports=own.reports.filter(r=>r!==x);
+    toast(action==='hide'?`${x.pack_name} is hidden`:`Kept ${x.pack_name} as it is`,action==='hide'?{label:'Undo',act:'own-unhide',id}:null);
+  }catch(e){toast(ownErr(e))}
+  own.repBusy=null;drawOwner();$('#own-tabs .chip.on')?.focus();ownRefresh();
 }
 // A new category's name, as you'd accept it: new, or one that's already set up (then it goes in there)
 function ownTypeNote(n){const c=norm(n)&&own.cat.categories.find(x=>norm(x.name)===norm(n));return !norm(n)?'Name the new category':c?`Already listed: it goes into ${c.name}`:'New category: it shows on home once you accept'}
@@ -1917,7 +2066,8 @@ async function ownSave(){
   try{
     const photo=e.photo?(LIVE?await uploadPhoto(e.photo.blob):e.photo.dataUrl):e.removePhoto?'':null;
     await rpc('owner_save_snack',{p_item:e.id,p_pack_name:e.pack_name,p_brand_name:e.brand,p_country:e.country_id,p_category:e.cat,p_subcategory:sub,p_flavour:e.flavour||null,p_photo:photo});
-    closeM();toast('Saved');ownRefresh();
+    if(e.fromReport)await rpc('owner_resolve_report',{p_item:e.id,p_action:'clear'}).catch(console.error);
+    closeM();toast(e.fromReport?'Saved, and its reports are cleared':'Saved');ownRefresh();
   }catch(err){e.busy=false;e.error=ownErr(err);ownDrawSheet()}
 }
 async function ownStatus(a,id){ // from the sheet, or (with id) from the Undo in the note
@@ -1978,6 +2128,9 @@ const OWN_ACT={
     ownRedrawReq(d.id,d.e?`[data-e="${d.e}"]`:'[data-own="custom"]')},
   'own-req-names':d=>{own.req[d.id].names=true;ownRedrawReq(d.id,'[data-own="pack"]')},
   'own-accept':d=>ownAccept(d.id),
+  'own-rep-fix':async d=>{await ownOpenSnack(d.id);if(own.edit)own.edit.fromReport=true},
+  'own-rep-hide':d=>ownResolve(+d.id,'hide'),
+  'own-rep-keep':d=>ownResolve(+d.id,'clear'),
   'own-decline':d=>{own.req[d.id].confirm=true;ownRedrawReq(d.id,'[data-act="own-decline-no"]')},
   'own-decline-no':d=>{own.req[d.id].confirm=false;ownRedrawReq(d.id,'[data-act="own-decline"]')},
   'own-decline-yes':d=>ownDecline(d.id),
