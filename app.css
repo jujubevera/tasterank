@@ -505,3 +505,9 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--in
 .own-rep .own-acts{display:flex;flex-wrap:wrap;gap:8px}
 .own-rep .own-acts .btn{flex:1 1 auto;white-space:nowrap}
 .own-notes p{margin:0;background:var(--bg);border-radius:10px;padding:8px 12px;font-size:14px}
+
+/* Pre-built pages (tools/build-pages.mjs): the ranking as plain HTML until the app takes over */
+.prebuilt a.crumb,.prebuilt a.chip{display:inline-flex;align-items:center;text-decoration:none}
+.prebuilt a.chip{color:var(--ink)}
+.prebuilt a.chip.on{color:var(--on-primary)}
+.prebuilt.card p{margin:4px 0;line-height:1.7}

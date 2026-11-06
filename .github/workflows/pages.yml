@@ -1,0 +1,41 @@
+# Publishes tasterank.app. Builds the site with tools/build-pages.mjs (the app plus a pre-built page for every list,
+# flavour and brand, with its own address that Google can read) and puts it live on GitHub Pages.
+# Runs on every push to main, every morning (so new snacks and ratings reach the pre-built pages), and by hand:
+# GitHub → Actions → Publish the site → Run workflow.
+# Needs Settings → Pages → Source set to "GitHub Actions" (not "Deploy from a branch").
+name: Publish the site
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the site and the pre-built pages
+        run: node tools/build-pages.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

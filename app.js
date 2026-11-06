@@ -68,7 +68,7 @@ const must=({data,error})=>{if(error)throw error;return data};
 
 const liveApi={
   async session(){return userFrom(must(await sb.auth.getSession()).session)},
-  async signIn(){must(await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}}))},
+  async signIn(){must(await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+'/'}}))}, // always the home address (the one Supabase allows); start() goes back to the page
   async signOut(){await sb.auth.signOut()},
   async deleteAccount(){must(await sb.rpc('delete_me'));await sb.auth.signOut()},
   async rpc(name,args){return must(await sb.rpc(name,args||{}))}
@@ -474,7 +474,7 @@ function track(path,event){
     window.goatcounter.count({path,event:!!event});
   }catch(e){}
 }
-const pagePath=()=>'/'+(location.hash.replace(/^#\/?/,'')||'');
+const pagePath=()=>location.pathname;
 if(CONFIG.GOATCOUNTER_CODE){
   window.goatcounter={no_onload:true};
   const s=document.createElement('script');
@@ -518,52 +518,115 @@ document.addEventListener('keydown',e=>{
   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
 });
 
-/* ---------- Navigation: #/ home · #/brands home by brand · #/p/gb/3[/4] category (and flavour; ?snack=57 scrolls to a waiting snack)
-   · #/b/gb/12[/3[/4]] brand (and category, flavour) · #/me profile · #/owner the owner page. Old #/r/gb/3/4 ranking links open #/p/gb/3/4. ---------- */
+/* ---------- Addresses: / home · /brands/ home by brand · /uk/crisps/[salt-vinegar/] a list (and flavour; ?snack=57 scrolls to a waiting snack)
+   · /uk/brands/walkers/[crisps/[salt-vinegar/]] a brand (and list, flavour) · /me/ profile · /owner/ the owner page.
+   The words are the names shown in that country (slug); a number in a word's place is an id, used until the name is known.
+   Each public address is also a pre-built page that Google can read (tools/build-pages.mjs, which writes window.TR_PAGE with
+   the ids); anything not built yet is served by 404.html, a copy of the app. Old #/p/gb/3/4, #/b/gb/12 and #/r/gb/3/4 links still open. ---------- */
 const VIEWS=['home','category','brand','profile','owner'];
-function parseHash(){
+const ccPath=cc=>{cc=String(cc||'').toLowerCase();return cc==='gb'?'uk':cc}, ccCode=s=>(s==='uk'?'gb':s);
+// "Salt & vinegar" → salt-vinegar, "Walker's Nonsuch" → walkers-nonsuch, "M&S" → ms, "Lightly salted (うすしお)" → lightly-salted.
+// Keep in step with slug() in tools/build-pages.mjs.
+const slug=s=>String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/['’]/g,'').replace(/([a-z0-9])&([a-z0-9])/g,'$1$2')
+  .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+// The names behind the words: 'p:gb:3' a list, 'v:gb:3.4' a flavour of list 3, 'b:gb:24' a brand. Filled from whatever the pages load.
+const NAMES={}, RESERVED=['brands','me','owner','assets'];
+const nameIt=(kind,cc,id,name)=>{if(id!=null&&name)NAMES[`${kind}:${String(cc).toLowerCase()}:${id}`]=name};
+function word(kind,cc,id){const s=slug(NAMES[`${kind}:${String(cc).toLowerCase()}:${id}`]);
+  return !s||/^\d+$/.test(s)||(kind==='p'&&RESERVED.includes(s))?String(id).split('.').pop():s}
+const fromNames=(kind,cc,w,within)=>{const pre=`${kind}:${cc}:${within?within+'.':''}`,k=Object.keys(NAMES).find(k=>k.startsWith(pre)&&word(kind,cc,k.slice(kind.length+cc.length+2))===w);
+  return k?+k.split(/[:.]/).pop():null};
+const nameCatalogue=(cc,cat)=>(cat||[]).forEach(t=>t.products.forEach(p=>{nameIt('p',cc,p.id,p.name);p.variants.forEach(v=>nameIt('v',cc,`${p.id}.${v.id}`,v.name))}));
+const pathFor=r=>{const cc=String(r.cc||'').toLowerCase(),pv=(p,v)=>p?`${word('p',cc,p)}/${v?word('v',cc,`${p}.${v}`)+'/':''}`:'';
+  return r.v==='category'?`/${ccPath(cc)}/${pv(r.product,r.variant)}${r.snack?'?snack='+r.snack:''}`
+    :r.v==='brand'?`/${ccPath(cc)}/brands/${word('b',cc,r.brand)}/${pv(r.product,r.variant)}`
+    :r.v==='profile'?'/me/':r.v==='owner'?'/owner/':r.by==='brands'?'/brands/':'/'};
+const here=()=>location.pathname+location.search;
+// Links from before real addresses: #/p/gb/3/4?snack=5, #/b/gb/12/3/4, #/r/gb/3/4, #/brands, #/me, #/owner
+function oldHash(){
   const h=location.hash;let m;
   if((m=h.match(/^#\/p\/([a-z]{2})\/(\d+)(?:\/(\d+))?(?:\?snack=(\d+))?$/i)))return {v:'category',cc:m[1],product:+m[2],variant:m[3]?+m[3]:null,snack:m[4]?+m[4]:null};
   if((m=h.match(/^#\/b\/([a-z]{2})\/(\d+)(?:\/(\d+)(?:\/(\d+))?)?$/i)))return {v:'brand',cc:m[1],brand:+m[2],product:m[3]?+m[3]:null,variant:m[4]?+m[4]:null};
-  if((m=h.match(/^#\/r\/([a-z]{2})\/(\d+)\/(\d+)$/i))){const r={v:'category',cc:m[1],product:+m[2],variant:+m[3]};history.replaceState(null,'',hashFor(r));return r}
+  if((m=h.match(/^#\/r\/([a-z]{2})\/(\d+)\/(\d+)$/i)))return {v:'category',cc:m[1],product:+m[2],variant:+m[3]};
   if(h==='#/brands')return {v:'home',by:'brands'};
   if(h==='#/me')return {v:'profile'};
   if(h==='#/owner')return {v:'owner'};
-  return {v:'home'}; // includes old #/item/5 links: those foods aren't in the new structure
+  return h.startsWith('#/')?{v:'home'}:null; // old #/item/5 links: those foods aren't in the new structure
 }
-const hashFor=r=>{const cc=String(r.cc||'').toLowerCase();
-  return r.v==='category'?`#/p/${cc}/${r.product}${r.variant?'/'+r.variant:''}${r.snack?'?snack='+r.snack:''}`
-    :r.v==='brand'?`#/b/${cc}/${r.brand}${r.product?`/${r.product}${r.variant?'/'+r.variant:''}`:''}`
-    :r.v==='profile'?'#/me':r.v==='owner'?'#/owner':r.by==='brands'?'#/brands':''};
+async function findList(c,ps,vs){
+  if(!ps)return {};
+  const cc=c.code.toLowerCase(),num=s=>/^\d+$/.test(s);
+  let p=num(ps)?+ps:fromNames('p',cc,ps),v=vs&&num(vs)?+vs:null;
+  if(!p||(vs&&!v&&!(v=fromNames('v',cc,vs,p)))){ // not seen yet on this visit: the catalogue names every list and flavour
+    try{nameCatalogue(cc,await loadCatalogue(c.id))}catch(e){}
+    p=p||fromNames('p',cc,ps);if(p&&vs&&!v)v=fromNames('v',cc,vs,p);
+  }
+  return {product:p||null,variant:v||null,vword:vs&&!v?vs:null}; // the list's page matches vword against its chips (e.g. Other); else it opens All
+}
+async function findBrand(c,w){
+  const cc=c.code.toLowerCase();
+  if(/^\d+$/.test(w))return +w;
+  let id=fromNames('b',cc,w);if(id)return id;
+  try{(await rpc('search_items',{q:w.replace(/-/g,' ')})||[]).forEach(x=>{const pl=placeBy('id',x.country_id);if(pl)nameIt('b',pl.code,x.brand_id,x.brand)})}catch(e){}
+  return fromNames('b',cc,w);
+}
+async function parseRoute(){
+  const old=oldHash();if(old){history.replaceState(null,'',pathFor(old));return old} // ids for now; the page swaps in the words once it has the names
+  const seg=location.pathname.split('/').filter(Boolean).map(s=>{try{return decodeURIComponent(s).toLowerCase()}catch(e){return s}});
+  if(!seg.length||seg[0]==='index.html'||seg[0]==='404.html')return {v:'home'};
+  if(seg.length===1&&seg[0]==='brands')return {v:'home',by:'brands'};
+  if(seg.length===1&&seg[0]==='me')return {v:'profile'};
+  if(seg.length===1&&seg[0]==='owner')return {v:'owner'};
+  const c=placeBy('code',ccCode(seg[0]));if(!c||seg.length<2)return {v:'home'};
+  const cc=c.code.toLowerCase(),pre=LIVE&&window.TR_PAGE&&TR_PAGE.path===location.pathname?TR_PAGE:null; // a pre-built page carries its (live) ids
+  if(seg[1]==='brands'){
+    const brand=pre?pre.brand:await findBrand(c,seg[2]||'');if(!brand)return {v:'gone'};
+    const pv=pre||await findList(c,seg[3],seg[4]);
+    return {v:'brand',cc,brand,product:pv.product||null,variant:pv.variant||null};
+  }
+  const pv=pre||await findList(c,seg[1],seg[2]);if(!pv.product)return {v:'gone'};
+  return {v:'category',cc,product:pv.product,variant:pv.variant||null,vword:pv.vword||null,snack:+new URLSearchParams(location.search).get('snack')||null};
+}
+// The tab title and canonical address follow the page (the pre-built pages start with the same ones)
+const HOME_TITLE='TasteRank: which snack wins? Snack ratings by country';
+const inPlace=c=>/^[A-Z]{2,3}$/.test(c.short_name)?'the '+c.short_name:c.short_name; // the UK, Japan
+const listTitle=(title,c)=>`Best ${title.toLowerCase()} in ${inPlace(c)}, ranked by votes | TasteRank`;
+const brandTitle=(name,c)=>`${name}: every snack ranked in ${inPlace(c)} | TasteRank`;
+function setHead(title,path){
+  document.title=title;
+  const l=document.querySelector('link[rel="canonical"]');if(l)l.href='https://tasterank.app'+(path||'/');
+}
 async function show(r){
   view=r.v;tipReady=false;
   VIEWS.forEach(x=>$('#v-'+x).hidden=x!==r.v);
   setFab();
-  if(r.v==='home')await renderHome(r);
+  if(r.v==='home'){r.by==='brands'?setHead('Snack brands, ranked by votes | TasteRank','/brands/'):setHead(HOME_TITLE,'/');await renderHome(r)}
   if(r.v==='category')await renderCategory(r);
   if(r.v==='brand')await renderBrandPage(r);
-  if(r.v==='profile')await renderProfile();
-  if(r.v==='owner')await renderOwner();
+  if(r.v==='profile'){setHead('Your profile | TasteRank','/me/');await renderProfile()}
+  if(r.v==='owner'){setHead('Owner page | TasteRank','/owner/');await renderOwner()}
   setFab(); // its label names the list now showing
   tipReady=true;updateTips();
   currentUrl=location.href;
   track(pagePath());
 }
 function go(r){
-  const h=hashFor(r);
-  if(location.hash!==h)history.pushState(null,'',h||location.pathname);
+  const h=pathFor(r);
+  if(here()!==h)history.pushState(null,'',h);
   window.scrollTo(0,0);return show(r);
 }
 // a chip changes the address without a new step in the history, so sharing shares the filtered list and Back skips chips
-function setRoute(r){const h=hashFor(r);if(location.hash!==h)history.replaceState(null,'',h||location.pathname);currentUrl=location.href;track(pagePath())}
+function setRoute(r){const h=pathFor(r);if(here()!==h)history.replaceState(null,'',h);currentUrl=location.href;track(pagePath())}
+// once a page has its names, an address with ids (or an old spelling) becomes the words, keeping ?snack=
+function canon(r){const h=pathFor(r);if(location.pathname!==h)history.replaceState(null,'',h+location.search);currentUrl=location.href}
 // an unknown or emptied list (an old link, or the last snack withdrawn)
-function gone(){history.replaceState(null,'',location.pathname);toast("That list isn't here any more.");return show({v:'home'})}
-const route=()=>{const r=parseHash();if(r.v==='profile'&&!me)r.v='home';return show(r)};
+function gone(){history.replaceState(null,'','/');toast("That list isn't here any more.");return show({v:'home'})}
+const route=async()=>{const r=await parseRoute();if(r.v==='gone')return gone();if(r.v==='profile'&&!me){r.v='home';history.replaceState(null,'','/')}return show(r)};
 window.addEventListener('popstate',()=>{
   if(openId){closeM();history.pushState(null,'',currentUrl);return} // Back closes the pop-up instead of leaving the page
   route();
 });
-const refresh=()=>show(view==='home'?{v:'home',by:homeBy}:parseHash());
+const refresh=()=>view==='home'?show({v:'home',by:homeBy}):route();
 
 /* ---------- Clicks: every button says what it does with data-act ---------- */
 const ACT={
@@ -629,7 +692,7 @@ const AFTER={
 };
 function needUser(a){
   if(me)return AFTER[a.name](a);
-  store.set('tasterank-after',{...a,hash:location.hash},true); // survives the trip to Google and back
+  store.set('tasterank-after',{...a,path:here()},true); // survives the trip to Google and back
   signInFor(a);openM('m-signin');
 }
 // Crispy's tip 3: rating or approving signed out, the pop-up names the snack, shows the faces that come next (greyed) and says why
@@ -648,6 +711,7 @@ function signInFor(a){
 }
 async function signIn(){
   track('sign-in',true);
+  store.set('tasterank-back',here(),true);
   try{await api.signIn()}catch(e){return oops(e)}
   if(!LIVE)await afterSignIn(); // live mode leaves for Google and comes back to start()
 }
@@ -657,7 +721,7 @@ async function afterSignIn(){
   closeM();
   if(me)await Promise.all([loadProfile(),loadOwner()]);
   renderHeader();
-  if(next&&next.hash&&next.hash!==location.hash)history.replaceState(null,'',next.hash);
+  if(next&&next.path&&next.path!==here())history.replaceState(null,'',next.path);
   await route();
   if(me&&next&&AFTER[next.name])AFTER[next.name](next);
   else checkMoments();
@@ -1257,7 +1321,7 @@ async function sendAdd(){
   if(res&&res.duplicate){add.sending=false;add.dup=res.duplicate;return renderMid()}
   if(review)emailOwner(add.newType?`TasteRank: check new category "${add.newType}" and subcategory "${add.newCat}"`:`TasteRank: check new subcategory "${add.newCat}"`,
     `Sold in: ${cp.name}\nCategory: ${typeLabel()}${add.newType?' (new)':''}\nNew subcategory: ${add.newCat}\nBrand: ${brand}\nName on the pack: ${pack}\nPhoto: ${path?'uploaded':url?'from Open Food Facts':'none'}\n\n`
-    +`Check it on the owner page: https://tasterank.app/#/owner`);
+    +`Check it on the owner page: https://tasterank.app/owner/`);
   track('add-sent',true);
   add.sent={id:review?null:res.id,name:review?tidyCase(pack):res.pack_name,category:review?add.newCat:res.product,typeName:typeLabel(),product:review?null:add.product,cc:cp.code,newCat:review,newType:!!add.newType};
   add.step='sent';add.sending=false;homeData=null;
@@ -1265,7 +1329,7 @@ async function sendAdd(){
   refresh(); // the page behind shows it (and home reloads its data)
 }
 // The link a sent snack is shared with: its category, scrolled to its card (#/p/gb/2?snack=57)
-const snackLink=s=>location.origin+location.pathname+hashFor({v:'category',cc:s.cc,product:s.product,snack:s.id});
+const snackLink=s=>location.origin+pathFor({v:'category',cc:s.cc,product:s.product,snack:s.id});
 async function openMatch(d){ // a snack that's already here: rate it, or see its card while it waits
   add=null;closeM();
   await go({v:'category',cc:d.cc,product:+d.product,variant:null,snack:d.live?null:+d.id});
@@ -1459,7 +1523,8 @@ async function renderHome(r){
   if(!homeData||homeData.country!==c.id||homeData.uid!==uid){
     if(!homeData||homeData.country!==c.id)$('#cards').innerHTML='<div class="card empty">Loading…</div>';
     try{const [cats,brands,waiting]=await Promise.all([rpc('home_categories',{p_country:c.id}),rpc('home_brands',{p_country:c.id}),rpc('home_waiting',{p_country:c.id}).catch(()=>[])]); // [] before migration 015
-      homeData={country:c.id,uid,cats,brands,waiting:waitOrder(waiting||[])}}
+      homeData={country:c.id,uid,cats,brands,waiting:waitOrder(waiting||[])};
+      cats.forEach(x=>nameIt('p',c.code,x.id,x.name));brands.forEach(b=>nameIt('b',c.code,b.id,b.name))}
     catch(e){console.error(e);$('#cards').innerHTML='<div class="card empty">Couldn\'t load snacks. Check your connection and refresh.</div>';return}
   }
   renderHomeCards();
@@ -1471,7 +1536,7 @@ const LIST_PHOTOS={1:'chocolate-bars',2:'toffee',3:'crisps',4:'jelly-sweets',5:'
 const TINTS={1:'choc',2:'sweet',3:'crisp',4:'choc',5:'crisp',6:'choc',7:'crisp'}; // by category: cocoa blush, rose, blue mist
 const listPhoto=(product,country)=>product===2&&country===5?null:LIST_PHOTOS[product]; // China's Milk candy isn't toffee: it keeps its emoji
 // The emoji always sits underneath, so a photo that fails to load just leaves the emoji showing
-const panel=(emoji,type,photo,cls='pp')=>`<span class="${cls}" style="--tint:var(--t-${TINTS[type]||'crisp'})" aria-hidden="true"><span class="emo">${esc(emoji||'🍽️')}</span>${photo?`<img src="assets/lists/${photo}.jpg" alt="" loading="lazy" decoding="async">`:''}</span>`;
+const panel=(emoji,type,photo,cls='pp')=>`<span class="${cls}" style="--tint:var(--t-${TINTS[type]||'crisp'})" aria-hidden="true"><span class="emo">${esc(emoji||'🍽️')}</span>${photo?`<img src="/assets/lists/${photo}.jpg" alt="" loading="lazy" decoding="async">`:''}</span>`;
 // Under the name: the winner (up to 2 lines), or a bar filling up towards one (never "1/10", which reads like a score)
 function cardStatus(win,label,lead,goal){
   if(win)return `<span class="win2"><span class="k">${label}</span><b>${esc(win.pack_name)}</b><span class="s">${faceFor(win.avg).e} ${score1(win.avg)}</span></span>`;
@@ -1495,7 +1560,7 @@ function brandCard(b,country){
 function renderHomeCards(){
   if(!homeData)return;
   const c=places.find(p=>p.id===homeData.country),seg=homeData.brands.length>=3;
-  if(homeBy==='brands'&&!seg){homeBy=null;if(location.hash==='#/brands'){history.replaceState(null,'',location.pathname);currentUrl=location.href}}
+  if(homeBy==='brands'&&!seg){homeBy=null;if(location.pathname==='/brands/'){history.replaceState(null,'','/');currentUrl=location.href}}
   const byBrand=homeBy==='brands';
   $('#home-seg').hidden=!seg;
   document.querySelectorAll('#home-seg [role=tab]').forEach(b=>{const on=(b.dataset.by==='brands')===byBrand;b.setAttribute('aria-selected',on);b.tabIndex=on?0:-1});
@@ -1503,8 +1568,8 @@ function renderHomeCards(){
   if(prefs.cat!=='all'&&!types.some(([id])=>String(id)===String(prefs.cat)))prefs.cat='all';
   $('#cats').innerHTML=[['all','All'],...types].map(([id,name])=>`<button class="chip${String(id)===String(prefs.cat)?' on':''}" data-act="cat" data-cat="${id}" aria-pressed="${String(id)===String(prefs.cat)}">${esc(name)}</button>`).join('');
   const cards=byBrand
-    ?[...homeData.brands].sort(byUse).filter(b=>b.type_ids.some(inType)).map(b=>`<a class="lc" href="${esc(hashFor({v:'brand',cc:c.code,brand:b.id}))}" data-act="brand" data-cc="${c.code}" data-brand="${b.id}">${brandCard(b,c.id)}</a>`)
-    :[...homeData.cats].sort(byUse).filter(x=>inType(x.type_id)).map(x=>`<a class="lc${isNew(x)?' new':''}" href="${esc(hashFor({v:'category',cc:c.code,product:x.id}))}" data-act="category" data-cc="${c.code}" data-product="${x.id}">${catCard(x,c.id)}</a>`);
+    ?[...homeData.brands].sort(byUse).filter(b=>b.type_ids.some(inType)).map(b=>`<a class="lc" href="${esc(pathFor({v:'brand',cc:c.code,brand:b.id}))}" data-act="brand" data-cc="${c.code}" data-brand="${b.id}">${brandCard(b,c.id)}</a>`)
+    :[...homeData.cats].sort(byUse).filter(x=>inType(x.type_id)).map(x=>`<a class="lc${isNew(x)?' new':''}" href="${esc(pathFor({v:'category',cc:c.code,product:x.id}))}" data-act="category" data-cc="${c.code}" data-product="${x.id}">${catCard(x,c.id)}</a>`);
   const empty=cards.length?'':`<div class="card empty">${byBrand?'No brand has 2 snacks of this type here yet.':'No snacks here yet. Know one? Tap + to add it.'}</div>`;
   cards.splice(wide.matches?6:4,0,bandHtml(waitList(),c.code)); // after 2 rows of lists, never further down; at the end when there are fewer
   $('#cards').innerHTML=empty+cards.join('');
@@ -1528,7 +1593,7 @@ const placeIn=p=>p?(/^(UK|US)$/.test(p.short_name)?'the ':'')+p.short_name:'this
 function waitCard(w,cc){
   const n=settings.approval_votes;
   return `<div class="wc">${panel(w.emoji,w.type_id,listPhoto(w.product_id,homeData.country),'wp')}
-    <div class="in"><a class="bn" href="${esc(hashFor({v:'category',cc,product:w.product_id,snack:w.id}))}" data-act="open-snack" data-cc="${cc}" data-product="${w.product_id}" data-id="${w.id}">${esc(w.pack_name)}</a>
+    <div class="in"><a class="bn" href="${esc(pathFor({v:'category',cc,product:w.product_id,snack:w.id}))}" data-act="open-snack" data-cc="${cc}" data-product="${w.product_id}" data-id="${w.id}">${esc(w.pack_name)}</a>
       <div class="pk">${w.mine?'<span class="mine">Added by you</span>':esc(w.product)} · ${w.approvals} of ${n}</div>
       <div class="prog" aria-hidden="true"><i style="width:${Math.min(100,Math.round(w.approvals/n*100))}%"></i></div></div>
     <div class="acts">${w.mine&&LIVE?'':`<button class="btn btn-primary" data-act="approve" data-id="${w.id}" data-brand="${esc(w.brand)}" data-mine="${w.mine?1:''}" aria-label="Approve ${esc(w.pack_name)}">${w.mine?'Approve (demo)':'Approve'}</button>`}
@@ -1624,19 +1689,21 @@ function redraw(el,draw,act){
   el.querySelectorAll('.chips').forEach((c,i)=>c.scrollLeft=sx[i]||0);
   if(f&&f.act)(el.querySelector(`[data-act="${f.act}"][data-id="${f.id||''}"]`)||el.querySelector(`[data-act="${act}"]`))?.focus();
 }
-const listLink=(cc,product,text)=>`<a class="bl" href="${esc(hashFor({v:'category',cc,product}))}" data-act="category" data-cc="${cc}" data-product="${product}">${text}</a>`;
+const listLink=(cc,product,text)=>`<a class="bl" href="${esc(pathFor({v:'category',cc,product}))}" data-act="category" data-cc="${cc}" data-product="${product}">${text}</a>`;
 
 /* ---------- Category page: every snack in one category, with a chip per flavour ---------- */
 async function renderCategory(r){
   const c=placeBy('code',r.cc);if(!c)return gone();
   const el=$('#v-category'),key=`p/${c.id}/${r.product}`,fresh=!page||page.key!==key;
-  if(fresh)el.innerHTML='<div class="card empty">Loading…</div>';
+  if(fresh&&!el.querySelector('.prebuilt'))el.innerHTML='<div class="card empty">Loading…</div>';
   let d;try{d=await rpc('category_page',{p_product:r.product,p_country:c.id})}catch(e){oops(e);return}
   const gonePick=r.snack&&d&&d.withdrawn.find(w=>w.id===r.snack);
   if(!d||(!d.items.length&&!d.pending.length&&!gonePick))return gone();
+  if(r.vword&&!r.variant)r={...r,variant:(d.flavours.find(f=>slug(f.name)===r.vword)||{}).id||null};
   const variant=d.flavours.length>=2&&d.flavours.some(f=>f.id===r.variant)?r.variant:null; // an old link to a flavour that has no chip opens All
+  nameIt('p',c.code,r.product,d.name);d.flavours.forEach(f=>nameIt('v',c.code,`${r.product}.${f.id}`,f.name));d.items.forEach(i=>nameIt('b',c.code,i.brand_id,i.brand));
   page={...d,key,kind:'category',route:{v:'category',cc:c.code,product:r.product,variant},cc:c.code,gone:gonePick||null};
-  if(variant!==r.variant)setRoute(page.route);
+  if(variant!==r.variant)setRoute(page.route);else canon(page.route);
   if(fresh)track('open-category',true);
   drawCategory();
   const card=r.snack&&!gonePick&&document.getElementById('snack-'+r.snack);
@@ -1647,6 +1714,7 @@ function drawCategory(){
   const items=f?d.items.filter(i=>i.variant_id===f.id):d.items,pend=f?d.pending.filter(p=>p.variant_id===f.id):d.pending;
   const flavour=id=>(d.flavours.find(x=>x.id===id)||{}).name||'',total=items.reduce((s,i)=>s+i.total,0),n=items.length;
   d.title=f?f.title:d.name;
+  setHead(listTitle(d.title,d.country),pathFor(d.route).split('?')[0]);
   const fresh=!n&&pend.length>0; // a new list: nothing live yet, so one note instead of No winner yet, the rating tip and None live yet
   $('#v-category').innerHTML=`
     <button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}">← ${esc(d.country.short_name)} <span>· ${esc(d.type)}</span></button>
@@ -1658,7 +1726,7 @@ function drawCategory(){
       :`${winnerHtml(items,'The winner so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'No winner yet')}
     <div class="tip-slot" data-n="2"></div>`}
     ${n?`<div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
-        ?`<a class="bl" href="${esc(hashFor({v:'brand',cc:d.cc,brand:it.brand_id}))}" data-act="brand" data-cc="${d.cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand))
+        ?`<a class="bl" href="${esc(pathFor({v:'brand',cc:d.cc,brand:it.brand_id}))}" data-act="brand" data-cc="${d.cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand))
         +(chips&&!f?` · ${esc(flavour(it.variant_id))}`:''))).join('')}</div>`:''}
     ${n<3&&!fresh?`<div class="alert"><b>${n?`Only ${n===1?'one':'two'} so far`:'None live yet'}</b><span>Know ${n?`another ${esc(d.title.toLowerCase())}`:'one'} sold in ${esc(d.country.name)}? Tap + to add it. It goes live once ${settings.approval_votes} people approve.</span></div>`:''}
     ${pend.length?`${fresh?'':'<div class="tip-slot" data-n="5"></div>'}<h2>Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
@@ -1694,11 +1762,12 @@ async function doApprove(id,brand,mine){
 async function renderBrandPage(r){
   const c=placeBy('code',r.cc);if(!c)return gone();
   const el=$('#v-brand'),key=`b/${c.id}/${r.brand}`,fresh=!page||page.key!==key;
-  if(fresh)el.innerHTML='<div class="card empty">Loading…</div>';
+  if(fresh&&!el.querySelector('.prebuilt'))el.innerHTML='<div class="card empty">Loading…</div>';
   let d;try{d=await rpc('brand_page',{p_brand:r.brand,p_country:c.id})}catch(e){oops(e);return}
   if(!d||!d.items.length)return gone();
+  nameIt('b',c.code,d.id,d.name);d.products.forEach(p=>nameIt('p',c.code,p.id,p.name));d.flavours.forEach(f=>nameIt('v',c.code,`${f.product_id}.${f.id}`,f.name));
   page={...d,key,kind:'brandpage',cc:c.code,route:brandRoute(d,c.code,r.product,r.variant)};
-  if(page.route.product!==r.product||page.route.variant!==r.variant)setRoute(page.route);
+  if(page.route.product!==r.product||page.route.variant!==r.variant)setRoute(page.route);else canon(page.route);
   if(fresh)track('open-brand',true);
   drawBrand();
 }
@@ -1713,6 +1782,7 @@ function drawBrand(){
   const fls=prod?d.flavours.filter(f=>f.product_id===prod):[];
   const items=d.items.filter(i=>(!prod||i.product_id===prod)&&(!v||i.variant_id===v)),total=items.reduce((s,i)=>s+i.total,0);
   d.title=d.name;
+  setHead(brandTitle(d.name,d.country),pathFor({...d.route,product:null,variant:null})); // filtered views count as the brand page
   $('#v-brand').innerHTML=`
     <button class="crumb" data-act="home-brands" data-cc="${d.cc}">← ${esc(d.country.short_name)} <span>· Brands</span></button>
     <h1 class="page-title">${esc(d.name)}: which one wins?</h1>
@@ -2050,7 +2120,7 @@ function ownStatusLine(x){
 function ownSnackSheet(){
   const e=own.edit,pl=placeBy('id',e.country_id)||{},prods=own.cat.products.filter(p=>p.category_id===e.cat),cur=e.newSub?null:ownProduct(e.sub);
   const pic=e.photo?{image_url:e.photo.url}:e.removePhoto?{emoji:e.emoji}:e,hasPic=!!(e.photo||(!e.removePhoto&&(e.image_url||e.image_path)));
-  const link=['live','pending'].includes(e.status)?` · <a href="${esc(hashFor({v:'category',cc:pl.code,product:e.product_id,snack:e.status==='pending'?e.id:null}))}" target="_blank" rel="noopener">Open on TasteRank</a>`:'';
+  const link=['live','pending'].includes(e.status)?` · <a href="${esc(pathFor({v:'category',cc:pl.code,product:e.product_id,snack:e.status==='pending'?e.id:null}))}" target="_blank" rel="noopener">Open on TasteRank</a>`:'';
   return `<h3 id="own-sheet-title">Change this snack</h3><p class="own-sum">${esc(ownStatusLine(e))}${link}</p>
     <div class="own-photo">${thumb(pic,'big')}<label class="btn sm">Change photo<input type="file" id="own-photo" accept="image/*" class="sr-only"></label>${hasPic?'<button class="link btn-danger" data-act="own-photo-remove">Remove</button>':''}</div>
     <label class="field">Name on the pack<input data-edit="pack_name" value="${esc(e.pack_name)}" autocomplete="off"></label>
@@ -2388,7 +2458,10 @@ async function start(){
   try{
     if(params.has('error_description'))toast('Sign-in was cancelled or failed. Please try again.');
     me=await api.session();
-    if(params.has('code')||params.has('error'))history.replaceState(null,'',location.pathname+location.hash); // tidy the address bar after Google sign-in
+    if(params.has('code')||params.has('error')){ // tidy the address bar after Google sign-in, back on the page it started from
+      const back=store.get('tasterank-back',true);store.del('tasterank-back',true);
+      history.replaceState(null,'',back&&back.startsWith('/')&&!back.startsWith('//')?back:location.pathname);
+    }
     [settings,places]=await Promise.all([rpc('app_settings'),rpc('place_list'),me?loadProfile():null,loadOwner()]);
   }catch(e){console.error(e);$('#cards').innerHTML='<div class="card empty">Couldn\'t load snacks. Check your connection and refresh.</div>';return}
   if(!prefs.country)await geo; // only wait for the guess when it decides what to show
