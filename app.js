@@ -1965,7 +1965,9 @@ function renderOwnerLink(){
   const n=(ownerInfo?.to_check||0)+(ownerInfo?.reports||0); // additions, plus snacks someone says aren't right (migration 015)
   if(ownerInfo?.owner)b.textContent=`🛠️ Owner page${n?` · ${n} to check`:''}`;
 }
-const OWN_EMOJI={1:['🍫','🍪','🍩','🥜','🍓'],2:['🍬','🍭','🍫','🍪','🍯'],3:['🥔','🥨','🍿','🧀','🥜']};
+const OWN_EMOJI={1:['🍫','🍪','🍩','🥜','🍓'],2:['🍬','🍭','🍫','🍪','🍯'],3:['🥔','🥨','🍿','🧀','🥜'],4:['🍪','🥣','🧇','🥜','🍫']}; // by category id; the first is pre-picked
+const OWN_EMOJI_ANY=['🍪','🍫','🥨','🍿','🍬']; // a category with no set of its own (one added later): a mix, so a sweet isn't pre-picked for crackers
+const ownEmojis=cat=>OWN_EMOJI[cat]||OWN_EMOJI_ANY;
 // One emoji, as owner_emoji() in the database allows: flags and joined ones (👩‍🍳) too, but no letters, numbers or spaces
 const OWN_EMOJI_RE=/^[©®‍‰-⯿〰〽㊗㊙︎️\u{1F000}-\u{1FAFF}\u{E0020}-\u{E007F}]+$/u;
 const okEmoji=e=>!e||([...e].length<=10&&OWN_EMOJI_RE.test(e));
@@ -2050,16 +2052,16 @@ function ownReqCatChips(r,s){
 }
 function ownSubNote(sub){const p=ownProduct(sub);return !norm(sub)?'Type the subcategory':p?`Already listed: it goes into ${p.name}`:'New subcategory'}
 function ownEmojiHtml(cat,value,otherOpen,act,id,attr){ // five that suit the category, then Other… (any emoji, typed or pasted)
-  const list=OWN_EMOJI[cat]||OWN_EMOJI[2],mine=!!value&&!list.includes(value)&&okEmoji(value),other=mine||otherOpen;
+  const list=ownEmojis(cat),mine=!!value&&!list.includes(value)&&okEmoji(value),other=mine||otherOpen;
   return `<div class="own-emo" role="group" aria-label="Emoji">${list.map(e=>`<button type="button" class="${e===value&&!otherOpen?'on':''}" aria-pressed="${e===value&&!otherOpen}" data-act="${act}" data-id="${id}" data-e="${e}">${e}</button>`).join('')}
     <button type="button" class="other${other?' on':''}" aria-pressed="${other}" data-act="${act}" data-id="${id}" data-e="">${mine?`<b>${esc(value)}</b> Yours`:'Other…'}</button></div>
     ${otherOpen?`<label class="field own-custom">Your own emoji<input ${attr}="custom" data-id="${id}" value="${value&&!list.includes(value)?esc(value):''}" autocomplete="off" maxlength="16"><span class="hint">Type or paste one emoji. It shows on cards with no photo.</span></label>`:''}`;
 }
 const ownCatChips=(on,act,id)=>`<div class="chips wrap" role="group" aria-label="Category">${ownCats().map(c=>`<button class="chip${c.id===on?' on':''}" aria-pressed="${c.id===on}" data-act="${act}"${id!=null?` data-id="${id}"`:''} data-cat="${c.id}">${esc(c.name)}</button>`).join('')}</div>`;
 function ownReqCard(r){
-  const s=ownReq(r),pl=placeBy('id',r.country_id)||{},isNew=!ownProduct(s.sub),emo=s.emoji||(OWN_EMOJI[s.cat]||OWN_EMOJI[2])[0];
+  const s=ownReq(r),pl=placeBy('id',r.country_id)||{},isNew=!ownProduct(s.sub),emo=s.emoji||ownEmojis(s.cat)[0];
   const what=r.new_type?`category "${esc(r.new_type)}" · subcategory "${esc(r.new_ranking)}"`:r.kind==='category'?`subcategory "${esc(r.new_ranking)}"`:r.product?`flavour "${esc(r.new_variant||r.new_ranking)}" in ${esc(r.product)}`:`"${esc(r.new_ranking)}"`;
-  const head=`<div class="own-top">${thumb({...r,emoji:okEmoji(emo)?emo:(OWN_EMOJI[s.cat]||OWN_EMOJI[2])[0]})}<div><h3 class="own-name">${esc(s.pack)}</h3><p class="meta">${esc(s.brand)} · ${esc(pl.short_name||'')} · sent ${ownDate(r.sent)}</p>
+  const head=`<div class="own-top">${thumb({...r,emoji:okEmoji(emo)?emo:ownEmojis(s.cat)[0]})}<div><h3 class="own-name">${esc(s.pack)}</h3><p class="meta">${esc(s.brand)} · ${esc(pl.short_name||'')} · sent ${ownDate(r.sent)}</p>
     <p class="own-what"><span class="newtag sm">New</span> ${what}</p></div></div>`;
   if(s.confirm)return `<div class="card own-req" id="own-r-${r.id}">${head}<div class="own-confirm"><p>Decline ${esc(s.pack)}? The sender sees "Not this time".</p>
     <div class="own-acts"><button class="btn btn-danger-solid" data-act="own-decline-yes" data-id="${r.id}"${s.busy?' disabled':''}>Decline</button><button class="btn" data-act="own-decline-no" data-id="${r.id}">Keep</button></div></div></div>`;
@@ -2080,7 +2082,7 @@ function ownRedrawReq(id,focus){ // one card, keeping your place: focus goes bac
 }
 async function ownAccept(id){
   const r=ownQ(id),s=ownReq(r);if(s.busy)return;
-  const isNew=!ownProduct(s.sub),emo=isNew?(s.emoji||(OWN_EMOJI[s.cat]||OWN_EMOJI[2])[0]):null;
+  const isNew=!ownProduct(s.sub),emo=isNew?(s.emoji||ownEmojis(s.cat)[0]):null;
   s.error=!norm(s.sub)?'Type the subcategory':s.cat==='new'&&!norm(s.newType)?'Name the new category':isNew&&!s.cat?'Pick the category':isNew&&s.other&&!s.emoji?'Type or paste an emoji, or pick one':isNew&&!okEmoji(emo)?'Just one emoji':!norm(s.pack)?'Type the name on the pack':!norm(s.brand)?'Add the brand':null;
   if(s.error)return ownRedrawReq(id,'[role="alert"]');
   s.busy=true;ownRedrawReq(id);
@@ -2237,7 +2239,7 @@ const OWN_ACT={
   'own-sign-in':()=>needUser({name:'owner'}),
   'own-tab':d=>{own.tab=d.tab;drawOwner();$(`#own-tabs [data-tab="${d.tab}"]`)?.focus()},
   'own-req-cat':d=>{const s=own.req[d.id];s.cat=d.cat==='new'?'new':+d.cat;s.error=null;ownRedrawReq(d.id,`[data-act="own-req-cat"][data-cat="${d.cat}"]`)},
-  'own-req-emoji':d=>{const s=own.req[d.id];if(d.e){s.emoji=d.e;s.other=false}else{s.other=true;if((OWN_EMOJI[s.cat]||OWN_EMOJI[2]).includes(s.emoji))s.emoji=null}
+  'own-req-emoji':d=>{const s=own.req[d.id];if(d.e){s.emoji=d.e;s.other=false}else{s.other=true;if(ownEmojis(s.cat).includes(s.emoji))s.emoji=null}
     ownRedrawReq(d.id,d.e?`[data-e="${d.e}"]`:'[data-own="custom"]')},
   'own-req-names':d=>{own.req[d.id].names=true;ownRedrawReq(d.id,'[data-own="pack"]')},
   'own-accept':d=>ownAccept(d.id),
@@ -2258,7 +2260,7 @@ const OWN_ACT={
   'own-unhide':d=>{$('#toast').hidden=true;ownStatus('show',+d.id)},
   'own-sub':d=>ownOpenSub(d.id),
   'own-sub-cat':d=>{own.sub.cat=+d.cat;ownDrawSheet();$(`#owner-body [data-cat="${d.cat}"]`)?.focus()},
-  'own-sub-emoji':d=>{const s=own.sub;if(d.e){s.emoji=d.e;s.other=false}else{s.other=true;if((OWN_EMOJI[s.cat]||OWN_EMOJI[2]).includes(s.emoji))s.emoji=null}
+  'own-sub-emoji':d=>{const s=own.sub;if(d.e){s.emoji=d.e;s.other=false}else{s.other=true;if(ownEmojis(s.cat).includes(s.emoji))s.emoji=null}
     ownDrawSheet();$(`#owner-body ${d.e?`[data-e="${d.e}"]`:'[data-sub="custom"]'}`)?.focus()},
   'own-sub-save':ownSubSave,
   'own-move-open':()=>{own.sub.move=true;ownDrawSheet();$('#own-move-into')?.focus()},
