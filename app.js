@@ -658,6 +658,8 @@ const ACT={
   add:openAdd,
   close:closeM,
   'sign-in':signIn,
+  'nudge-sign-in':()=>{track('nudge-sign-in',true);signIn()}, // straight to sign-in: the note has already said why
+  'nudge-later':()=>{track('nudge-later',true);store.set('tasterank-nudge','off',true);if(page)(page.kind==='category'?drawCategory:drawBrand)()},
   'sign-out':signOut,
   'delete-account':deleteAccount,
   'reset-demo':resetDemo,
@@ -704,7 +706,7 @@ function signInFor(a){
   const m=$('#signin-meta');m.hidden=!it;if(it)m.textContent=`${it.country.flag} ${it.country.short_name} · ${it.where}`;
   const f=$('#signin-faces');f.hidden=!it;if(it)f.innerHTML=FACES.map(x=>`<span class="face-btn"><span>${x.e}</span>${x.l}</span>`).join('');
   $('#signin-why').textContent=name?(rep?'Sign in first, so each person tells us once. Only TasteRank\'s owner sees what you send, and never your name.'
-      :`Sign in first, so everyone ${it?'rates':'approves'} each snack once. Other people only see totals, never your name.`)
+      :`Every ${it?'score':'approval'} here comes from a real taster. Sign in and yours will too. Nobody sees your name.`)
     :'Sign in to rate snacks and approve new ones.';
   const b=$('#signin-back');b.hidden=!name;
   if(name)b.innerHTML=`You'll come straight back here to ${it?'pick a face':rep?'tell us':'approve it'}. <button class="link" data-act="privacy">Privacy</button>`;
@@ -1664,10 +1666,26 @@ function chipsHtml(label,act,list,on){
   return `<div class="chips counted" role="group" aria-label="${label}">${list.map(x=>{const p=x.id===on;
     return `<button class="chip${p?' on':''}" aria-pressed="${p}" data-act="${act}" data-id="${x.id??''}" aria-label="${esc(x.name)}, ${plural(x.count,'snack')}">${esc(x.name)} <span class="n">${x.count}</span></button>`}).join('')}</div>`;
 }
-function winnerHtml(items,label,line,none){
+function winnerHtml(items,label,line,none,nudge){
   const w=items.find(i=>i.ranked);
   return w?`<div class="winner"><span class="lbl">${esc(label)}</span><span class="wrow"><span class="nm">${esc(w.pack_name)}</span><span class="face" aria-hidden="true">${faceFor(w.avg).e}</span><span class="num">${score1(w.avg)}</span></span><span class="cnt">${line(w)}</span></div>`
-    :`<div class="early"><b>${none}</b>Each snack needs ${settings.rank_after_ratings} ratings. Rate the ones you know! <button class="link" data-act="how">How it works</button></div>`;
+    :`<div class="early"><b>${none}</b>Each snack needs ${settings.rank_after_ratings} ratings.${nudge?'':me?' Rate the ones you know!':' Sign in and rate the ones you know!'} <button class="link" data-act="how">How it works</button></div>`;
+}
+/* Crispy's sign-in note (design/mockups/sign-in-nudge.html), for people who aren't signed in: on the first list or brand page
+   of a visit, every time that page loads (reloads and chip taps included). Other pages that visit say "Sign in and rate…"
+   in the No winner note instead. A visit lasts until the tab closes, so a new tab or a reopened browser brings it back.
+   "Not now" hides it for the rest of the visit. */
+function nudgeHere(){
+  if(me||!page)return false;
+  const k=store.get('tasterank-nudge',true);
+  if(k===null){store.set('tasterank-nudge',page.key,true);return true}
+  return k===page.key;
+}
+function nudgeHtml(total){
+  return `<div class="nudge" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><div>
+    ${total?"<b>Every score here is from a real taster</b><p>Everyone who rated these signed in first. That's how I keep it fair! Join them and add yours. I'll never show your name.</p>"
+      :"<b>Be the first real taster here</b><p>Everyone signs in before they rate. That's how I keep it fair! Sign in and add the first score. I'll never show your name.</p>"}
+    <div class="acts"><button class="btn btn-primary" data-act="nudge-sign-in">Sign in to rate</button><button class="link" data-act="nudge-later">Not now</button></div></div></div>`;
 }
 /* A row leads with the snack's name (up to 2 lines, the whole name in its label). The name is the button that opens the rating sheet,
    stretched over the row; the link underneath (brand, or "#1 in Crisps") sits above it, so it's a separate tap and Tab stop. */
@@ -1717,6 +1735,7 @@ function drawCategory(){
   d.title=f?f.title:d.name;
   setHead(listTitle(d.title,d.country),pathFor(d.route).split('?')[0]);
   const fresh=!n&&pend.length>0; // a new list: nothing live yet, so one note instead of No winner yet, the rating tip and None live yet
+  const nudge=!fresh&&nudgeHere();
   $('#v-category').innerHTML=`
     <button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}">← ${esc(d.country.short_name)} <span>· ${esc(d.type)}</span></button>
     <h1 class="page-title">${esc(d.title)}: which one wins?</h1>
@@ -1724,7 +1743,7 @@ function drawCategory(){
     ${d.gone?`<div class="card gone-card" role="status"><span class="gone-e" aria-hidden="true">😶</span><b>${esc(d.gone.pack_name)} was withdrawn</b><span class="meta">The person who added it took it back before it went live, so there's nothing to approve.</span></div>`:''}
     ${chips?chipsHtml('Flavours','flavour',[{id:null,name:'All',count:d.items.length},...d.flavours],f?f.id:null):''}
     ${fresh?`<div class="newnote"><b>New list: help decide what's in it</b><span>Snacks join once ${settings.approval_votes} people approve them. Know one of these? Approve it. Missing one? Tap + to add it.</span></div>`
-      :`${winnerHtml(items,'The winner so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'No winner yet')}
+      :`${nudge?nudgeHtml(total):''}${winnerHtml(items,'The winner so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'No winner yet',nudge)}
     <div class="tip-slot" data-n="2"></div>`}
     ${n?`<div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
         ?`<a class="bl" href="${esc(pathFor({v:'brand',cc:d.cc,brand:it.brand_id}))}" data-act="brand" data-cc="${d.cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand))
@@ -1783,6 +1802,7 @@ function drawBrand(){
   const fls=prod?d.flavours.filter(f=>f.product_id===prod):[];
   const items=d.items.filter(i=>(!prod||i.product_id===prod)&&(!v||i.variant_id===v)),total=items.reduce((s,i)=>s+i.total,0);
   d.title=d.name;
+  const nudge=nudgeHere();
   setHead(brandTitle(d.name,d.country),pathFor({...d.route,product:null,variant:null})); // filtered views count as the brand page
   $('#v-brand').innerHTML=`
     <button class="crumb" data-act="home-brands" data-cc="${d.cc}">← ${esc(d.country.short_name)} <span>· Brands</span></button>
@@ -1790,7 +1810,7 @@ function drawBrand(){
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${plural(items.length,'snack')}${ratingsPart(total)}</div>
     ${multi?chipsHtml('Subcategories','bp-cat',[{id:null,name:'All',count:d.items.length},...d.products],prod):''}
     ${fls.length>=2?chipsHtml('Flavours','bp-flavour',[{id:null,name:multi?`All ${(d.products.find(p=>p.id===prod)||{name:''}).name.toLowerCase()}`:'All',count:fls.reduce((s,f)=>s+f.count,0)},...fls],v):''}
-    ${winnerHtml(items,`Best of ${d.name} so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet')}
+    ${nudge?nudgeHtml(total):''}${winnerHtml(items,`Best of ${d.name} so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet',nudge)}
     <div class="tip-slot" data-n="2"></div>
     <div class="list">${items.map((it,k)=>listRow(it,k,it.place?listLink(d.cc,it.product_id,`#${it.place} in ${esc(it.product)}`)
       :`${listLink(d.cc,it.product_id,esc(it.product))} · not ranked yet`)).join('')}</div>`;
@@ -2364,14 +2384,14 @@ const tipKey=()=>view==='home'?'home':page?.key||view;
 const myRated=()=>profile?profile.rated:0;
 const TIPS={ // [Crispy's face, the words, whether it links to How it works]
   // under a "No winner yet" note, tip 2 leaves out what the note already says (10 ratings, How it works)
-  2:()=>$(`#v-${view} .early`)?['crisp-happy','Know any of these? Tap a snack and pick a face.']
-    :['crisp-happy',`Know any of these? Tap a snack and pick a face. Each snack needs ${settings.rank_after_ratings} ratings to be ranked.`,true],
+  2:()=>{const ask=me?'Know any of these? Tap a snack and pick a face.':'Know any of these? Sign in, then tap a snack and pick a face.';
+    return $(`#v-${view} .early`)?['crisp-happy',ask]:['crisp-happy',`${ask} Each snack needs ${settings.rank_after_ratings} ratings to be ranked.`,true]},
   5:()=>['crisp-happy',`New snacks need ${settings.approval_votes} approvals to join the list. Know one of these? Approve it.`],
   6:()=>['crisp-joy',"Think the crowd's wrong? Share this list and settle it."]};
 function tipFits(n){
   if(tipSeen(n))return false;
   const c=onCategory();
-  if(n===2)return !!(c||onBrandPage());
+  if(n===2)return !!(c||onBrandPage())&&!$(`#v-${view} .nudge`); // one note at a time: it waits while Crispy's sign-in note shows
   if(n===5)return !!(c&&me&&myRated()>=1&&$('#v-category .tip-slot[data-n="5"]')&&c.pending.some(p=>!p.mine&&!p.approved));
   if(n===6)return !!(c&&c.items.filter(i=>i.my_score).length>=2);
   if(n===7)return ['home','category','brand'].includes(view)&&(myRated()>=3||tips.visits>=2);
@@ -2422,7 +2442,7 @@ function renderTipsSwitch(){document.querySelectorAll('[data-act="set-tips"]').f
 function openHow(){
   const lines=[['Like for like','Every snack in a list, like Crisps or Toffee, is ranked together, country by country. Tap a flavour to compare like with like: Walkers vs Pringles in salt & vinegar crisps.'],
     ['Tap a face','Rate the ones you know. It saves straight away, and you can change it any time.'],
-    ['Fair winners',`One rating per person. A snack is ranked after ${settings.rank_after_ratings} ratings, so nobody wins on a handful of votes.`],
+    ['Fair winners',`Every score comes from a real taster who signed in. A snack is ranked after ${settings.rank_after_ratings} ratings, so nobody wins on a handful of votes.`],
     ['Grow it together',`New snacks go live with ${settings.approval_votes} approvals. Missing one? Tap + and type what's on the pack.`]];
   $('#how-list').innerHTML=lines.map(([b,t],k)=>`<li><span class="n" aria-hidden="true">${k+1}</span><div><b>${esc(b)}</b><span>${esc(t)}</span></div></li>`).join('');
   track('how-it-works',true);openM('m-how');
