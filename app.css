@@ -88,7 +88,7 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .chip .n{font-weight:700;font-size:12px;margin-left:3px;opacity:.85} /* how many snacks: "Salt & vinegar 6" */
 /* The Categories | Brands switch, then a card per category or brand (design/mockups/browse.html, H1 and H2) */
 .home-seg{max-width:340px;margin:14px 0 2px;background:var(--surface)}
-.cards{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;align-items:start}
+.cards{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;align-items:stretch} /* cards in a row share one height, so a 2-line name doesn't make one card stick out */
 /* List cards (design/mockups/cat-preview.html): a square panel edge to edge on the left (a photo, or the emoji on its category's soft colour), the words beside it, no outline */
 .lc{position:relative;display:grid;grid-template-columns:118px minmax(0,1fr);min-height:118px;background:var(--surface);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);color:var(--ink);text-decoration:none;transition:transform .12s,box-shadow .12s}
 .lc:hover{transform:translateY(-1px);box-shadow:0 2px 4px var(--shadow-c),0 10px 26px var(--shadow-c)}

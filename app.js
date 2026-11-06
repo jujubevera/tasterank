@@ -1535,7 +1535,7 @@ async function renderHome(r){
 const ratingsPart=n=>n?' · '+plural(n,'rating'):'';
 /* List cards (design/mockups/cat-preview.html): a square panel on the left, edge to edge, with Vera's own photo of the list,
    or its emoji on its category's soft colour; beside it the name, "3 snacks · 1 rating", then the winner or how close one is */
-const LIST_PHOTOS={1:'chocolate-bars',2:'toffee',3:'crisps',4:'jelly-sweets',5:'chocolate-pouch'}; // assets/lists/, by subcategory id (the same id in every country)
+const LIST_PHOTOS={1:'chocolate-bars',2:'toffee',3:'crisps',4:'jelly-sweets',5:'chocolate-pouch',6:'chocolate-biscuits'}; // assets/lists/, by subcategory id (the same id in every country)
 const TINTS={1:'choc',2:'sweet',3:'crisp',4:'choc',5:'crisp',6:'choc',7:'crisp'}; // by category: cocoa blush, rose, blue mist
 const listPhoto=(product,country)=>product===2&&country===5?null:LIST_PHOTOS[product]; // China's Milk candy isn't toffee: it keeps its emoji
 // The emoji always sits underneath, so a photo that fails to load just leaves the emoji showing
