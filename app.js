@@ -50,7 +50,8 @@ function thumb(it,cls=''){
 }
 function toast(msg,btn){ // btn: {label, act, id}: a button in the note (kept up longer, so there's time to tap it)
   const t=$('#toast');t.innerHTML=esc(msg)+(btn?` <button class="link" data-act="${esc(btn.act)}" data-id="${esc(btn.id)}">${esc(btn.label)}</button>`:'');
-  t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,btn?6000:2600);
+  t.classList.remove('out');t.hidden=false;clearTimeout(toast.t);clearTimeout(toast.h);
+  toast.t=setTimeout(()=>{t.classList.add('out');toast.h=setTimeout(()=>{t.hidden=true;t.classList.remove('out')},450)},btn?6000:2600); // fades out, then goes
 }
 function oops(e){console.error(e);toast('Something went wrong. Please try again.')}
 function withTimeout(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))])}
@@ -2288,7 +2289,7 @@ async function renderProfile(){
     <div id="subs-box"></div>
     <div class="profile-foot">
       <button class="btn" data-act="sign-out">Sign out</button>
-      ${LIVE?'<button class="link btn-danger" data-act="delete-account">Delete my account</button>':'<button class="link" style="color:var(--muted)" data-act="reset-demo">Reset demo data</button>'}
+      ${LIVE?'<button class="link quiet-link" data-act="delete-account">Delete my account</button>':'<button class="link quiet-link" data-act="reset-demo">Reset demo data</button>'}
     </div>`;
   mySubs=subs;drawSubs();
 }

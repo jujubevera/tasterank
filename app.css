@@ -71,7 +71,6 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 /* bottom padding keeps the + from ever covering the last row */
 .foot{width:100%;max-width:960px;margin:0 auto;padding:0 16px 88px;color:var(--muted);font-size:13px;text-align:center}
 .foot a{color:inherit}
-.foot-about{max-width:46ch;margin:0 auto 8px;text-wrap:balance}
 
 /* Home */
 .bubble-row{display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;align-items:start;margin:4px 0 14px;max-width:560px}
@@ -225,7 +224,10 @@ div.ir{position:relative}
 .stat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px}
 .stat b{display:block;font-size:26px;font-weight:900}
 .stat span{color:var(--muted);font-size:14px}
-.profile-foot{margin-top:28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.profile-foot{margin-top:28px;display:flex;flex-direction:column;align-items:flex-start;gap:20px}
+/* Rare, serious actions (Delete my account): there when needed, not competing with Sign out */
+.quiet-link{color:var(--muted);font-size:13px;font-weight:600;text-decoration:underline;text-underline-offset:3px;min-height:44px}
+.quiet-link:hover{color:var(--danger)}
 
 /* The floating + : adds a snack */
 .add-fab{position:fixed;right:16px;bottom:18px;z-index:30;width:56px;height:56px;border-radius:50%;border:0;background:var(--primary);color:var(--on-primary);font-size:32px;font-weight:700;line-height:1;display:grid;place-items:center;box-shadow:0 6px 16px var(--shadow-c),var(--shadow)}
@@ -457,7 +459,8 @@ body:has(.modal-bg:not([hidden])) .toast{top:16px;bottom:auto}
 .own-empty svg{width:72px;height:72px}
 h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--ink);text-transform:none;letter-spacing:0}
 .own-empty p{margin:0}
-.toast{width:max-content;max-width:calc(100vw - 32px)}
+.toast{width:max-content;max-width:calc(100vw - 32px);transition:opacity .45s ease}
+.toast.out{opacity:0}
 .toast:has(button){border-radius:16px}
 .toast button{pointer-events:auto;color:inherit;text-decoration:underline;margin-left:6px;font-weight:900;min-height:24px}
 
@@ -507,6 +510,8 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--in
 .own-notes p{margin:0;background:var(--bg);border-radius:10px;padding:8px 12px;font-size:14px}
 
 /* Pre-built pages (tools/build-pages.mjs): the ranking as plain HTML until the app takes over */
+/* Home's plain list of every list (tools/build-pages.mjs) is for search engines and no-JavaScript browsers; people see "Loading…" then the cards */
+.js .no-js,html:not(.js) .js-only{display:none}
 .prebuilt a.crumb,.prebuilt a.chip{display:inline-flex;align-items:center;text-decoration:none}
 .prebuilt a.chip{color:var(--ink)}
 .prebuilt a.chip.on{color:var(--on-primary)}

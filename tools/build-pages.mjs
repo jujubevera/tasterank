@@ -170,7 +170,7 @@ for (const f of PUBLIC) await fs.cp(path.join(ROOT, f), path.join(OUT, f), {recu
 // Home: the same page, with links to every list in place of "Loading…", so search engines can find them
 const byCountry = places.map(c => ({c, links: homeLinks.filter(l => l.c === c)})).filter(x => x.links.length);
 const homeHtml = swap(template, /<div class="cards" id="cards"><div class="card empty">Loading…<\/div><\/div>/,
-  `<div class="cards" id="cards"><div class="prebuilt card empty">${byCountry.map(({c, links}) =>
+  `<div class="cards" id="cards"><div class="card empty js-only">Loading…</div><div class="prebuilt card empty no-js">${byCountry.map(({c, links}) =>
     `<p><b>${c.flag} ${esc(c.short_name)}:</b> ${links.map(l => `<a href="${l.href}">${esc(l.text)}</a>`).join(' · ')}</p>`).join('')}</div></div>`);
 await fs.writeFile(path.join(OUT, 'index.html'), homeHtml);
 await fs.writeFile(path.join(OUT, '404.html'), render({path: '/404.html', title: 'TasteRank: which snack wins?', description: 'Which snack wins? Rate snacks sold in your country on TasteRank.', robots: 'noindex'}).replace(/<link rel="canonical"[^>]*>\n/, ''));
