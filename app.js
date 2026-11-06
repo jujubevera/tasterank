@@ -1576,8 +1576,19 @@ function renderHomeCards(){
   const empty=cards.length?'':`<div class="card empty">${byBrand?'No brand has 2 snacks of this type here yet.':'No snacks here yet. Know one? Tap + to add it.'}</div>`;
   cards.splice(wide.matches?6:4,0,bandHtml(waitList(),c.code)); // after 2 rows of lists, never further down; at the end when there are fewer
   $('#cards').innerHTML=empty+cards.join('');
-  watchBand();setFab();
+  watchBand();setFab();evenCards();
 }
+/* Every home card is as tall as the tallest one, so a 2-line name ("Chocolate biscuits") doesn't make one row bigger than the rest.
+   Measured, not a grid rule: the new snacks band sits in the same grid, and equal rows would stretch the cards to its height. */
+function evenCards(){
+  const box=$('#cards'),cs=[...box.querySelectorAll('.lc')];
+  box.style.removeProperty('--lc-h');
+  const h=cs.length>1?Math.max(...cs.map(c=>c.offsetHeight)):0;
+  if(h)box.style.setProperty('--lc-h',h+'px'); // 0 while home is hidden: measured again when it shows (its width changes)
+}
+let cardsW=0;
+new ResizeObserver(es=>{const w=Math.round(es[0].contentRect.width);if(w!==cardsW){cardsW=w;evenCards()}}).observe($('#cards')); // narrower cards can wrap a name
+document.fonts?.ready.then(evenCards); // the font changes where names wrap
 const inType=id=>prefs.cat==='all'||String(id)===String(prefs.cat);
 
 /* ---------- New snacks to check (design/mockups/waiting-on-home.html, round 4) ----------
