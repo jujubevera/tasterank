@@ -789,6 +789,11 @@ const typeName=id=>((catalogues[add.country]||[]).find(t=>t.id===id)||(allTypes[
 const hasType=()=>!!(add.type||add.newType),typeLabel=()=>add.newType||typeName(add.type);
 const oneType=ids=>{const t=[...new Set(ids.map(typeOf).filter(Boolean))];return t.length===1?t[0]:null};
 const bkey=t=>norm(t).replace(/'/g,''); // brands are compared ignoring apostrophes too, so Tyrrell's is Tyrrells
+// …but only when the name was typed without one: people leave apostrophes out (Tyrrells → Tyrrell's), they don't add ones that
+// aren't there. So Walker's (shortbread, toffee) is never Walkers (crisps). An exact spelling always wins.
+const btyped=t=>/'/.test(norm(t))?norm(t):bkey(t), bmatch=(typed,b)=>/'/.test(norm(typed))?norm(b):bkey(b);
+const sameBrand=(typed,b)=>btyped(typed)===bmatch(typed,b);
+const findBrandIn=(typed,list)=>list.find(b=>norm(b)===norm(typed))||list.find(b=>sameBrand(typed,b));
 // Live brands that could start these names, looked up by the first few letters of the first word, so "werthers" finds Werther's Original
 const brandProbe=t=>String(t||'').replace(/[‘’]/g,"'").trim().split(/\s+/)[0].split("'")[0].slice(0,5);
 async function knownBrands(qs){
@@ -805,10 +810,10 @@ function editDistance(a,b){ // letters to add, drop or change to turn one into t
 // the maker instead: Mars for Maltesers); else the first word.
 // A known brand close to the start of the name ("werthers orignal") is offered as "Did you mean Werther's Original" (A8).
 function guessBrand(name,known,offB){
-  const k=bkey(name),hit=known.filter(b=>k===bkey(b)||k.startsWith(bkey(b)+' ')).sort((a,b)=>b.length-a.length)[0];
+  const k=btyped(name),hit=known.filter(b=>{const bk=bmatch(name,b);return k===bk||k.startsWith(bk+' ')}).sort((a,b)=>b.length-a.length)[0];
   if(hit)return {brand:hit,brandState:'known',brandNear:null};
-  offB=offB&&k.startsWith(bkey(offB))?offB:'';
-  const ok=offB&&known.find(b=>bkey(b)===bkey(offB));
+  offB=offB&&k.startsWith(bmatch(name,offB))?offB:'';
+  const ok=offB&&findBrandIn(offB,known);
   if(ok)return {brand:ok,brandState:'known',brandNear:null};
   const brand=offB?tidyCase(offB):tidyCase(String(name||'').trim().split(/\s+/)[0]||'');
   return {brand,brandState:brand?'new':null,brandNear:nearStart(name,brand,known)};
@@ -930,7 +935,7 @@ function checkName(){
     try{
       const [known,found]=await Promise.all([knownBrands([name,add.brand,add.offBrand]),norm(name).length>=2?rpc('search_items',{q:name}).catch(()=>[]):[]]);
       if(!add||add.checkSeq!==my)return;
-      if(add.brandSet){const k=known.find(b=>bkey(b)===bkey(add.brand));Object.assign(add,{brand:k||add.brand,brandState:add.brand?(k?'known':'new'):null})}
+      if(add.brandSet){const k=findBrandIn(add.brand,known);Object.assign(add,{brand:k||add.brand,brandState:add.brand?(k?'known':'new'):null})}
       else Object.assign(add,guessBrand(name,known,add.offBrand));
       if(add.brandState==='known')brandSpelling();
       add.dup=sameSnack(found)||null;
@@ -942,7 +947,7 @@ function checkName(){
 // A name that starts with a known brand starts with it as it's spelt on TasteRank: Werthers Original → Werther's Original
 function brandSpelling(){
   const w=add.pack.split(' '),n=add.brand.split(' ').length,start=w.slice(0,n).join(' ');
-  if(start===add.brand||bkey(start)!==bkey(add.brand))return;
+  if(start===add.brand||!sameBrand(start,add.brand))return;
   const el=$('#add-pack'),typing=el&&el.value!==add.pack;
   add.pack=[add.brand,...w.slice(n)].join(' ');if(el&&!typing){el.value=add.pack;fitPack()}
 }
@@ -952,7 +957,7 @@ async function loadBrandSnacks(){
   const key=`${bkey(add.brand)}|${add.country}`;if(add.brandFor===key)return;
   add.brandFor=key;add.brandSnacks=[];
   if(add.brandState!=='known')return;
-  try{const l=await rpc('search_items',{q:add.brand});if(add&&add.brandFor===key)add.brandSnacks=l.filter(x=>bkey(x.brand)===bkey(add.brand)&&x.country_id===add.country)}catch(e){}
+  try{const l=await rpc('search_items',{q:add.brand});if(add&&add.brandFor===key)add.brandSnacks=l.filter(x=>norm(x.brand)===norm(add.brand)&&x.country_id===add.country)}catch(e){}
 }
 // Just the brand as the name, when the brand already has a snack in this category here: the name has to say which (A7)
 function whichSnack(){
@@ -999,7 +1004,7 @@ function commitPack(v){ // the name, tidied as it will be saved; the tidied text
 async function answerBrand(name){
   clearPending();
   const v=tidyCase(name);if(!v)return;
-  const k=(await knownBrands([v])).find(b=>bkey(b)===bkey(v));if(!add)return;
+  const k=findBrandIn(v,await knownBrands([v]));if(!add)return;
   Object.assign(add,{brand:k||v,brandState:k?'known':'new',brandNear:null,brandSet:true,brandOpen:false,touched:true});
   renderMid();await loadBrandSnacks();categoryFromBrand();renderMid();focusAdd();
 }
@@ -1087,7 +1092,7 @@ function renderAdd(){
 function fitPack(){const t=$('#add-pack');if(t){t.style.height='auto';t.style.height=t.scrollHeight+2+'px'}}
 // Step 1: TasteRank's own matches (Rate), then Open Food Facts packs that aren't on TasteRank yet (Add)
 function trList(){ // this country first; from a list, its own matches first
-  const mine=x=>add.ctxProduct?x.product_id===add.ctxProduct:add.ctxBrand?bkey(x.brand)===bkey(add.ctxBrand):true;
+  const mine=x=>add.ctxProduct?x.product_id===add.ctxProduct:add.ctxBrand?norm(x.brand)===norm(add.ctxBrand):true;
   const rank=x=>(x.country_id===add.country?0:2)+(mine(x)?0:1);
   return [...add.results].sort((a,b)=>rank(a)-rank(b)).slice(0,5);
 }
@@ -1250,9 +1255,9 @@ async function renderBrandHelp(){ // under the brand box: ✓ on TasteRank, or "
   if(!k){help.innerHTML='';return}
   const sugg=(await knownBrands([v])).filter(s=>bkey(s).includes(k)||k.includes(bkey(s)));
   if(!$('#add-brand')||bkey(tidyCase($('#add-brand').value))!==k)return; // typing moved on
-  const exact=sugg.find(s=>bkey(s)===k);
+  const exact=findBrandIn(v,sugg);
   $('#brand-help').innerHTML=(exact?`<span class="ok">✓ on TasteRank</span>`:`<span class="newtag">＋ New brand: ${esc(v)}</span>`)
-    +sugg.filter(s=>bkey(s)!==k).slice(0,4).map(s=>`<button class="chip" data-act="add-brand-pick" data-name="${esc(s)}">${esc(s)}</button>`).join('');
+    +sugg.filter(s=>s!==exact).slice(0,4).map(s=>`<button class="chip" data-act="add-brand-pick" data-name="${esc(s)}">${esc(s)}</button>`).join('');
 }
 async function shrinkPhoto(file){ // max 800 px on the long side, JPEG, never over 1 MB
   const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('Couldn\'t read that photo. Try another one.'));i.src=URL.createObjectURL(file)});
@@ -1427,7 +1432,7 @@ function runTyped(){ // the box changed: TasteRank at once (after a short pause)
 // TasteRank's own matches: every word typed; if nothing has them all, the snacks of the brand typed first ("werthers soft" → Werther's Original)
 async function brandFallback(q){
   const w=q.split(/\s+/);if(w.length<2||bkey(w[0]).length<3)return [];
-  return (await rpc('search_items',{q:w[0]})).filter(x=>bkey(x.brand).startsWith(bkey(w[0])));
+  return (await rpc('search_items',{q:w[0]})).filter(x=>bmatch(w[0],x.brand).startsWith(btyped(w[0])));
 }
 async function runSearch(){
   const q=add.q.trim();
@@ -1535,7 +1540,7 @@ async function renderHome(r){
 const ratingsPart=n=>n?' · '+plural(n,'rating'):'';
 /* List cards (design/mockups/cat-preview.html): a square panel on the left, edge to edge, with Vera's own photo of the list,
    or its emoji on its category's soft colour; beside it the name, "3 snacks · 1 rating", then the winner or how close one is */
-const LIST_PHOTOS={1:'chocolate-bars',2:'toffee',3:'crisps',4:'jelly-sweets',5:'chocolate-pouch',6:'chocolate-biscuits',7:'everyday-biscuits',8:'cereal-bars'}; // assets/lists/, by subcategory id (the same id in every country)
+const LIST_PHOTOS={1:'chocolate-bars',2:'toffee',3:'crisps',4:'jelly-sweets',5:'chocolate-pouch',6:'chocolate-biscuits',7:'everyday-biscuits',8:'cereal-bars',9:'shortbread'}; // assets/lists/, by subcategory id (the same id in every country)
 const TINTS={1:'choc',2:'sweet',3:'crisp',4:'choc',5:'crisp',6:'choc',7:'crisp'}; // by category: cocoa blush, rose, blue mist
 const listPhoto=(product,country)=>product===2&&country===5?null:LIST_PHOTOS[product]; // China's Milk candy isn't toffee: it keeps its emoji
 // The emoji always sits underneath, so a photo that fails to load just leaves the emoji showing
