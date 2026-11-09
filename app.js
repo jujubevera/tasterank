@@ -1992,11 +1992,13 @@ async function savePlace(id){
 }
 function placeDone(kind,text){ // in the rating sheet: Crispy's thanks; in the profile: close with a note
   if(placeUI.ctx==='ask'){placeUI.step='done';placeUI.done=kind;placeUI.text=text;drawPlace(false);$('#rate-body [data-act="place-edit"]')?.focus()}
-  else{closeM();toast(kind==='else'||kind==='prefer'?'Saved: not set':`Saved: ${homeText()}`);renderProfile()}
+  else{closeM();toast(homeText()?`Saved: ${homeText()}`:'Saved');renderProfile().then(()=>$('[data-act="place-change"]')?.focus())}
 }
 const PLACE_ACT={
   'place-country':async d=>{
-    const c=placeOf(+d.id)?.c;if(!c||!await savePlace(c.id))return;track('place-set-country',true);
+    const c=placeOf(+d.id)?.c;if(!c)return;
+    if(placeUI.ctx==='profile'&&homeCountryOf()?.id===c.id)return; // already picked: tapping it again mustn't wipe the region
+    if(!await savePlace(c.id))return;track('place-set-country',true);
     placeUI.c=c;placeUI.england=false;
     if(placeUI.ctx==='profile'){if((c.regions||[]).length)return drawPlace();return placeDone('country')}
     if(c.code==='GB'){placeUI.step='uk';return drawPlace(true)}
