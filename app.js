@@ -149,6 +149,10 @@ const demoApi={
 };
 /* The same rules as the database functions, worked out from the sample data */
 const D={
+  place:id=>{for(const c of DEMO.places){if(c.id===id)return {c};const r=c.regions.find(x=>x.id===id);if(r)return {c,r}}return null},
+  homePlace(id){const p=D.place(id);if(!p)return {id:0,level:'unknown',name:'Unknown',flag:''}; // the same shape as my_profile()
+    return p.r?{id,level:'region',name:p.r.name,short_name:null,country_id:p.c.id,country_name:p.c.name,flag:p.c.flag}
+      :{id,level:'country',name:p.c.name,short_name:p.c.short_name,country_id:p.c.id,country_name:p.c.name,flag:p.c.flag}},
   all:()=>{const st=demoState(),o=(st.own||{}).items||{};   // the sample items plus anything added on this device, with the owner's changes
     return [...DEMO.items,...(st.added||[])].map(i=>o[i.id]?{...i,...o[i.id]}:i)},
   brandId:name=>[...new Set(D.all().map(i=>i.b))].indexOf(name)+1,
@@ -311,7 +315,8 @@ const DEMO_RPC={
   my_submissions(_,st){return [...(st.added||[]).filter(i=>!i.withdrawn).map(i=>({id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,variant_id:i.v,country_id:i.c,
     product:D.product(i.p,i.c),country_flag:(D.country(i.c)||{}).flag,status:i.hidden?'hidden':i.closed?'closed':D.live(i,st)?'live':'pending',approvals:D.approvals(i,st)})),
     ...(st.requests||[]).filter(r=>!['withdrawn','accepted'].includes(r.status)).map(r=>({...r,new_category:r.kind==='category',product:r.new_ranking,country_flag:(D.country(r.country_id)||{}).flag,approvals:0}))]},
-  my_profile(_,st){return st.user?{taster_id:'#DEMO00',home_place:{id:0,level:'unknown',name:'Unknown'},rated:Object.keys(st.ratings).length,
+  set_home_place({p_place},st){if(p_place!==0&&!D.place(p_place))throw new Error('Unknown place');st.home=p_place;demoSave(st);return null},
+  my_profile(_,st){return st.user?{taster_id:'#DEMO00',home_place:D.homePlace(st.home||0),rated:Object.keys(st.ratings).length,
     rankings_helped:new Set(Object.keys(st.ratings).map(id=>{const i=D.all().find(x=>x.id==id);return i&&`${i.p}-${i.v}-${i.c}`})).size}:null},
   my_ratings(_,st){return Object.entries(st.ratings).map(([id,score])=>{const i=D.all().find(x=>x.id==id);if(!i)return null;
     const pl=DEMO.places.find(p=>p.id===i.c);return {item_id:i.id,pack_name:i.pack,brand:i.b,product_id:i.p,variant_id:i.v,country_id:i.c,flag:pl.flag,
@@ -497,7 +502,7 @@ function openM(id){
 }
 function closeM(){
   if(!openId)return;
-  $('#'+openId).hidden=true;openId=null;sheet=null;
+  $('#'+openId).hidden=true;openId=null;sheet=null;placeUI=null;
   if(tipNow&&!tipNow.n)tipNow=null;setTimeout(updateTips,0); // after a page change this runs, so no tip is picked for the page being left
   if(lastFocus&&document.contains(lastFocus))lastFocus.focus();
   lastFocus=null;
@@ -678,7 +683,7 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');
   if(!el||el.disabled)return;
   if(el.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button))return; // a link opened in a new tab
-  const f=ACT[el.dataset.act]||ADD_ACT[el.dataset.act]||OWN_ACT[el.dataset.act];if(!f)return;
+  const f=ACT[el.dataset.act]||ADD_ACT[el.dataset.act]||OWN_ACT[el.dataset.act]||PLACE_ACT[el.dataset.act];if(!f)return;
   e.preventDefault();f(el.dataset);
 });
 $('#country').addEventListener('change',e=>{prefs.country=e.target.value;prefs.cat='all';savePrefs();renderHome({by:homeBy})});
@@ -1527,6 +1532,7 @@ async function renderHome(r){
   const c=homeCountry();
   $('#country').innerHTML=places.map(p=>`<option value="${esc(p.code)}"${p===c?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('');
   homeBy=r&&r.by==='brands'?'brands':null;
+  $('#trip').innerHTML=tripNote(c);
   const uid=me?.id||null;
   if(!homeData||homeData.country!==c.id||homeData.uid!==uid){
     if(!homeData||homeData.country!==c.id)$('#cards').innerHTML='<div class="card empty">Loading…</div>';
@@ -1756,6 +1762,7 @@ function drawCategory(){
     <button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}">← ${esc(d.country.short_name)} <span>· ${esc(d.type)}</span></button>
     <h1 class="page-title">${esc(d.title)}: which one wins?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${fresh?'New list':plural(n,'snack')+ratingsPart(total)}</div>
+    ${tripNote(placeBy('code',d.cc))}
     ${d.gone?`<div class="card gone-card" role="status"><span class="gone-e" aria-hidden="true">😶</span><b>${esc(d.gone.pack_name)} was withdrawn</b><span class="meta">The person who added it took it back before it went live, so there's nothing to approve.</span></div>`:''}
     ${chips?chipsHtml('Flavours','flavour',[{id:null,name:'All',count:d.items.length},...d.flavours],f?f.id:null):''}
     ${fresh?`<div class="newnote"><b>New list: help decide what's in it</b><span>Snacks join once ${settings.approval_votes} people approve them. Know one of these? Approve it. Missing one? Tap + to add it.</span></div>`
@@ -1824,6 +1831,7 @@ function drawBrand(){
     <button class="crumb" data-act="home-brands" data-cc="${d.cc}">← ${esc(d.country.short_name)} <span>· Brands</span></button>
     <h1 class="page-title">${esc(d.name)}: which one wins?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${plural(items.length,'snack')}${ratingsPart(total)}</div>
+    ${tripNote(placeBy('code',d.cc))}
     ${multi?chipsHtml('Subcategories','bp-cat',[{id:null,name:'All',count:d.items.length},...d.products],prod):''}
     ${fls.length>=2?chipsHtml('Flavours','bp-flavour',[{id:null,name:multi?`All ${(d.products.find(p=>p.id===prod)||{name:''}).name.toLowerCase()}`:'All',count:fls.reduce((s,f)=>s+f.count,0)},...fls],v):''}
     ${nudge?nudgeHtml(total):''}${winnerHtml(items,`Best of ${d.name} so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet',nudge)}
@@ -1882,6 +1890,7 @@ function renderSheet(){
     main=`${n.kind==='list'?`<div class="done-line">That's every ${esc(it.where.toLowerCase())} here rated. 🎉</div>`:''}<button class="btn btn-primary btn-block" data-act="next">${esc(text.length>32?'Rate the next one →':text)}</button>`;
   }
   body.innerHTML=`<div class="saved"><span>✓ Saved · You rated <b>${f.e} ${f.l}</b></span><button class="link" data-act="edit-rating">Edit</button></div>
+    ${placeUI&&placeUI.ctx==='ask'&&placeUI.item===it.id?askHtml():''}
     ${sheet.tip4?`<div class="tip plain${sheet.tip4==='new'?' tip-in':''}" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-joy"/></svg><p>Your first rating! The more snacks you rate here, the fairer the fight.</p></div>`:''}
     ${main}${n&&n.kind==='done'?'':`<button class="btn btn-block" data-act="sheet-second">${esc(second)}</button>`}`;
   if(sheet.tip4)sheet.tip4=true;
@@ -1901,7 +1910,10 @@ async function saveRating(v){
   try{const n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n;firstEver=first&&n===1}
   catch(e){console.error(e);sheet.error=e.message||String(e);renderSheet();return}
   track('rate-item',true);
-  if(firstEver&&!tips.off&&!tipSeen(4)){sheet.tip4='new';tipMark(4);track('tip-shown-4',true)} // Crispy's tip 4, once
+  if(firstEver&&!profile)await loadProfile();
+  if(firstEver&&profile&&!homeId()&&!store.get('tasterank-place-asked')){ // where do you live? once, in place of tip 4
+    store.set('tasterank-place-asked',true);placeUI={ctx:'ask',step:'country',item:it.id};track('place-asked',true)}
+  else if(firstEver&&!tips.off&&!tipSeen(4)){sheet.tip4='new';tipMark(4);track('tip-shown-4',true)} // Crispy's tip 4, once
   it.my_score=v;sheet.editing=false;sheet.error=null;sheet.next=null;renderSheet();
   homeData=null;
   await refresh();                      // the page behind updates its counts, "You" tag and winner
@@ -1918,6 +1930,110 @@ async function removeRating(){
   it.my_score=null;sheet.editing=true;sheet.error=null;sheet.next=null;renderSheet();toast('Rating removed');
   $('#m-rate .face-btn')?.focus();
   homeData=null;await refresh();
+}
+/* ---------- Where you live (design/mockups/places.html) ----------
+   Asked once, inside the rating sheet, after someone's first-ever rating (3a–3f); changed from the profile (P0–P2).
+   The UK has two steps: its four nations, then England's nine regions with towns people know. England itself isn't a
+   stored place, so tapping it saves nothing; skipping keeps the UK. Elsewhere and Prefer not to say both save Unknown (0). */
+const UK_NATIONS=['Scotland','Wales','Northern Ireland'];
+const REGION_LABEL={'Yorkshire & the Humber':'Yorkshire'};
+const REGION_TOWNS={'North East':'Newcastle, Sunderland','North West':'Manchester, Liverpool','Yorkshire & the Humber':'Leeds, Sheffield, Hull',
+  'East Midlands':'Nottingham, Leicester','West Midlands':'Birmingham, Coventry','East of England':'Norwich, Cambridge',
+  'London':'All of Greater London','South East':'Brighton, Oxford','South West':'Bristol, Cornwall'};
+const theName=c=>['GB','US'].includes(c.code)?'the '+c.short_name:c.short_name; // "the UK", "the US", "Japan"
+const englandRegions=c=>(c.regions||[]).filter(r=>!UK_NATIONS.includes(r.name));
+const placeOf=id=>{for(const c of places){if(c.id===id)return {c};const r=(c.regions||[]).find(x=>x.id===id);if(r)return {c,r}}return null};
+const homeId=()=>(profile&&profile.home_place&&profile.home_place.id)||0;
+const homeCountryOf=()=>{const p=placeOf(homeId());return p?p.c:null};
+function homeText(){ // "🇬🇧 London, UK", "🇯🇵 Japan", or null
+  const p=placeOf(homeId());if(!p)return null;
+  return p.r?`${p.c.flag} ${REGION_LABEL[p.r.name]||p.r.name}, ${p.c.short_name}`:`${p.c.flag} ${p.c.short_name}`;
+}
+let placeUI=null; // {ctx:'ask'|'profile', step:'country'|'uk'|'england'|'regions'|'done', c, england, done, busy}
+const placeBtn=(act,label,attrs='',cls='pchip',on=false)=>`<button class="${cls}${on?' on':''}" data-act="${act}" ${attrs} aria-pressed="${on}">${label}</button>`;
+function placeCountries(sel,likely){
+  return `<div class="pgrid c3">${places.map(c=>placeBtn('place-country',`<span aria-hidden="true">${c.flag}</span> ${esc(c.short_name)}`,`data-id="${c.id}"`,'pchip'+(c.code===likely&&!sel?' likely':''),sel===c.id)).join('')}
+    ${placeBtn('place-else','Elsewhere','','pchip other')}</div>`;
+}
+const placeNations=(c,sel)=>`<div class="pgrid c2">${placeBtn('place-nation','England','data-name="England"','pchip',sel==='England')}${UK_NATIONS.map(n=>placeBtn('place-nation',esc(n),`data-name="${esc(n)}"`,'pchip',sel===n)).join('')}</div>`;
+const placeRegions=(regions,sel)=>`<div class="pgrid c2">${regions.map(r=>placeBtn('place-region',`<b>${esc(REGION_LABEL[r.name]||r.name)}</b>${REGION_TOWNS[r.name]?`<small>${esc(REGION_TOWNS[r.name])}</small>`:''}`,`data-id="${r.id}"`,'rcard'+(r.name==='London'?' wide':''),sel===r.id)).join('')}</div>`;
+const PLACE_PRIVACY='<p class="ptiny">Only used to compare tastes by place.</p>';
+function askHtml(){ // the card in the rating sheet
+  const u=placeUI,face=(n)=>`<svg viewBox="0 0 100 100" aria-hidden="true"><use href="#${n}"/></svg>`;
+  if(u.step==='done')return `<div class="place-card done" role="status">${face(u.done==='else'?'crisp-happy':'crisp-joy')}<div><p>${u.text} <button class="link" data-act="place-edit">Edit</button></p><p class="ptiny">${u.done==='uk'?'Add your region any time in your profile.':'Change it any time in your profile.'}</p></div></div>`;
+  let q='',body='',foot='';
+  if(u.step==='country'){q='<b>Your first rating! One quick question:</b> where do you live? <span class="popt">(optional)</span>';
+    body=placeCountries(null,detected);foot=`<div class="pfoot"><button class="link quiet-link" data-act="place-prefer">Prefer not to say</button></div>${PLACE_PRIVACY}`}
+  else if(u.step==='uk'){q=`<b>${u.c.flag} ${esc(u.c.short_name)}, saved.</b> Which part? <span class="popt">(optional)</span>`;
+    body=placeNations(u.c);foot='<div class="pfoot"><button class="link quiet-link" data-act="place-restart">← Change country</button><button class="link quiet-link" data-act="place-skip">Skip</button></div>'}
+  else{const eng=u.step==='england';q=eng?'<b>Which part of England?</b> <span class="popt">(optional)</span>':`<b>${u.c.flag} ${esc(u.c.short_name)}, saved.</b> Which part? <span class="popt">(optional)</span>`;
+    body=placeRegions(eng?englandRegions(u.c):u.c.regions);foot=`<div class="pfoot"><button class="link quiet-link" data-act="${eng?'place-back':'place-restart'}">← ${eng?'Back':'Change country'}</button><button class="link quiet-link" data-act="place-skip">Skip</button></div>`}
+  return `<div class="place-card" role="group" aria-label="Where do you live?"><div class="pq">${face('crisp-happy')}<p>${q}</p></div>${body}${foot}</div>`;
+}
+function renderPlaceSheet(){ // the profile's "Where do you live?" sheet: every step on one sheet
+  const p=placeOf(homeId()),c=placeUI.c,gb=c&&c.code==='GB';
+  const nation=p&&p.r?(UK_NATIONS.includes(p.r.name)?p.r.name:'England'):(placeUI.england?'England':null);
+  $('#place-body').innerHTML=`${placeCountries(c?c.id:null,null)}
+    ${gb?`<div class="lab plab">Which part of the UK?</div>${placeNations(c,nation)}`:''}
+    ${gb&&nation==='England'?`<div class="lab plab">Which region of England?</div>${placeRegions(englandRegions(c),p&&p.r?p.r.id:null)}`:''}
+    ${c&&!gb&&c.regions&&c.regions.length?`<div class="lab plab">Which part of ${esc(theName(c))}?</div>${placeRegions(c.regions,p&&p.r?p.r.id:null)}`:''}
+    <div class="pfoot"><button class="link quiet-link" data-act="place-prefer">Prefer not to say</button></div>${PLACE_PRIVACY}`;
+}
+function drawPlace(focusFirst){
+  if(!placeUI)return;
+  if(placeUI.ctx==='ask'){renderSheet();if(focusFirst)($('#rate-body .place-card button')||$('#rate-body .btn-primary'))?.focus()}
+  else{renderPlaceSheet();const r=$('#place-row-val');if(r)r.innerHTML=homeText()?esc(homeText()):'<span class="unset">Not set</span>'}
+}
+async function savePlace(id){
+  if(placeUI.busy)return false;placeUI.busy=true;
+  try{await rpc('set_home_place',{p_place:id});await loadProfile();return true}
+  catch(e){console.error(e);toast("That didn't save. Please try again.");return false}
+  finally{if(placeUI)placeUI.busy=false}
+}
+function placeDone(kind,text){ // in the rating sheet: Crispy's thanks; in the profile: close with a note
+  if(placeUI.ctx==='ask'){placeUI.step='done';placeUI.done=kind;placeUI.text=text;drawPlace(false);$('#rate-body [data-act="place-edit"]')?.focus()}
+  else{closeM();toast(kind==='else'||kind==='prefer'?'Saved: not set':`Saved: ${homeText()}`);renderProfile()}
+}
+const PLACE_ACT={
+  'place-country':async d=>{
+    const c=placeOf(+d.id)?.c;if(!c||!await savePlace(c.id))return;track('place-set-country',true);
+    placeUI.c=c;placeUI.england=false;
+    if(placeUI.ctx==='profile'){if((c.regions||[]).length)return drawPlace();return placeDone('country')}
+    if(c.code==='GB'){placeUI.step='uk';return drawPlace(true)}
+    if((c.regions||[]).length){placeUI.step='regions';return drawPlace(true)}
+    placeDone('country',`<b>Got it, thanks!</b> You're in ${c.flag} ${esc(theName(c))}.`);
+  },
+  'place-nation':async d=>{
+    const c=placeUI.c;if(!c)return;
+    if(d.name==='England'){track('place-england',true);
+      if(placeUI.ctx==='profile'){placeUI.england=true;const p=placeOf(homeId());if(p&&p.r&&UK_NATIONS.includes(p.r.name)&&!await savePlace(c.id))return;return drawPlace()}
+      placeUI.step='england';return drawPlace(true)}
+    const r=c.regions.find(x=>x.name===d.name);if(!r||!await savePlace(r.id))return;track('place-set-region',true);
+    placeDone('region',`<b>Got it, thanks!</b> You're in ${c.flag} ${esc(r.name)}.`);
+  },
+  'place-region':async d=>{
+    const p=placeOf(+d.id);if(!p||!p.r||!await savePlace(p.r.id))return;track('place-set-region',true);
+    placeDone('region',`<b>Got it, thanks!</b> You're in ${p.c.flag} ${esc(REGION_LABEL[p.r.name]||p.r.name)}.`);
+  },
+  'place-else':async()=>{if(!await savePlace(0))return;track('place-elsewhere',true);
+    placeUI.c=null;placeDone('else',"<b>Thanks!</b> We'll add more countries as TasteRank grows.")},
+  'place-prefer':async()=>{if(!await savePlace(0))return;track('place-prefer-not',true);
+    if(placeUI.ctx==='ask'){placeUI=null;renderSheet();($('#rate-body .btn-primary:not([disabled])')||$('#rate-body button'))?.focus();return}
+    placeUI.c=null;placeDone('prefer')},
+  'place-skip':()=>{track('place-skip-region',true);const c=placeUI.c;placeDone('uk',`<b>Got it, thanks!</b> You're in ${c.flag} ${esc(theName(c))}.`)},
+  'place-back':()=>{placeUI.step='uk';drawPlace(true)},
+  'place-restart':()=>{placeUI.step='country';drawPlace(true)},
+  'place-edit':()=>{placeUI.step='country';drawPlace(true)},
+  'place-change':()=>{track('place-change',true);placeUI={ctx:'profile',c:homeCountryOf(),england:false};renderPlaceSheet();openM('m-place')},
+  'trip-close':d=>{const l=store.get('tasterank-trip-closed')||[];if(!l.includes(d.cc))l.push(d.cc);store.set('tasterank-trip-closed',l);track('trip-note-close',true);
+    document.querySelectorAll('.trip-note').forEach(el=>el.remove())}
+};
+// 🧳 On a page for another country than the one you live in (4a, 4b)
+function tripNote(country){
+  const home=homeCountryOf();
+  if(!me||!home||!country||home.id===country.id||(store.get('tasterank-trip-closed')||[]).includes(country.code))return '';
+  const n=esc(theName(country));
+  return `<div class="tip trip-note" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><p>🧳 Tried these on a trip to ${n}? You can rate them here. The ratings go into ${n}'s rankings.</p><button class="trip-x" data-act="trip-close" data-cc="${esc(country.code)}" aria-label="Close this note">×</button></div>`;
 }
 async function nextStep(){
   const n=sheet&&sheet.next;if(!n)return;
@@ -2311,6 +2427,7 @@ async function renderProfile(){
     <button class="crumb" data-act="home">← Back</button>
     <div class="card profile">
       <div class="p-head"><span class="thumb big me-pic" aria-hidden="true"><svg><use href="#crisp-yum"/></svg></span><div><h1 class="page-title">Your profile</h1><div class="meta">Taster ID ${esc(p.taster_id)}</div></div></div>
+      <div class="place-row"><div><div class="lab">Where you live</div><div class="val" id="place-row-val">${homeText()?esc(homeText()):'<span class="unset">Not set</span>'}</div></div><button class="link" data-act="place-change">${homeText()?'Change':'Add'}<span class="sr-only"> where you live</span></button></div>
       <div class="stats">
         <div class="stat"><b>${fmt(p.rated)}</b><span>snacks rated</span></div>
         <div class="stat"><b>${fmt(lists)}</b><span>${lists===1?'list':'lists'} helped</span></div>

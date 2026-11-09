@@ -524,3 +524,41 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--in
 .prebuilt a.chip{color:var(--ink)}
 .prebuilt a.chip.on{color:var(--on-primary)}
 .prebuilt.card p{margin:4px 0;line-height:1.7}
+
+/* Where you live (design/mockups/places.html): the card in the rating sheet, the profile row and sheet, the 🧳 trip note */
+.place-card{border:1.5px solid var(--primary);border-radius:14px;padding:12px;margin:0 0 12px;display:grid;gap:10px}
+.place-card.done{border-color:var(--line);background:var(--bg);grid-template-columns:48px minmax(0,1fr);gap:10px;align-items:center}
+.place-card.done svg{width:48px;height:48px}
+.place-card p{margin:0;font-size:14.5px;line-height:1.4}
+.place-card .link{font-size:14.5px}
+.pq{display:grid;grid-template-columns:40px minmax(0,1fr);gap:10px;align-items:center}
+.pq svg{width:40px;height:40px}
+.popt{color:var(--muted);font-weight:700}
+.pfoot .quiet-link:hover{color:var(--ink)}
+.pgrid{display:grid;gap:6px}
+.pgrid.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.pgrid.c2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.pchip{min-height:44px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:6px 8px;font-weight:800;font-size:14.5px;display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pchip:hover,.rcard:hover{border-color:var(--primary)}
+.pchip.likely{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
+.pchip.other{border-style:dashed;color:var(--muted)}
+.pchip.on,.rcard.on{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
+.rcard{display:grid;align-content:center;text-align:left;min-height:48px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:12px;padding:6px 10px;line-height:1.2}
+.rcard b{font-size:14px;font-weight:800}
+.rcard small{font-size:12px;color:var(--muted);font-weight:700}
+.rcard.on small{color:var(--on-primary)}
+.rcard.wide{grid-column:1/-1}
+.pfoot{display:flex;justify-content:space-between;gap:12px}
+.pfoot .link{min-height:44px;font-size:14px}
+.ptiny{font-size:12.5px!important;color:var(--muted);font-weight:600}
+.plab{margin:14px 0 6px}
+#place-body{display:grid;gap:6px}
+.place-row{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:16px}
+.place-row .val{font-weight:900;font-size:16px}
+.place-row .link{min-height:44px;font-size:15px}
+.unset{color:var(--muted)}
+.trip-note{position:relative;padding-right:46px}
+.trip-x{position:absolute;right:2px;top:2px;width:44px;height:44px;border:0;background:none;color:var(--muted);font-size:22px;font-weight:700;border-radius:12px}
+.trip-x:hover{color:var(--ink)}
+#trip:empty{display:none}
+.place-card .pfoot+.ptiny{margin-top:-10px}
