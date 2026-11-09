@@ -1910,9 +1910,10 @@ async function saveRating(v){
   try{const n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n;firstEver=first&&n===1}
   catch(e){console.error(e);sheet.error=e.message||String(e);renderSheet();return}
   track('rate-item',true);
-  if(firstEver&&!profile)await loadProfile();
-  if(firstEver&&profile&&!homeId()&&!store.get('tasterank-place-asked')){ // where do you live? once, in place of tip 4
-    store.set('tasterank-place-asked',true);placeUI={ctx:'ask',step:'country',item:it.id};track('place-asked',true)}
+  if(first&&!profile)await loadProfile();
+  // Where do you live? Asked once, after a new rating (in place of tip 4 on the first), also to people who signed up before this
+  if(first&&profile&&!homeId()&&!store.get('tasterank-place-asked')){
+    store.set('tasterank-place-asked',true);placeUI={ctx:'ask',step:'country',item:it.id,first:firstEver};track(firstEver?'place-asked':'place-asked-later',true)}
   else if(firstEver&&!tips.off&&!tipSeen(4)){sheet.tip4='new';tipMark(4);track('tip-shown-4',true)} // Crispy's tip 4, once
   it.my_score=v;sheet.editing=false;sheet.error=null;sheet.next=null;renderSheet();
   homeData=null;
@@ -1962,7 +1963,7 @@ function askHtml(){ // the card in the rating sheet
   const u=placeUI,face=(n)=>`<svg viewBox="0 0 100 100" aria-hidden="true"><use href="#${n}"/></svg>`;
   if(u.step==='done')return `<div class="place-card done" role="status">${face(u.done==='else'?'crisp-happy':'crisp-joy')}<div><p>${u.text} <button class="link" data-act="place-edit">Edit</button></p><p class="ptiny">${u.done==='uk'?'Add your region any time in your profile.':'Change it any time in your profile.'}</p></div></div>`;
   let q='',body='',foot='';
-  if(u.step==='country'){q='<b>Your first rating! One quick question:</b> where do you live? <span class="popt">(optional)</span>';
+  if(u.step==='country'){q=`<b>${u.first?'Your first rating! ':''}One quick question:</b> where do you live? <span class="popt">(optional)</span>`;
     body=placeCountries(null,detected);foot=`<div class="pfoot"><button class="link quiet-link" data-act="place-prefer">Prefer not to say</button></div>${PLACE_PRIVACY}`}
   else if(u.step==='uk'){q=`<b>${u.c.flag} ${esc(u.c.short_name)}, saved.</b> Which part? <span class="popt">(optional)</span>`;
     body=placeNations(u.c);foot='<div class="pfoot"><button class="link quiet-link" data-act="place-restart">← Change country</button><button class="link quiet-link" data-act="place-skip">Skip</button></div>'}
