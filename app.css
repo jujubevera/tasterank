@@ -418,12 +418,8 @@ body:has(.modal-bg:not([hidden])) .toast{top:16px;bottom:auto}
 .lp-head,.wide-only{display:none}
 .side-note{font-size:13.5px;color:var(--muted);font-weight:600;line-height:1.5;margin:4px 0 14px}
 .side-note .link{font-size:13.5px}
-.hdr-link{display:none;color:var(--ink);font-weight:800;text-decoration:none;padding:10px 8px;margin-left:auto}
-.hdr-link:hover{color:var(--primary)}
 @media (min-width:900px){
   main,.bar-in{max-width:1120px}
-  .hdr-link{display:inline-block}
-  .hdr-link+#me-btn{margin-left:4px}
   /* home: heading (and Crispy's bubble) on the left, the country on the right */
   #v-home{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,340px);column-gap:28px;align-items:end}
   #v-home>*{grid-column:1/-1}
