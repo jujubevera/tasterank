@@ -414,6 +414,67 @@ body:has(.modal-bg:not([hidden])) .toast{top:16px;bottom:auto}
   .logo svg{width:34px;height:34px}
 }
 
+/* ---------- Two columns on wide screens (design/prompts/07-desktop-about.md) ---------- */
+.lp-head,.wide-only{display:none}
+.side-note{font-size:13.5px;color:var(--muted);font-weight:600;line-height:1.5;margin:4px 0 14px}
+.side-note .link{font-size:13.5px}
+.hdr-link{display:none;color:var(--ink);font-weight:800;text-decoration:none;padding:10px 8px;margin-left:auto}
+.hdr-link:hover{color:var(--primary)}
+@media (min-width:900px){
+  main,.bar-in{max-width:1120px}
+  .hdr-link{display:inline-block}
+  .hdr-link+#me-btn{margin-left:4px}
+  /* home: heading (and Crispy's bubble) on the left, the country on the right */
+  #v-home{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,340px);column-gap:28px;align-items:end}
+  #v-home>*{grid-column:1/-1}
+  #v-home>h1{grid-column:1;grid-row:1}
+  #v-home>.bubble-row{grid-column:1;grid-row:2}
+  #v-home>.country-pick{grid-column:2;grid-row:1/span 2;max-width:none;margin-bottom:10px}
+  /* category and brand pages */
+  .lp{display:grid;grid-template-columns:360px minmax(0,1fr);gap:32px;align-items:start}
+  .lp-side{position:sticky;top:76px;max-height:calc(100vh - 88px);overflow-y:auto;scrollbar-width:thin;padding:0 6px 16px;margin:0 -6px}
+  .lp-side .chips{flex-wrap:wrap;overflow:visible;-webkit-mask-image:none;mask-image:none}
+  .lp-side .page-title{font-size:32px}
+  .lp-head{display:block;margin:10px 0 10px;font-size:18px}
+  .lp-main .pend-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .wide-only{display:block}
+  .narrow-only{display:none}
+}
+
+/* ---------- About (template in index.html) ---------- */
+.about h2{margin:0 0 8px;font-size:20px;font-weight:900;text-transform:none;letter-spacing:0;color:var(--ink)} /* sentence case here, not the small list labels */
+.about a.crumb{display:inline-flex;align-items:center;text-decoration:none}
+.about h3{margin:14px 0 4px;font-size:16px}
+.about p{margin:0 0 10px;line-height:1.55}
+.ab-hero{display:grid;grid-template-columns:76px minmax(0,1fr);gap:16px;align-items:center;background:var(--soft);border-radius:20px;padding:18px;margin:4px 0 14px}
+.ab-hero svg{width:76px;height:76px}
+.ab-hero p{margin:4px 0 0;font-size:16px;font-weight:700}
+.ab-cols{display:grid;gap:14px}
+.ab-card{padding:18px}
+.ab-card .how{margin:6px 0 0}
+.ab-crispy{margin:26px 0 14px}
+.moods{list-style:none;padding:0;margin:12px 0 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.moods li{background:var(--surface);border-radius:14px;padding:12px 8px;text-align:center;display:grid;justify-items:center;gap:2px;box-shadow:var(--shadow)}
+html[data-theme="dark"] .moods li{box-shadow:none;outline:1px solid var(--line);outline-offset:-1px}
+.moods svg{width:52px;height:52px;margin-bottom:4px}
+.moods b{font-size:14px}
+.moods span{font-size:12.5px;color:var(--muted);font-weight:600;line-height:1.35}
+/* Ready to taste?: one clear action (a random snack, straight into rating); sharing and feedback sit apart, as quiet links */
+.ab-cta{padding:22px 18px;text-align:center;margin-top:18px;display:grid;justify-items:center}
+.ab-cta svg{width:64px;height:64px;margin-bottom:4px}
+.ab-cta p{max-width:34ch;color:var(--muted);font-weight:600}
+.ab-go{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;width:100%;max-width:320px;min-height:50px;font-size:16.5px;margin-top:4px}
+.ab-more{display:grid;gap:4px;justify-items:center;text-align:center;margin:22px 0 0;padding-top:16px;border-top:1px solid var(--line)}
+.ab-more p{margin:0;color:var(--muted);font-size:14px;font-weight:600}
+.ab-more .link{display:inline-block;padding:10px 2px;margin:-10px 0}
+@media (min-width:900px){
+  .ab-hero{grid-template-columns:110px minmax(0,1fr);padding:24px 28px}
+  .ab-hero svg{width:110px;height:110px}
+  .ab-hero p{font-size:18px}
+  .ab-cols{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+  .moods{grid-template-columns:repeat(6,minmax(0,1fr))}
+}
+
 /* ---------- Owner page (design/mockups/owner.html) ---------- */
 .own-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px}
 .own-req{padding:14px;display:grid;gap:12px;margin-bottom:12px}

@@ -87,11 +87,11 @@ for (const c of places) {
       pages.push({
         path: path_, title: listTitle(title, c), description, view: 'category',
         ids: {v: 'category', cc, product: p.id, variant: f ? f.id : null},
-        body: `<a class="crumb" href="/">← ${esc(c.short_name)} <span>· ${esc(d.type)}</span></a>
+        body: `<div class="lp"><div class="lp-side"><a class="crumb" href="/">← ${esc(c.short_name)} <span>· ${esc(d.type)}</span></a>
 <h1 class="page-title">${esc(title)}: which one wins?</h1>
 <div class="meta">${c.flag} ${esc(c.name)} · ${plural(items.length, 'snack')}${total ? ' · ' + plural(total, 'rating') : ''}</div>
-${chips}<div class="list">${rows}</div>
-<p class="meta">Snacks are ranked once they have ${need} ratings. Sign in to rate the ones you've tried.</p>`,
+${chips}</div><div class="lp-main"><h2 class="lp-head">${rankedHead(items.length, title.toLowerCase())}</h2><div class="list">${rows}</div>
+<p class="meta">Snacks are ranked once they have ${need} ratings. Sign in to rate the ones you've tried.</p></div></div>`,
         jsonld: itemList(title, c, items, path_),
       });
     };
@@ -109,14 +109,17 @@ ${chips}<div class="list">${rows}</div>
       path: path_, title: brandTitle(d.name, c), view: 'brand',
       description: `Every ${d.name} snack sold in ${inPlace(c)} (${lists_}), ranked by the people who eat them: ${some(d.items.map(i => i.pack_name))}.`,
       ids: {v: 'brand', cc, brand: id, product: null, variant: null},
-      body: `<a class="crumb" href="/brands/">← ${esc(c.short_name)} <span>· Brands</span></a>
+      body: `<div class="lp"><div class="lp-side"><a class="crumb" href="/brands/">← ${esc(c.short_name)} <span>· Brands</span></a>
 <h1 class="page-title">${esc(d.name)}: which one wins?</h1>
 <div class="meta">${c.flag} ${esc(c.name)} · ${plural(d.items.length, 'snack')}${total ? ' · ' + plural(total, 'rating') : ''}</div>
-<div class="list">${d.items.map((it, k) => row(it, k, (listPath.has(it.product_id) ? `<a class="bl" href="${listPath.get(it.product_id)}">${esc(it.product)}</a>` : esc(it.product)) + ` · ${esc(it.flavour)}`)).join('')}</div>`,
+</div><div class="lp-main"><h2 class="lp-head">${rankedHead(d.items.length, `${d.name} snacks`)}</h2><div class="list">${d.items.map((it, k) => row(it, k, (listPath.has(it.product_id) ? `<a class="bl" href="${listPath.get(it.product_id)}">${esc(it.product)}</a>` : esc(it.product)) + ` · ${esc(it.flavour)}`)).join('')}</div></div></div>`,
       jsonld: itemList(`${d.name} snacks`, c, d.items, path_),
     });
   }
 }
+
+// "All 6 salt & vinegar crisps, ranked" over the list on wide screens: the same as rankedHead() in app.js
+function rankedHead(n, what) { return n >= 2 ? `All ${n} ${esc(what)}, ranked` : 'Ranked so far'; }
 
 // One ranking row, with the same classes as listRow() in app.js so the page doesn't jump when the app takes over
 function row(it, k, sub) {
@@ -175,6 +178,12 @@ const homeHtml = swap(template, /<div class="cards" id="cards"><div class="card 
 await fs.writeFile(path.join(OUT, 'index.html'), homeHtml);
 await fs.writeFile(path.join(OUT, '404.html'), render({path: '/404.html', title: 'TasteRank: which snack wins?', description: 'Which snack wins? Rate snacks sold in your country on TasteRank.', robots: 'noindex'}).replace(/<link rel="canonical"[^>]*>\n/, ''));
 // Pages only the signed-in app shows: real addresses so a reload works, kept out of search results
+// About: the words from index.html's <template id="about-tpl">, the same ones the app shows
+const aboutTpl = (template.match(/<template id="about-tpl">([\s\S]*?)<\/template>/) || [])[1];
+if (!aboutTpl) throw new Error('index.html changed: no about-tpl template');
+pages.push({path: '/about/', view: 'about', title: 'About TasteRank: how the snack rankings work',
+  description: `How TasteRank ranks snacks: real tasters sign in and rate once, a snack is ranked after ${need} ratings, and new snacks go live with ${settings.approval_votes} approvals.`,
+  body: aboutTpl.replaceAll('{{rank}}', need).replaceAll('{{approve}}', settings.approval_votes).trim()});
 for (const [p, title] of [['/me/', 'Your profile | TasteRank'], ['/owner/', 'Owner page | TasteRank'], ['/brands/', 'Snack brands, ranked by votes | TasteRank']])
   pages.push({path: p, title, description: 'Which snack wins? Rate snacks sold in your country on TasteRank.', robots: p === '/brands/' ? null : 'noindex'});
 
