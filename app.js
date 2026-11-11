@@ -2630,7 +2630,7 @@ async function start(){
   const geo=detectCountry();
   const params=new URLSearchParams(location.search);
   try{
-    if(params.has('error_description'))toast(/email/i.test(params.get('error_description')) // a Facebook account made with a phone number has no email to sign in with
+    if(params.has('error_description'))toast(/email from external provider/i.test(params.get('error_description')) // Supabase's words when a Facebook account (made with a phone number) has no email
       ?"That account didn't share an email address, so it can't sign in here. Please try Google instead.":'Sign-in was cancelled or failed. Please try again.');
     me=await api.session();
     if(params.has('code')||params.has('error')){ // tidy the address bar after signing in (and Facebook's #_=_), back on the page it started from
