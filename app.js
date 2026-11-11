@@ -529,14 +529,14 @@ document.addEventListener('keydown',e=>{
    The words are the names shown in that country (slug); a number in a word's place is an id, used until the name is known.
    Each public address is also a pre-built page that Google can read (tools/build-pages.mjs, which writes window.TR_PAGE with
    the ids); anything not built yet is served by 404.html, a copy of the app. Old #/p/gb/3/4, #/b/gb/12 and #/r/gb/3/4 links still open. ---------- */
-const VIEWS=['home','category','brand','profile','owner'];
+const VIEWS=['home','category','brand','profile','owner','about'];
 const ccPath=cc=>{cc=String(cc||'').toLowerCase();return cc==='gb'?'uk':cc}, ccCode=s=>(s==='uk'?'gb':s);
 // "Salt & vinegar" → salt-vinegar, "Walker's Nonsuch" → walkers-nonsuch, "M&S" → ms, "Lightly salted (うすしお)" → lightly-salted.
 // Keep in step with slug() in tools/build-pages.mjs.
 const slug=s=>String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/['’]/g,'').replace(/([a-z0-9])&([a-z0-9])/g,'$1$2')
   .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
 // The names behind the words: 'p:gb:3' a list, 'v:gb:3.4' a flavour of list 3, 'b:gb:24' a brand. Filled from whatever the pages load.
-const NAMES={}, RESERVED=['brands','me','owner','assets'];
+const NAMES={}, RESERVED=['brands','me','owner','about','assets'];
 const nameIt=(kind,cc,id,name)=>{if(id!=null&&name)NAMES[`${kind}:${String(cc).toLowerCase()}:${id}`]=name};
 function word(kind,cc,id){const s=slug(NAMES[`${kind}:${String(cc).toLowerCase()}:${id}`]);
   return !s||/^\d+$/.test(s)||(kind==='p'&&RESERVED.includes(s))?String(id).split('.').pop():s}
@@ -546,7 +546,7 @@ const nameCatalogue=(cc,cat)=>(cat||[]).forEach(t=>t.products.forEach(p=>{nameIt
 const pathFor=r=>{const cc=String(r.cc||'').toLowerCase(),pv=(p,v)=>p?`${word('p',cc,p)}/${v?word('v',cc,`${p}.${v}`)+'/':''}`:'';
   return r.v==='category'?`/${ccPath(cc)}/${pv(r.product,r.variant)}${r.snack?'?snack='+r.snack:''}`
     :r.v==='brand'?`/${ccPath(cc)}/brands/${word('b',cc,r.brand)}/${pv(r.product,r.variant)}`
-    :r.v==='profile'?'/me/':r.v==='owner'?'/owner/':r.by==='brands'?'/brands/':'/'};
+    :r.v==='profile'?'/me/':r.v==='owner'?'/owner/':r.v==='about'?'/about/':r.by==='brands'?'/brands/':'/'};
 const here=()=>location.pathname+location.search;
 // Links from before real addresses: #/p/gb/3/4?snack=5, #/b/gb/12/3/4, #/r/gb/3/4, #/brands, #/me, #/owner
 function oldHash(){
@@ -557,6 +557,7 @@ function oldHash(){
   if(h==='#/brands')return {v:'home',by:'brands'};
   if(h==='#/me')return {v:'profile'};
   if(h==='#/owner')return {v:'owner'};
+  if(h==='#/about'||h==='#about')return {v:'about'};
   return h.startsWith('#/')?{v:'home'}:null; // old #/item/5 links: those foods aren't in the new structure
 }
 async function findList(c,ps,vs){
@@ -583,6 +584,7 @@ async function parseRoute(){
   if(seg.length===1&&seg[0]==='brands')return {v:'home',by:'brands'};
   if(seg.length===1&&seg[0]==='me')return {v:'profile'};
   if(seg.length===1&&seg[0]==='owner')return {v:'owner'};
+  if(seg.length===1&&seg[0]==='about')return {v:'about'};
   const c=placeBy('code',ccCode(seg[0]));if(!c||seg.length<2)return {v:'home'};
   const cc=c.code.toLowerCase(),pre=LIVE&&window.TR_PAGE&&TR_PAGE.path===location.pathname?TR_PAGE:null; // a pre-built page carries its (live) ids
   if(seg[1]==='brands'){
@@ -595,6 +597,7 @@ async function parseRoute(){
 }
 // The tab title and canonical address follow the page (the pre-built pages start with the same ones)
 const HOME_TITLE='TasteRank: which snack wins? Snack ratings by country';
+const ABOUT_TITLE='About TasteRank: how the snack rankings work'; // the same in tools/build-pages.mjs
 const inPlace=c=>/^[A-Z]{2,3}$/.test(c.short_name)?'the '+c.short_name:c.short_name; // the UK, Japan
 const listTitle=(title,c)=>`Best ${title.toLowerCase()} in ${inPlace(c)}, ranked by votes | TasteRank`;
 const brandTitle=(name,c)=>`${name}: every snack ranked in ${inPlace(c)} | TasteRank`;
@@ -611,6 +614,7 @@ async function show(r){
   if(r.v==='brand')await renderBrandPage(r);
   if(r.v==='profile'){setHead('Your profile | TasteRank','/me/');await renderProfile()}
   if(r.v==='owner'){setHead('Owner page | TasteRank','/owner/');await renderOwner()}
+  if(r.v==='about'){setHead(ABOUT_TITLE,'/about/');renderAbout()}
   setFab(); // its label names the list now showing
   tipReady=true;updateTips();
   currentUrl=location.href;
@@ -670,7 +674,8 @@ const ACT={
   'reset-demo':resetDemo,
   feedback:()=>{showSettings(false);track('feedback-open',true);openM('m-feedback')},
   privacy:()=>{showSettings(false);openM('m-privacy')},
-  about:()=>{showSettings(false);toast('The About page is coming soon')},
+  about:()=>{showSettings(false);go({v:'about'})},
+  'rate-random':()=>rateRandom(),
   settings:()=>showSettings($('#settings-pop').hidden),
   'set-theme':d=>setTheme(d.theme),
   'set-tips':d=>setTips(!!d.on),
@@ -747,7 +752,7 @@ const onCategory=()=>view==='category'&&page&&page.kind==='category'?page:null;
 const onBrandPage=()=>view==='brand'&&page&&page.kind==='brandpage'?page:null;
 function setFab(){
   const f=$('#add-fab'),c=onCategory(),b=onBrandPage();
-  f.hidden=view==='profile'||view==='owner';
+  f.hidden=view==='profile'||view==='owner'||view==='about';
   f.setAttribute('aria-label',c?`Add a snack to ${c.name}`:b?`Add a ${b.name} snack`:'Add a snack');
 }
 function openAdd(){tipAct(7);needUser({name:'add'})}  // a declaration, so the click map above can use it
@@ -1750,6 +1755,10 @@ async function renderCategory(r){
   const card=r.snack&&!gonePick&&document.getElementById('snack-'+r.snack);
   if(card){card.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});card.classList.add('hl');setTimeout(()=>card.classList.remove('hl'),2400)}
 }
+/* Wide screens (900 px+, design/mockups/browse.html section 4): the title, chips and winner stay put on the left while the
+   ranking scrolls on the right, under "All 18 crisps, ranked". Phones show the two halves one after the other, as before. */
+const rankedHead=(n,what)=>n>=2?`All ${n} ${esc(what)}, ranked`:'Ranked so far'; // "All 6 salt & vinegar crisps", "All 4 Walkers snacks"
+const sideNote=on=>on?`<p class="side-note wide-only">Snacks are ranked once they have ${settings.rank_after_ratings} ratings, so one person's opinion can't decide the winner. <button class="link" data-act="how">How it works</button></p>`:'';
 function drawCategory(){
   const d=page,f=d.flavours.find(x=>x.id===d.route.variant)||null,chips=d.flavours.length>=2;
   const items=f?d.items.filter(i=>i.variant_id===f.id):d.items,pend=f?d.pending.filter(p=>p.variant_id===f.id):d.pending;
@@ -1758,7 +1767,8 @@ function drawCategory(){
   setHead(listTitle(d.title,d.country),pathFor(d.route).split('?')[0]);
   const fresh=!n&&pend.length>0; // a new list: nothing live yet, so one note instead of No winner yet, the rating tip and None live yet
   const nudge=!fresh&&nudgeHere();
-  $('#v-category').innerHTML=`
+  const won=items.some(i=>i.ranked);
+  $('#v-category').innerHTML=`<div class="lp"><div class="lp-side">
     <button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}">← ${esc(d.country.short_name)} <span>· ${esc(d.type)}</span></button>
     <h1 class="page-title">${esc(d.title)}: which one wins?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${fresh?'New list':plural(n,'snack')+ratingsPart(total)}</div>
@@ -1768,13 +1778,17 @@ function drawCategory(){
     ${fresh?`<div class="newnote"><b>New list: help decide what's in it</b><span>Snacks join once ${settings.approval_votes} people approve them. Know one of these? Approve it. Missing one? Tap + to add it.</span></div>`
       :`${nudge?nudgeHtml(total):''}${winnerHtml(items,'The winner so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'No winner yet',nudge)}
     <div class="tip-slot" data-n="2"></div>`}
-    ${n?`<div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
+    ${sideNote(won&&!fresh)}
+    <button class="btn share-btn wide-only" data-act="share-list">Share this list</button>
+    </div><div class="lp-main">
+    ${n?`<h2 class="lp-head">${rankedHead(n,d.title.toLowerCase())}</h2><div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
         ?`<a class="bl" href="${esc(pathFor({v:'brand',cc:d.cc,brand:it.brand_id}))}" data-act="brand" data-cc="${d.cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand))
         +(chips&&!f?` · ${esc(flavour(it.variant_id))}`:''))).join('')}</div>`:''}
     ${n<3&&!fresh?`<div class="alert"><b>${n?`Only ${n===1?'one':'two'} so far`:'None live yet'}</b><span>Know ${n?`another ${esc(d.title.toLowerCase())}`:'one'} sold in ${esc(d.country.name)}? Tap + to add it. It goes live once ${settings.approval_votes} people approve.</span></div>`:''}
     ${pend.length?`${fresh?'':'<div class="tip-slot" data-n="5"></div>'}<h2>Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
     <div class="tip-slot" data-n="6"></div>
-    <button class="btn share-btn" data-act="share-list">Share this list</button>`;
+    <button class="btn share-btn narrow-only" data-act="share-list">Share this list</button>
+    </div></div>`;
   updateTips();
 }
 function pickFlavour(id){
@@ -1827,7 +1841,8 @@ function drawBrand(){
   d.title=d.name;
   const nudge=nudgeHere();
   setHead(brandTitle(d.name,d.country),pathFor({...d.route,product:null,variant:null})); // filtered views count as the brand page
-  $('#v-brand').innerHTML=`
+  const prodName=prod&&(d.products.find(p=>p.id===prod)||{}).name;
+  $('#v-brand').innerHTML=`<div class="lp"><div class="lp-side">
     <button class="crumb" data-act="home-brands" data-cc="${d.cc}">← ${esc(d.country.short_name)} <span>· Brands</span></button>
     <h1 class="page-title">${esc(d.name)}: which one wins?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${plural(items.length,'snack')}${ratingsPart(total)}</div>
@@ -1836,8 +1851,12 @@ function drawBrand(){
     ${fls.length>=2?chipsHtml('Flavours','bp-flavour',[{id:null,name:multi?`All ${(d.products.find(p=>p.id===prod)||{name:''}).name.toLowerCase()}`:'All',count:fls.reduce((s,f)=>s+f.count,0)},...fls],v):''}
     ${nudge?nudgeHtml(total):''}${winnerHtml(items,`Best of ${d.name} so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet',nudge)}
     <div class="tip-slot" data-n="2"></div>
+    ${sideNote(items.some(i=>i.ranked))}
+    </div><div class="lp-main">
+    ${items.length?`<h2 class="lp-head">${rankedHead(items.length,`${d.name} ${(prodName||'snacks').toLowerCase()}`)}</h2>`:''}
     <div class="list">${items.map((it,k)=>listRow(it,k,it.place?listLink(d.cc,it.product_id,`#${it.place} in ${esc(it.product)}`)
-      :`${listLink(d.cc,it.product_id,esc(it.product))} · not ranked yet`)).join('')}</div>`;
+      :`${listLink(d.cc,it.product_id,esc(it.product))} · not ranked yet`)).join('')}</div>
+    </div></div>`;
   updateTips();
 }
 function pickBrandChip(product,variant,event){
@@ -2450,6 +2469,30 @@ async function renderProfile(){
       ${LIVE?'<button class="link quiet-link" data-act="delete-account">Delete my account</button>':'<button class="link quiet-link" data-act="reset-demo">Reset demo data</button>'}
     </div>`;
   mySubs=subs;drawSubs();
+}
+/* ---------- About (design/prompts/07-desktop-about.md): TasteRank first, then Crispy. The words live in index.html's
+   <template id="about-tpl">, so tools/build-pages.mjs can write the same page for search engines. ---------- */
+const aboutFill=h=>h.replaceAll('{{rank}}',settings.rank_after_ratings).replaceAll('{{approve}}',settings.approval_votes);
+function renderAbout(){
+  $('#v-about').innerHTML=aboutFill($('#about-tpl').innerHTML);
+  track('about-view',true);
+}
+/* "Start Rating" on About: a random list in the visitor's country (bigger lists more likely), then a random snack in it they
+   haven't rated, straight into the rating sheet. Signed out, the sign-in pop-up names that snack and comes back to it. */
+async function rateRandom(){
+  track('rate-random',true);
+  const c=homeCountry();
+  let cats=homeData&&homeData.country===c.id?homeData.cats:null;
+  try{if(!cats)cats=await rpc('home_categories',{p_country:c.id})}catch(e){return oops(e)}
+  const pool=(cats||[]).filter(x=>x.snacks>0);
+  if(!pool.length)return go({v:'home'});
+  let r=Math.random()*pool.reduce((s,x)=>s+x.snacks,0),pick=pool[pool.length-1];
+  for(const x of pool){r-=x.snacks;if(r<0){pick=x;break}}
+  await go({v:'category',cc:c.code.toLowerCase(),product:pick.id});
+  const p=onCategory();if(!p||!p.items.length)return;
+  const left=p.items.filter(i=>!i.my_score),from=left.length?left:p.items,it=from[Math.floor(Math.random()*from.length)];
+  document.getElementById('snack-'+it.id)?.scrollIntoView({block:'center'});
+  needUser({name:'rate',item:it.id,from:'category'});
 }
 let mySubs=[],subsView={group:null,page:1};
 /* Your additions: chips by where each one has got to, then 10 per page, newest first (design/mockups/profile-additions.html) */
