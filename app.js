@@ -63,13 +63,13 @@ function withTimeout(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeou
    ============================================================ */
 const LIVE=!!(CONFIG.SUPABASE_URL&&CONFIG.SUPABASE_ANON_KEY&&window.supabase);
 const sb=LIVE?window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{auth:{flowType:'pkce'}}):null;
-/* People are known only by their random user ID: TasteRank never shows or saves their Google name, email or photo */
+/* People are known only by their random user ID: TasteRank never shows or saves their Google or Facebook name, email or photo */
 const userFrom=s=>s?{id:s.user.id}:null;
 const must=({data,error})=>{if(error)throw error;return data};
 
 const liveApi={
   async session(){return userFrom(must(await sb.auth.getSession()).session)},
-  async signIn(){must(await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+'/'}}))}, // always the home address (the one Supabase allows); start() goes back to the page
+  async signIn(provider){must(await sb.auth.signInWithOAuth({provider,options:{redirectTo:location.origin+'/'}}))}, // always the home address (the one Supabase allows); start() goes back to the page
   async signOut(){await sb.auth.signOut()},
   async deleteAccount(){must(await sb.rpc('delete_me'));await sb.auth.signOut()},
   async rpc(name,args){return must(await sb.rpc(name,args||{}))}
@@ -667,7 +667,8 @@ const ACT={
   add:openAdd,
   close:closeM,
   'sign-in':signIn,
-  'nudge-sign-in':()=>{track('nudge-sign-in',true);signIn()}, // straight to sign-in: the note has already said why
+  'nudge-sign-in':()=>{track('nudge-sign-in',true); // straight to sign-in (the note has already said why), or to the choice of ways when there's more than one
+    if(signInWays.length>1){signInFor({name:'nudge'});openM('m-signin')}else signIn()},
   'nudge-later':()=>{track('nudge-later',true);store.set('tasterank-nudge','off',true);if(page)(page.kind==='category'?drawCategory:drawBrand)()},
   'sign-out':signOut,
   'delete-account':deleteAccount,
@@ -705,7 +706,7 @@ const AFTER={
 };
 function needUser(a){
   if(me)return AFTER[a.name](a);
-  store.set('tasterank-after',{...a,path:here()},true); // survives the trip to Google and back
+  store.set('tasterank-after',{...a,path:here()},true); // survives the trip to Google or Facebook and back
   signInFor(a);openM('m-signin');
 }
 // Crispy's tip 3: rating or approving signed out, the pop-up names the snack, shows the faces that come next (greyed) and says why
@@ -722,11 +723,24 @@ function signInFor(a){
   if(name)b.innerHTML=`You'll come straight back here to ${it?'pick a face':rep?'tell us':'approve it'}. <button class="link" data-act="privacy">Privacy</button>`;
   $('#signin-fine').hidden=!!name&&LIVE; // its privacy line would repeat the one above; the demo note stays
 }
-async function signIn(){
-  track('sign-in',true);
+// The ways to sign in: Google always; Facebook as soon as it's switched on in Supabase (Authentication → Sign In / Providers),
+// which says so in its public settings, so turning it on there needs no new push. The demo shows both.
+let signInWays=['google'];
+async function loadSignInWays(){
+  if(LIVE)try{
+    const r=await fetch(CONFIG.SUPABASE_URL+'/auth/v1/settings',{headers:{apikey:CONFIG.SUPABASE_ANON_KEY}});
+    const on=(await r.json()).external||{};
+    signInWays=['google','facebook'].filter(p=>p==='google'||on[p]===true);
+  }catch(e){} // can't tell: Google only, as before
+  else signInWays=['google','facebook'];
+  $('#signin-facebook').hidden=!signInWays.includes('facebook');
+}
+async function signIn(d){
+  const provider=d&&d.provider==='facebook'?'facebook':'google';
+  track('sign-in',true);if(provider==='facebook')track('sign-in-facebook',true);
   store.set('tasterank-back',here(),true);
-  try{await api.signIn()}catch(e){return oops(e)}
-  if(!LIVE)await afterSignIn(); // live mode leaves for Google and comes back to start()
+  try{await api.signIn(provider)}catch(e){return oops(e)}
+  if(!LIVE)await afterSignIn(); // live mode leaves for Google or Facebook and comes back to start()
 }
 async function afterSignIn(){
   me=await api.session();
@@ -2653,14 +2667,16 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#settings-pop')
 async function start(){
   renderTheme();renderTipsSwitch();
   $('#demo-bar').hidden=LIVE;
+  loadSignInWays(); // not waited for: the Facebook button just appears when the answer comes
   if(!LIVE)$('#signin-fine').textContent='Demo mode: no real account is created.';
   if(CONFIG.SUPABASE_URL&&!window.supabase)toast("Couldn't reach the TasteRank server. Showing demo data.");
   const geo=detectCountry();
   const params=new URLSearchParams(location.search);
   try{
-    if(params.has('error_description'))toast('Sign-in was cancelled or failed. Please try again.');
+    if(params.has('error_description'))toast(/email from external provider/i.test(params.get('error_description')) // Supabase's words when a Facebook account (made with a phone number) has no email
+      ?"That account didn't share an email address, so it can't sign in here. Please try Google instead.":'Sign-in was cancelled or failed. Please try again.');
     me=await api.session();
-    if(params.has('code')||params.has('error')){ // tidy the address bar after Google sign-in, back on the page it started from
+    if(params.has('code')||params.has('error')){ // tidy the address bar after signing in (and Facebook's #_=_), back on the page it started from
       const back=store.get('tasterank-back',true);store.del('tasterank-back',true);
       history.replaceState(null,'',back&&back.startsWith('/')&&!back.startsWith('//')?back:location.pathname);
     }
