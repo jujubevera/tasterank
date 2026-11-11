@@ -5,7 +5,7 @@
   --bg:#FEF6E4; --surface:#FFFFFF; --ink:#45352F; --muted:#6F625B; --line:#F3E1BB;
   --primary:#445E93; --on-primary:#FFFFFF; --winner:#C94A5A; --on-winner:#FFFFFF; --accent-text:#C94A5A;
   --soft:#FDE3E3; --hint:#EEF4FA; --bar:#7EB2DD; --bar-strong:#445E93; --tile:#FFFFFF; --pending:#7EB2DD;
-  --danger:#B3261E; --google:#4285F4; --ok:#2F7D4F; --amber:#9A6200; --amber-bg:#FFF4DC;
+  --danger:#B3261E; --ok:#2F7D4F; --amber:#9A6200; --amber-bg:#FFF4DC;
   --crisp-line:#445E93; --crisp-w:4;
   --scrim:rgba(20,16,12,.48); --shadow-c:rgba(69,53,47,.08);
   --hair:rgba(69,53,47,.14); --band:#FFFFFF; --t-choc:#F2E4DD; --t-sweet:#FBE4E7; --t-crisp:#E5EDF6; --new-bg:#E8EDF6; --new-ink:#34497A;
@@ -17,7 +17,7 @@ html[data-theme="dark"]{
   --bg:#1C1416; --surface:#2A1F22; --ink:#FCECC9; --muted:#CDBBA8; --line:#3D2E31;
   --primary:#7EB2DD; --on-primary:#21171A; --winner:#FCB0B3; --on-winner:#21171A; --accent-text:#FCB0B3;
   --soft:#3D2A30; --hint:#24303F; --bar:#445E93; --bar-strong:#7EB2DD; --tile:#F6EEDF; --pending:#7EB2DD;
-  --danger:#F28B82; --google:#8AB4F8; --ok:#8FD3A8; --amber:#F5B947; --amber-bg:#3A2A1A;
+  --danger:#F28B82; --ok:#8FD3A8; --amber:#F5B947; --amber-bg:#3A2A1A;
   --crisp-line:#CFA46B; --crisp-w:3.2;
   --scrim:rgba(10,5,6,.62); --shadow-c:rgba(0,0,0,.35);
   --hair:rgba(252,236,201,.16); --band:#241A1D; --t-choc:#3A2A26; --t-sweet:#3D2A30; --t-crisp:#24303F; --new-bg:#24303F; --new-ink:#A9CBEA;
@@ -354,6 +354,10 @@ h2[tabindex="-1"]:focus,h3[tabindex="-1"]:focus{outline:none} /* headings take f
 .btn-danger-solid{background:var(--danger);border-color:var(--danger);color:var(--surface)}
 .btn-danger-solid:hover{filter:brightness(.92)}
 #confirm-body .btn-block+.btn-block{margin-top:8px}
+#m-signin .btn-block+.btn-block{margin-top:8px}
+/* Google and Facebook buttons: each logo in its own colours, the same 20 px, at the same spot on the left; the words centred */
+.sso{position:relative;padding-left:48px;padding-right:48px}
+.sso-ic{position:absolute;left:18px;top:50%;width:20px;height:20px;margin-top:-10px}
 #confirm-body p{color:var(--ink);font-weight:600}
 .btn.sm{padding:6px 14px;min-height:40px;font-size:13.5px}
 .subr .pk{white-space:normal}
