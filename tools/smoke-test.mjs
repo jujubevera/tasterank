@@ -65,11 +65,13 @@ const demoDir = await copySite('demo', blank);
 const downDir = await copySite('down', {SUPABASE_URL: 'http://127.0.0.1:9', WEB3FORMS_KEY: '', GOATCOUNTER_CODE: ''});
 const demo = await serve(demoDir), down = await serve(downDir);
 const browser = await chromium.launch({channel: 'chrome', headless: true});
+// Every visitor here is in the UK, wherever the test runs (GitHub's machines are in the US, where the demo has no snacks)
+const ukVisitor = async ctx => { await ctx.route('https://api.country.is/', r => r.fulfill({contentType: 'application/json', body: '{"country":"GB"}'})); return ctx; };
 
 try {
   // ---------- 1. Demo mode: the main journey ----------
   console.log('Demo mode');
-  const ctx = await browser.newContext({viewport: {width: 390, height: 844}});
+  const ctx = await ukVisitor(await browser.newContext({viewport: {width: 390, height: 844}}));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e.message || e)));
@@ -111,7 +113,7 @@ try {
 
   // ---------- 2. Database unreachable ----------
   console.log('Database unreachable');
-  const ctx2 = await browser.newContext({viewport: {width: 390, height: 844}});
+  const ctx2 = await ukVisitor(await browser.newContext({viewport: {width: 390, height: 844}}));
   const page2 = await ctx2.newPage();
   page2.setDefaultTimeout(15000);
   await step('a list page says it couldn\'t load the latest ratings', async () => {
