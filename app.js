@@ -517,12 +517,26 @@ document.addEventListener('keydown',e=>{
   if(!openId)return;
   if(e.key==='Escape')return closeM();
   if(e.key!=='Tab')return;
-  const els=[...$('#'+openId).querySelectorAll('button,input:not([tabindex="-1"]),select,textarea,a[href]')].filter(el=>!el.disabled&&el.offsetParent!==null);
+  const els=[...$('#'+openId).querySelectorAll('button,input,select,textarea,a[href],summary,[tabindex]')].filter(el=>!el.disabled&&el.tabIndex>=0&&el.offsetParent!==null);
   if(!els.length)return;
   const first=els[0],last=els[els.length-1];
   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
 });
+
+/* ---------- Sideways chip rows fade only where there are more chips to scroll to ---------- */
+function fadeChips(){
+  document.querySelectorAll('.chips').forEach(r=>{
+    const max=r.scrollWidth-r.clientWidth;
+    r.classList.toggle('fade-l',max>1&&r.scrollLeft>1);
+    r.classList.toggle('fade-r',max>1&&r.scrollLeft<max-1);
+  });
+}
+let fadeQueued=false;
+const queueFade=()=>{if(!fadeQueued){fadeQueued=true;setTimeout(()=>{fadeQueued=false;fadeChips()},30)}};
+document.addEventListener('scroll',e=>{if(e.target.classList&&e.target.classList.contains('chips'))queueFade()},true);
+window.addEventListener('resize',queueFade);
+new MutationObserver(queueFade).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden']}); // new rows, and rows shown again
 
 /* ---------- Addresses: / home · /brands/ home by brand · /uk/crisps/[salt-vinegar/] a list (and flavour; ?snack=57 scrolls to a waiting snack)
    · /uk/brands/walkers/[crisps/[salt-vinegar/]] a brand (and list, flavour) · /me/ profile · /owner/ the owner page.
@@ -689,7 +703,7 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');
   if(!el||el.disabled)return;
   if(el.tagName==='A'&&(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button))return; // a link opened in a new tab
-  const f=ACT[el.dataset.act]||ADD_ACT[el.dataset.act]||OWN_ACT[el.dataset.act]||PLACE_ACT[el.dataset.act];if(!f)return;
+  const f=ACT[el.dataset.act]||ADD_ACT[el.dataset.act]||OWN_ACT[el.dataset.act]||PLACE_ACT[el.dataset.act]||WOW_ACT[el.dataset.act];if(!f)return;
   e.preventDefault();f(el.dataset);
 });
 $('#country').addEventListener('change',e=>{prefs.country=e.target.value;prefs.cat='all';savePrefs();renderHome({by:homeBy})});
@@ -1911,6 +1925,13 @@ function renderSheet(){
     return;
   }
   const f=FACES.find(x=>x.v===it.my_score),n=sheet.next,more=sheet.from!=='brand'&&it.brand_snacks>=2;
+  if(sheet.wow){ // the 10-rating moment takes the place of "Next" until Keep rating
+    if($('#rate-body .wow'))return; // already showing: redrawing would restart the twinkle and lose focus
+    body.innerHTML=`<div class="saved"><span>✓ Saved · You rated <b>${f.e} ${f.l}</b></span><button class="link" data-act="edit-rating">Edit</button></div>${wowHtml()}`;
+    if(sheet.wow.fresh){sheet.wow.fresh=false;$('#wow-title').focus()}
+    else if(!$('#m-rate').contains(document.activeElement)||document.activeElement===document.body)$('#rate-body [data-act="wow-keep"]').focus();
+    return;
+  }
   const second=more?`More from ${it.brand}`:`Back to ${it.listTitle}`;
   let main='';
   if(!n)main='<button class="btn btn-primary btn-block" disabled>Finding what\'s next…</button>';
@@ -1939,8 +1960,8 @@ async function saveRating(v){
   if(!sheet||!me)return;
   const it=sheet.it,first=!it.my_score;
   // a failed save stays visible in the sheet (with the reason), instead of a message that disappears
-  let firstEver=false;
-  try{const n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n;firstEver=first&&n===1}
+  let firstEver=false,n=0;
+  try{n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n;firstEver=first&&n===1}
   catch(e){console.error(e);sheet.error=e.message||String(e);renderSheet();return}
   track('rate-item',true);
   if(first&&!profile)await loadProfile();
@@ -1948,6 +1969,10 @@ async function saveRating(v){
   if(first&&profile&&!homeId()&&!store.get('tasterank-place-asked')){
     store.set('tasterank-place-asked',true);placeUI={ctx:'ask',step:'country',item:it.id,first:firstEver};track(firstEver?'place-asked':'place-asked-later',true)}
   else if(firstEver&&!tips.off&&!tipSeen(4)){sheet.tip4='new';tipMark(4);track('tip-shown-4',true)} // Crispy's tip 4, once
+  if(first){ // the 10-rating moment: due at exactly 10 new ratings; waits behind "Where do you live?" if that's asked now
+    if(n===WOW_AT&&!wowState())wowSet('due');
+    if(wowState()==='due'){if(placeUI&&placeUI.ctx==='ask'&&placeUI.item===it.id)sheet.wowWait=n;else wowShow(n)}
+  }
   it.my_score=v;sheet.editing=false;sheet.error=null;sheet.next=null;renderSheet();
   homeData=null;
   await refresh();                      // the page behind updates its counts, "You" tag and winner
@@ -1965,6 +1990,28 @@ async function removeRating(){
   $('#m-rate .face-btn')?.focus();
   homeData=null;await refresh();
 }
+/* ---------- The 10-rating moment (design/mockups/flows.html 1d, prompt 08) ----------
+   Once per account, inside the rating sheet, straight after the 10th new rating. Remembered in this browser
+   (live: per user id; demo: inside the demo data, so clearing it starts over). 'due' = owed but not shown yet,
+   e.g. the sheet closed while "Where do you live?" came first; it then shows after the next new rating. */
+const WOW_AT=10;
+const wowState=()=>!me?'seen':LIVE?store.get('tasterank-wow-'+me.id):(demoState().wow||null);
+function wowSet(v){if(LIVE)return store.set('tasterank-wow-'+me.id,v);const d=demoState();d.wow=v;demoSave(d)}
+function wowShow(n){wowSet('seen');sheet.wow={n,fresh:true};track('milestone-10',true)}
+const wowHtml=()=>`<div class="moment wow"><svg class="${sheet.wow.fresh?'twinkle':''}" viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-wow"/></svg>
+  <h3 id="wow-title" tabindex="-1">Wow! ${sheet.wow.n} snacks rated</h3>
+  <p>You're now one of TasteRank's tasters. Every rating makes the winners fairer for everyone.</p>
+  <button class="btn btn-primary btn-block" data-act="wow-keep">Keep rating</button>
+  <button class="btn btn-block" data-act="wow-share">Share TasteRank</button></div>`;
+function wowAfterPlace(){ // the place card is finished or skipped: the waiting moment takes its place
+  if(!sheet||!sheet.wowWait)return false;
+  const n=sheet.wowWait;sheet.wowWait=null;placeUI=null;wowShow(n);renderSheet();return true;
+}
+const WOW_ACT={
+  'wow-keep':()=>{if(!sheet)return;sheet.wow=null;renderSheet();($('#rate-body .btn-primary:not([disabled])')||$('#rate-body [data-act="edit-rating"]'))?.focus()},
+  'wow-share':()=>{track('milestone-share',true);share(null,'https://tasterank.app/')}
+};
+
 /* ---------- Where you live (design/mockups/places.html) ----------
    Asked once, inside the rating sheet, after someone's first-ever rating (3a–3f); changed from the profile (P0–P2).
    The UK has two steps: its four nations, then England's nine regions with towns people know. England itself isn't a
@@ -2025,7 +2072,9 @@ async function savePlace(id){
   finally{if(placeUI)placeUI.busy=false}
 }
 function placeDone(kind,text){ // in the rating sheet: Crispy's thanks; in the profile: close with a note
-  if(placeUI.ctx==='ask'){placeUI.step='done';placeUI.done=kind;placeUI.text=text;drawPlace(false);$('#rate-body [data-act="place-edit"]')?.focus()}
+  if(placeUI.ctx==='ask'){
+    if(wowAfterPlace())return toast(homeText()?`Saved: ${homeText()}`:'Saved');
+    placeUI.step='done';placeUI.done=kind;placeUI.text=text;drawPlace(false);$('#rate-body [data-act="place-edit"]')?.focus()}
   else{closeM();toast(homeText()?`Saved: ${homeText()}`:'Saved');renderProfile().then(()=>$('[data-act="place-change"]')?.focus())}
 }
 const PLACE_ACT={
@@ -2054,7 +2103,7 @@ const PLACE_ACT={
   'place-else':async()=>{if(!await savePlace(0))return;track('place-elsewhere',true);
     placeUI.c=null;placeDone('else',"<b>Thanks!</b> We'll add more countries as TasteRank grows.")},
   'place-prefer':async()=>{if(!await savePlace(0))return;track('place-prefer-not',true);
-    if(placeUI.ctx==='ask'){placeUI=null;renderSheet();($('#rate-body .btn-primary:not([disabled])')||$('#rate-body button'))?.focus();return}
+    if(placeUI.ctx==='ask'){if(wowAfterPlace())return;placeUI=null;renderSheet();($('#rate-body .btn-primary:not([disabled])')||$('#rate-body button'))?.focus();return}
     placeUI.c=null;placeDone('prefer')},
   'place-skip':()=>{track('place-skip-region',true);const c=placeUI.c;placeDone('uk',`<b>Got it, thanks!</b> You're in ${c.flag} ${esc(theName(c))}.`)},
   'place-back':()=>{placeUI.step='uk';drawPlace(true)},

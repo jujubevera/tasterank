@@ -3,10 +3,10 @@
 :root{
   color-scheme:light;
   --bg:#FEF6E4; --surface:#FFFFFF; --ink:#45352F; --muted:#6F625B; --line:#F3E1BB;
-  --primary:#445E93; --on-primary:#FFFFFF; --winner:#C94A5A; --on-winner:#FFFFFF; --accent-text:#C94A5A;
+  --primary:#445E93; --on-primary:#FFFFFF; --winner:#C94A5A; --on-winner:#FFFFFF; --accent-text:#B33D4C;
   --soft:#FDE3E3; --hint:#EEF4FA; --bar:#7EB2DD; --bar-strong:#445E93; --tile:#FFFFFF; --pending:#7EB2DD;
   --danger:#B3261E; --ok:#2F7D4F; --amber:#9A6200; --amber-bg:#FFF4DC;
-  --crisp-line:#445E93; --crisp-w:4;
+  --crisp-line:#445E93; --crisp-w:4; --conf:#445E93;
   --scrim:rgba(20,16,12,.48); --shadow-c:rgba(69,53,47,.08);
   --hair:rgba(69,53,47,.14); --band:#FFFFFF; --t-choc:#F2E4DD; --t-sweet:#FBE4E7; --t-crisp:#E5EDF6; --new-bg:#E8EDF6; --new-ink:#34497A;
   --radius:14px; --shadow:0 1px 2px var(--shadow-c),0 6px 20px var(--shadow-c);
@@ -18,7 +18,7 @@ html[data-theme="dark"]{
   --primary:#7EB2DD; --on-primary:#21171A; --winner:#FCB0B3; --on-winner:#21171A; --accent-text:#FCB0B3;
   --soft:#3D2A30; --hint:#24303F; --bar:#445E93; --bar-strong:#7EB2DD; --tile:#F6EEDF; --pending:#7EB2DD;
   --danger:#F28B82; --ok:#8FD3A8; --amber:#F5B947; --amber-bg:#3A2A1A;
-  --crisp-line:#CFA46B; --crisp-w:3.2;
+  --crisp-line:#CFA46B; --crisp-w:3.2; --conf:#FCB0B3;
   --scrim:rgba(10,5,6,.62); --shadow-c:rgba(0,0,0,.35);
   --hair:rgba(252,236,201,.16); --band:#241A1D; --t-choc:#3A2A26; --t-sweet:#3D2A30; --t-crisp:#24303F; --new-bg:#24303F; --new-ink:#A9CBEA;
 }
@@ -36,7 +36,7 @@ button:disabled{cursor:default;opacity:.6}
 .bar{position:sticky;top:0;z-index:20;background:var(--bg);background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 .bar-in{position:relative;max-width:960px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:8px}
 .logo{display:flex;align-items:center;gap:6px;min-height:44px;font-weight:800;font-size:21px;letter-spacing:-.03em;background:none;border:0;padding:0;margin-right:auto;color:var(--ink);border-radius:8px}
-.logo b{color:var(--accent-text);font-weight:800}
+.logo b{color:var(--winner);font-weight:800} /* the brand rose; --accent-text is a shade darker so small text passes 4.5:1 on the cream */
 .logo svg{width:30px;height:30px;flex:none}
 .crisp-outline{stroke:var(--crisp-line);stroke-width:var(--crisp-w)}
 .btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:9px 16px;min-height:44px;font-weight:700;font-size:15px;transition:background .15s,border-color .15s,filter .15s;display:inline-flex;align-items:center;justify-content:center;gap:8px}
@@ -80,7 +80,11 @@ h2{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
 .lab{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .country-pick{max-width:340px}
 .country-pick select{font-size:16px;padding:9px 12px;min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-weight:700}
-.chips{display:flex;gap:8px;overflow-x:auto;padding:6px 0;margin:2px 0 8px;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent);mask-image:linear-gradient(90deg,#000 88%,transparent)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:6px 0;margin:2px 0 8px;scrollbar-width:none}
+/* sideways rows fade only at an edge with more chips beyond it (fade-l / fade-r, set by fadeChips in app.js) */
+.chips.fade-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 40px),transparent)}
+.chips.fade-l{-webkit-mask-image:linear-gradient(90deg,transparent,#000 40px);mask-image:linear-gradient(90deg,transparent,#000 40px)}
+.chips.fade-l.fade-r{-webkit-mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent)}
 .chips::-webkit-scrollbar{display:none}
 .chip{position:relative;white-space:nowrap;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 14px;min-height:36px;font-size:13px;font-weight:700}
 .chip::after{content:"";position:absolute;left:0;right:0;top:-4px;bottom:-4px} /* 44 px tap area */
@@ -623,3 +627,11 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--in
 .trip-x:hover{color:var(--ink)}
 #trip:empty{display:none}
 .place-card .pfoot+.ptiny{margin-top:-10px}
+/* The 10-rating moment (prompt 08): in the rating sheet, in place of "Next" */
+.wow{padding-top:10px}
+.wow h3{padding-right:0}
+.wow p{margin:0 0 10px}
+@media (prefers-reduced-motion:no-preference){.twinkle{animation:twinkle .6s ease-out}}
+@keyframes twinkle{0%{transform:scale(.88);opacity:.35}45%{transform:scale(1.06);opacity:1}70%{transform:scale(.98)}100%{transform:none}}
+/* Reduce motion: nothing moves or fades (DESIGN.md section 6) */
+@media (prefers-reduced-motion:reduce){.btn,.lc,.toast,.float-tip{transition:none}.lc:hover{transform:none}}
