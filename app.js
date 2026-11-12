@@ -780,7 +780,7 @@ const onCategory=()=>view==='category'&&page&&page.kind==='category'?page:null;
 const onBrandPage=()=>view==='brand'&&page&&page.kind==='brandpage'?page:null;
 function setFab(){
   const f=$('#add-fab'),c=onCategory(),b=onBrandPage();
-  f.hidden=view==='profile'||view==='owner'||view==='about';
+  f.hidden=view==='owner'; // shown on profile and About too: both say "Tap +"
   f.setAttribute('aria-label',c?`Add a snack to ${c.name}`:b?`Add a ${b.name} snack`:'Add a snack');
 }
 function openAdd(){tipAct(7);needUser({name:'add'})}  // a declaration, so the click map above can use it
@@ -1940,8 +1940,8 @@ function renderSheet(){
       <button class="btn btn-block" data-act="add">＋ Add one we're missing</button>
       ${more?`<button class="btn btn-block" data-act="sheet-second">More from ${esc(it.brand)}</button>`:''}`;
   else{
-    const text=`Next: ${n.kind==='item'?n.short_label:n.title} →`;
-    main=`${n.kind==='list'?`<div class="done-line">That's every ${esc(it.where.toLowerCase())} here rated. 🎉</div>`:''}<button class="btn btn-primary btn-block" data-act="next">${esc(text.length>32?'Rate the next one →':text)}</button>`;
+    const name=(n.kind==='item'?n.short_label:n.title)||'';  // long pack names are cut with an ellipsis in CSS; the arrow always shows
+    main=`${n.kind==='list'?`<div class="done-line">That's every ${esc(it.where.toLowerCase())} here rated. 🎉</div>`:''}<button class="btn btn-primary btn-block next-btn" data-act="next"><span class="nx">${name?`Next: ${esc(name)}`:'Rate the next one'}</span><span aria-hidden="true">→</span></button>`;
   }
   body.innerHTML=`<div class="saved"><span>✓ Saved · You rated <b>${f.e} ${f.l}</b></span><button class="link" data-act="edit-rating">Edit</button></div>
     ${placeUI&&placeUI.ctx==='ask'&&placeUI.item===it.id?askHtml():''}
@@ -2514,8 +2514,8 @@ async function renderProfile(){
       <div class="p-head"><span class="thumb big me-pic" aria-hidden="true"><svg><use href="#crisp-yum"/></svg></span><div><h1 class="page-title">Your profile</h1><div class="meta">Taster ID ${esc(p.taster_id)}</div></div></div>
       <div class="place-row"><div><div class="lab">Where you live</div><div class="val" id="place-row-val">${homeText()?esc(homeText()):'<span class="unset">Not set</span>'}</div></div><button class="link" data-act="place-change">${homeText()?'Change':'Add'}<span class="sr-only"> where you live</span></button></div>
       <div class="stats">
-        <div class="stat"><b>${fmt(p.rated)}</b><span>snacks rated</span></div>
-        <div class="stat"><b>${fmt(lists)}</b><span>${lists===1?'list':'lists'} helped</span></div>
+        <div class="stat"><b>${fmt(p.rated)}</b><span>${p.rated===1?'snack':'snacks'} rated</span></div>
+        <div class="stat"><b>${fmt(lists)}</b><span>${lists===1?'list':'lists'} rated in</span></div>
       </div>
       <button class="btn" data-act="share">Share TasteRank</button>
     </div>
