@@ -127,5 +127,12 @@ else
   echo "SKIP  new snacks checks (migration 015 not run yet)"
 fi
 
+# Photo upload limit (migration 016). Skipped until it has been run.
+if [ "$(call may_upload_photo '{}' | grep -c 'PGRST202')" = "0" ]; then
+  check "signed out can't use the photo check" "$(call may_upload_photo '{}')" 'permission denied'
+else
+  echo "SKIP  photo upload limit check (migration 016 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }

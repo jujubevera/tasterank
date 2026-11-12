@@ -27,6 +27,10 @@ jobs:
           node-version: 22
       - name: Build the site and the pre-built pages
         run: node tools/build-pages.mjs
+      - name: Check the site still works (demo copy in headless Chrome; nothing is published if this fails)
+        run: |
+          npm install --no-save --no-package-lock playwright-core@1.48.2
+          node tools/smoke-test.mjs
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

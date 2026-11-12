@@ -1308,7 +1308,9 @@ async function shrinkPhoto(file){ // max 800 px on the long side, JPEG, never ov
 }
 async function uploadPhoto(blob){
   const path=`${me.id}/${(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2))}.jpg`;
-  must(await sb.storage.from('product-photos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'31536000',upsert:false}));
+  const {error}=await sb.storage.from('product-photos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'31536000',upsert:false});
+  if(error)throw /row-level security|violates|unauthori[sz]ed|403/i.test(error.message||'')  // the limit of 10 photos a day (migration 016)
+    ?new Error("You've added a lot of photos today. Try again tomorrow, or send it without a photo."):error;
   return path;
 }
 
@@ -2730,7 +2732,10 @@ async function start(){
       history.replaceState(null,'',back&&back.startsWith('/')&&!back.startsWith('//')?back:location.pathname);
     }
     [settings,places]=await Promise.all([rpc('app_settings'),rpc('place_list'),me?loadProfile():null,loadOwner()]);
-  }catch(e){console.error(e);$('#cards').innerHTML='<div class="card empty">Couldn\'t load snacks. Check your connection and refresh.</div>';return}
+  }catch(e){console.error(e);$('#cards').innerHTML='<div class="card empty">Couldn\'t load snacks. Check your connection and refresh.</div>';
+    // On a pre-built list or brand page the home section is hidden, so say it above the list there (which is from the last build)
+    if($('#v-home').hidden)$('main').insertAdjacentHTML('afterbegin','<div class="alert" role="alert"><b>Couldn\'t load the latest ratings</b><span>Check your connection and refresh. Until then this is the list from earlier, and rating isn\'t possible.</span></div>');
+    return}
   if(!prefs.country)await geo; // only wait for the guess when it decides what to show
   renderHeader();
   if(me&&store.get('tasterank-after',true))await afterSignIn();

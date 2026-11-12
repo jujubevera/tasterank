@@ -144,21 +144,26 @@ function itemList(title, c, items, path_) {
 
 // ---------- Write the site ----------
 const template = await fs.readFile(path.join(ROOT, 'index.html'), 'utf8');
-const swap = (html, re, to) => { if (!re.test(html)) throw new Error('index.html changed: no match for ' + re); return html.replace(re, to); };
+// `to` is the new text, or a function of the matched text and its first group. Either way it goes in exactly as given:
+// a snack name with "$&" or "$'" in it isn't read as a String.replace code (which would paste part of the page into it)
+const swap = (html, re, to) => {
+  if (!re.test(html)) throw new Error('index.html changed: no match for ' + re);
+  return html.replace(re, typeof to === 'function' ? to : () => to);
+};
 function render(pg) {
   let h = template;
   const t = esc(pg.title), d = esc(pg.description), u = SITE + pg.path, short = esc(pg.title.replace(/ \| TasteRank$/, ''));
   h = swap(h, /<title>[^<]*<\/title>/, `<title>${t}</title>`);
-  h = swap(h, /(<meta name="description" content=")[^"]*/, `$1${d}`);
-  h = swap(h, /(<link rel="canonical" href=")[^"]*/, `$1${u}`);
-  h = swap(h, /(<meta property="og:url" content=")[^"]*/, `$1${u}`);
-  h = swap(h, /(<meta property="og:title" content=")[^"]*/, `$1${short}`);
-  h = swap(h, /(<meta property="og:description" content=")[^"]*/, `$1${d}`);
-  h = swap(h, /(<meta name="twitter:title" content=")[^"]*/, `$1${short}`);
-  h = swap(h, /(<meta name="twitter:description" content=")[^"]*/, `$1${d}`);
-  if (pg.robots) h = swap(h, /(<meta name="viewport"[^>]*>)/, `$1\n<meta name="robots" content="${pg.robots}">`);
-  if (pg.jsonld) h = swap(h, /(<meta name="theme-color")/, `<script type="application/ld+json">${JSON.stringify(pg.jsonld).replace(/</g, '\\u003c')}</script>\n$1`);
-  if (pg.ids) h = swap(h, /(<script src="\/app\.js)/, `<script>window.TR_PAGE=${JSON.stringify({path: pg.path, ...pg.ids})}</script>\n$1`);
+  h = swap(h, /(<meta name="description" content=")[^"]*/, (m, p1) => p1 + d);
+  h = swap(h, /(<link rel="canonical" href=")[^"]*/, (m, p1) => p1 + u);
+  h = swap(h, /(<meta property="og:url" content=")[^"]*/, (m, p1) => p1 + u);
+  h = swap(h, /(<meta property="og:title" content=")[^"]*/, (m, p1) => p1 + short);
+  h = swap(h, /(<meta property="og:description" content=")[^"]*/, (m, p1) => p1 + d);
+  h = swap(h, /(<meta name="twitter:title" content=")[^"]*/, (m, p1) => p1 + short);
+  h = swap(h, /(<meta name="twitter:description" content=")[^"]*/, (m, p1) => p1 + d);
+  if (pg.robots) h = swap(h, /(<meta name="viewport"[^>]*>)/, (m, p1) => p1 + `\n<meta name="robots" content="${pg.robots}">`);
+  if (pg.jsonld) h = swap(h, /(<meta name="theme-color")/, (m, p1) => `<script type="application/ld+json">${JSON.stringify(pg.jsonld).replace(/</g, '\\u003c')}</script>\n` + p1);
+  if (pg.ids) h = swap(h, /(<script src="\/app\.js)/, (m, p1) => `<script>window.TR_PAGE=${JSON.stringify({path: pg.path, ...pg.ids})}</script>\n` + p1);
   if (pg.body) {
     h = swap(h, /<section id="v-home">/, '<section id="v-home" hidden>');
     h = swap(h, new RegExp(`<section id="v-${pg.view}" hidden></section>`), `<section id="v-${pg.view}"><div class="prebuilt">\n${pg.body}\n</div></section>`);

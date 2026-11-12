@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–014 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–016 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -14,7 +14,7 @@ create schema auth; create schema storage;
 create table auth.users(id uuid primary key, raw_user_meta_data jsonb default '{}');
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true),'')::uuid $$;
 create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
-create table storage.objects(id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid default auth.uid());
+create table storage.objects(id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid default auth.uid(), created_at timestamptz default now());
 alter table storage.objects enable row level security;
 create function storage.foldername(name text) returns text[] language sql immutable as $$ select (string_to_array(name,'/'))[1:array_length(string_to_array(name,'/'),1)-1] $$;
 grant usage on schema public, auth, storage to anon, authenticated;
@@ -727,6 +727,24 @@ ok('move: the snacks go across with their flavour, and the empty subcategory goe
 ok('…ratings come along',(await lq(`select count(*)::int n from public.item_ratings where item_id=${acc.item_id}`))[0].n===1);
 ok('…and moving into itself is refused',/different subcategory/.test((await las(2,`select public.owner_move_snacks(${jelly.id},${jelly.id})`)).err||''));
 ok('after it all, the pages still load',(await lq('select jsonb_array_length(public.home_categories(1)) n'))[0].n>0&&!!(await lq(`select public.category_page(${jelly.id},1) p`))[0].p&&!(await las(null,'select public.catalogue(1)')).err);
+
+// ---- Migration 016: at most 10 photo uploads per person per day ----
+console.log('\n---- Migration 016 ----');
+const mig16=fs.readFileSync(R+'migrate-016-upload-limit.sql','utf8');
+try{await live.exec(mig16);await live.exec(mig16);ok('016 runs twice without errors',true)}catch(e){ok('016 runs twice without errors',false,e.message);return}
+const up=(who,n)=>las(who,`insert into storage.objects(bucket_id,name) values ('product-photos','${U(who)}/p${n}.jpg')`);
+let ok16=0;for(let n=1;n<=10;n++)if(!(await up(26,n)).err)ok16++;
+ok('10 uploads in a day are allowed',ok16===10,String(ok16));
+ok('…the 11th is refused',!!(await up(26,11)).err);
+ok('…someone else can still upload',!(await up(24,1)).err);
+ok('…and still not into another person\'s folder',!!(await las(24,`insert into storage.objects(bucket_id,name) values ('product-photos','${U(26)}/x.jpg')`)).err);
+ok('…nor signed out',!!(await las(null,`insert into storage.objects(bucket_id,name) values ('product-photos','x/a.jpg')`)).err);
+await lq(`update storage.objects set created_at=now()-interval '25 hours' where name like '${U(26)}/%'`);
+ok('a day later, they can upload again',!(await up(26,12)).err);
+let own16=0;for(let n=1;n<=11;n++)if(!(await up(2,n)).err)own16++;
+ok('the owner isn\'t limited',own16===11,String(own16));
+ok('nobody signed out can call the check',ldenied(await las(null,'select public.may_upload_photo()')));
+ok('the check only counts your own photos',(await lone(24,'select public.may_upload_photo()'))===true);
 
 // ---- Migration 012: at most 5 additions a day ----
 console.log('\n---- Migration 012 ----');
