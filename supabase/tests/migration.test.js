@@ -899,5 +899,37 @@ await lq(`delete from auth.users where id='${U(25)}'`);
 ok('deleting an account deletes its reports',!(await lq(`select 1 from public.item_reports where user_id='${U(25)}'`)).length);
 ok('after it all, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${crisps15},1)`)));
 
+// ---- Migration 017: "Next" leaves out snacks you've skipped ("Haven't tried it") ----
+console.log('\n---- Migration 017 ----');
+await live.query('insert into auth.users(id) values ($1) on conflict do nothing',[U(31)]); // someone who hasn't rated anything
+const cr17=(await lq(`select id from public.products where name='Crisps'`))[0].id;
+const all17=await lq(`select id,variant_id,brand_id from public.item_totals(1) where product_id=${cr17} order by id`);
+const from17=all17[0],v17=from17.variant_id;
+const nx17=(who,args)=>lone(who,`select public.next_snack(${args})`);
+const before17={v:await nx17(31,`${from17.id},${v17},false`),b:await nx17(31,`${from17.id},null,true`),p:await nx17(31,`${from17.id}`)};
+const mig17=fs.readFileSync(R+'migrate-017-next-skip.sql','utf8');
+try{await live.exec(mig17);await live.exec(mig17);ok('017 runs twice without errors',true)}catch(e){ok('017 runs twice without errors',false,e.message);return}
+const fns17=await lq(`select pg_catalog.pg_get_function_identity_arguments(p.oid) a from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='next_snack'`);
+ok('only one next_snack is left, the one with a skip list',fns17.length===1&&/p_skip bigint\[\]/.test(fns17[0].a),JSON.stringify(fns17));
+ok('…and its check at the end says so',(await lq(mig17.slice(mig17.lastIndexOf('select count(*)'))))[0].next_snack_ok===true);
+const same17=JSON.stringify([await nx17(31,`${from17.id},${v17},false`),await nx17(31,`${from17.id},null,true`),await nx17(31,`${from17.id}`)])===JSON.stringify([before17.v,before17.b,before17.p]);
+ok('with no skip list, Next is exactly as before (flavour, brand page, whole list)',same17,JSON.stringify(before17));
+ok('…the site\'s named call works too, and an empty list changes nothing',JSON.stringify(await nx17(31,`p_item=>${from17.id},p_variant=>${v17},p_brand=>false,p_skip=>'{}'`))===JSON.stringify(before17.v));
+const skip17=ids=>`array[${ids.join(',')}]::bigint[]`;
+let r17=await nx17(31,`${from17.id},${v17},false,${skip17([before17.v.id])}`);
+ok('a skipped snack isn\'t offered: Next picks another one',before17.v.kind==='item'&&(r17.kind!=='item'||r17.id!==before17.v.id),JSON.stringify([before17.v,r17]));
+r17=await nx17(31,`${from17.id},null,true,${skip17([before17.b.id])}`);
+ok('…on a brand page too',r17.kind!=='item'||r17.id!==before17.b.id,JSON.stringify(r17));
+const sameV17=all17.filter(x=>x.variant_id===v17&&x.id!==from17.id).map(x=>x.id);
+r17=await nx17(31,`${from17.id},${v17},false,${skip17(sameV17.length?sameV17:[0])}`);
+ok('skipping every other snack in a flavour moves on to another flavour',r17.kind==='list'&&r17.variant_id!==v17,JSON.stringify(r17));
+const otherV17=all17.filter(x=>x.variant_id===r17.variant_id).map(x=>x.id);
+const r17b=await nx17(31,`${from17.id},${v17},false,${skip17([...sameV17,...otherV17])}`);
+ok('…and a flavour whose unrated snacks are all skipped isn\'t suggested',r17b.kind==='list'?r17b.variant_id!==r17.variant_id:r17b.kind==='done',JSON.stringify(r17b));
+const uk17=(await lq(`select id from public.item_totals(1)`)).map(x=>x.id);
+ok('everything skipped: done',(await nx17(31,`${from17.id},${v17},false,${skip17(uk17)}`)).kind==='done'&&(await nx17(31,`${from17.id},null,false,${skip17(uk17)}`)).kind==='done');
+ok('signed out it still works',!(await las(null,`select public.next_snack(${from17.id},${v17},false,${skip17([before17.v.id])})`)).err);
+await lone(31,`select public.rate_item(${before17.v.id},4)`);
+ok('a rated snack still isn\'t offered, skip list or not',(await nx17(31,`${from17.id},${v17},false,'{}'`)).id!==before17.v.id);
 }
 }

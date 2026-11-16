@@ -3,7 +3,7 @@
    Run by .github/workflows/pages.yml after tools/build-pages.mjs; if a step fails, the site isn't published.
    It never touches the live database: it tests two copies of _site/ made in a temporary folder:
      1. Demo mode (all CONFIG keys blank, so nothing is sent anywhere): home shows cards; on a list, sign in, rate a snack,
-        see "Saved" and the Next button; the + opens the add form; the profile counts the rating; no JavaScript errors.
+        see "Saved" and the Next button; "Haven't tried it" skips to another snack and Undo comes back; the + opens the add form; the profile counts the rating; no JavaScript errors.
      2. Database unreachable (the Supabase address points nowhere): a list page says it couldn't load the latest ratings.
    Try it locally:  node tools/build-pages.mjs
                     npm install --no-save --no-package-lock playwright-core@1.48.2
@@ -97,6 +97,17 @@ try {
     await page.locator('#rate-body .saved', {hasText: 'Saved'}).waitFor();
     const next = await page.locator('#rate-body [data-act="next"]').innerText();
     if (!/^Next/.test(next.trim())) throw new Error(`the button says "${next.trim()}"`);
+  });
+  await step('"Haven\'t tried it" moves on to another snack, and Undo comes back', async () => {
+    await page.keyboard.press('Escape');
+    await page.locator('#v-category button.nm').nth(1).click();
+    const title = page.locator('#rate-title'), first = (await title.innerText()).trim();
+    await page.locator('#rate-body').getByRole('button', {name: /Haven't tried it/}).click();
+    await page.locator('#rate-body .skipped', {hasText: first}).waitFor();
+    const second = (await title.innerText()).trim();
+    if (second === first) throw new Error(`it stayed on "${first}"`);
+    await page.locator('#rate-body .skipped').getByRole('button', {name: /Undo/}).click();
+    await page.locator('#rate-title', {hasText: first}).waitFor();
   });
   await step('the + on a list opens "Add to Crisps"', async () => {
     await page.keyboard.press('Escape');

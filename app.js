@@ -242,9 +242,9 @@ const DEMO_RPC={
       flavours:DEMO.variants.filter(v=>count('variant_id',v.id)).sort(D.vsort)
         .map(v=>({id:v.id,product_id:v.product_id,name:D.variant(v.id,p_country),title:D.title(v.id,p_country),is_other:!!v.is_other,count:count('variant_id',v.id)}))};
   },
-  next_snack({p_item,p_variant,p_brand},st){
+  next_snack({p_item,p_variant,p_brand,p_skip},st){ // p_skip: snacks skipped with "Haven't tried it" (migration 017)
     const it=D.all().find(i=>i.id===p_item);if(!it)return {kind:'done'};
-    const need=DEMO.settings.rank_after_ratings,open=D.totals(it.c,st).filter(x=>x.id!==p_item&&!x.my_score);
+    const skip=p_skip||[],need=DEMO.settings.rank_after_ratings,open=D.totals(it.c,st).filter(x=>x.id!==p_item&&!x.my_score&&!skip.includes(x.id));
     const first=l=>l.sort((a,b)=>(b.total<need)-(a.total<need)||a.total-b.total||a.id-b.id)[0],asItem=x=>({kind:'item',id:x.id,short_label:x.pack_name});
     const b=p_brand&&first(open.filter(x=>x.brand_id===D.brandId(it.b)));if(b)return asItem(b);
     const s=first(open.filter(x=>x.product_id===it.p&&(p_variant==null||x.variant_id===p_variant)));if(s)return asItem(s);
@@ -670,6 +670,9 @@ const ACT={
   'edit-rating':()=>{sheet.editing=true;renderSheet()},
   unrate:removeRating,
   next:nextStep,
+  skip:skipSnack,
+  'skip-undo':skipUndo,
+  'skip-show':skipShow,
   'sheet-second':sheetSecond,
   approve:d=>{tipAct(5);needUser({name:'approve',item:+d.id,brand:d.brand,mine:d.mine==='1'})},
   report:d=>needUser({name:'report',item:+d.id}),
@@ -1919,14 +1922,19 @@ function renderSheet(){
   $('#rate-meta').innerHTML=`${esc(it.brand)} · ${esc(it.where)} · ${it.country.flag}${homeCountryId&&homeCountryId!==it.country.id?` <span class="ver">${esc(placeBy('id',it.country.id)?.adjective||it.country.short_name)} version</span>`:''}`;
   $('#rate-title').textContent=it.pack_name;
   const body=$('#rate-body');
-  if(sheet.editing){
-    body.innerHTML=`<div class="faces">${FACES.map(f=>`<button class="face-btn${it.my_score===f.v?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${it.my_score===f.v}"><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
-      ${sheet.error?`<div class="sheet-error" role="alert"><b>Your rating didn't save.</b> Please try again.<small>${esc(sheet.error)}</small></div>`
-        :'<div class="help">Tap a face. It saves straight away.</div>'}
-      ${it.my_score?'<button class="link remove-rating" data-act="unrate">Remove my rating</button>':''}`;
+  if(sheet.ended){ // "Haven't tried it" on the last snack left: the end of the run, still showing the skipped snack
+    body.innerHTML=skipNote()+nextHtml(sheet.next,it);
     return;
   }
-  const f=FACES.find(x=>x.v===it.my_score),n=sheet.next,more=sheet.from!=='brand'&&it.brand_snacks>=2;
+  if(sheet.editing){
+    body.innerHTML=`${skipNote()}<div class="faces">${FACES.map(f=>`<button class="face-btn${it.my_score===f.v?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${it.my_score===f.v}"><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
+      ${sheet.error?`<div class="sheet-error" role="alert"><b>Your rating didn't save.</b> Please try again.<small>${esc(sheet.error)}</small></div>`
+        :'<div class="help">Tap a face. It saves straight away.</div>'}
+      ${it.my_score?'<button class="link remove-rating" data-act="unrate">Remove my rating</button>'
+        :me?`<button class="link skip-link" data-act="skip" aria-label="Haven't tried it: show the next snack"${sheet.busy?' disabled':''}>Haven't tried it →</button>`:''}`;
+    return;
+  }
+  const f=FACES.find(x=>x.v===it.my_score),n=sheet.next;
   if(sheet.wow){ // the 10-rating moment takes the place of "Next" until Keep rating
     if($('#rate-body .wow'))return; // already showing: redrawing would restart the twinkle and lose focus
     body.innerHTML=`<div class="saved"><span>✓ Saved · You rated <b>${f.e} ${f.l}</b></span><button class="link" data-act="edit-rating">Edit</button></div>${wowHtml()}`;
@@ -1934,28 +1942,86 @@ function renderSheet(){
     else if(!$('#m-rate').contains(document.activeElement)||document.activeElement===document.body)$('#rate-body [data-act="wow-keep"]').focus();
     return;
   }
-  const second=more?`More from ${it.brand}`:`Back to ${it.listTitle}`;
-  let main='';
-  if(!n)main='<button class="btn btn-primary btn-block" disabled>Finding what\'s next…</button>';
-  else if(n.kind==='done')main=`<div class="crispy-done"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-joy"/></svg><div><b>You've rated them all!</b><div class="meta">Know one we're missing? Add it and I'll put it to the vote.</div></div></div>
-      <button class="btn btn-primary btn-block" data-act="close">Back to ${esc(it.listTitle)}</button>
-      <button class="btn btn-block" data-act="add">＋ Add one we're missing</button>
-      ${more?`<button class="btn btn-block" data-act="sheet-second">More from ${esc(it.brand)}</button>`:''}`;
-  else{
-    const name=(n.kind==='item'?n.short_label:n.title)||'';  // long pack names are cut with an ellipsis in CSS; the arrow always shows
-    main=`${n.kind==='list'?`<div class="done-line">That's every ${esc(it.where.toLowerCase())} here rated. 🎉</div>`:''}<button class="btn btn-primary btn-block next-btn" data-act="next"><span class="nx">${name?`Next: ${esc(name)}`:'Rate the next one'}</span><span aria-hidden="true">→</span></button>`;
-  }
   body.innerHTML=`<div class="saved"><span>✓ Saved · You rated <b>${f.e} ${f.l}</b></span><button class="link" data-act="edit-rating">Edit</button></div>
     ${placeUI&&placeUI.ctx==='ask'&&placeUI.item===it.id?askHtml():''}
     ${sheet.tip4?`<div class="tip plain${sheet.tip4==='new'?' tip-in':''}" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-joy"/></svg><p>Your first rating! The more snacks you rate here, the fairer the fight.</p></div>`:''}
-    ${main}${n&&n.kind==='done'?'':`<button class="btn btn-block" data-act="sheet-second">${esc(second)}</button>`}`;
+    ${nextHtml(n,it)}`;
   if(sheet.tip4)sheet.tip4=true;
   // keep keyboard focus inside the sheet when its buttons are replaced
   if(!$('#m-rate').contains(document.activeElement)||document.activeElement===document.body)($('#rate-body .btn-primary:not([disabled])')||$('#rate-body [data-act="edit-rating"]')).focus();
 }
+/* What comes after the faces once a snack is rated (or skipped as the last one left): "Next", the end of a list, or of everything.
+   With skipped snacks in the list, the words count them and offer them back (design/mockups/havent-tried.html 2a). */
+function nextHtml(n,it){
+  const more=sheet.from!=='brand'&&it.brand_snacks>=2,second=more?`More from ${it.brand}`:`Back to ${it.listTitle}`;
+  if(!n)return '<button class="btn btn-primary btn-block" disabled>Finding what\'s next…</button>';
+  const c=n.kind==='item'?null:skipCounts(n.kind==='done'),k=c?c.ids.length:0;
+  const showBtn=k?`<button class="btn btn-block" data-act="skip-show">Show the ${k===1?'one':k} I skipped</button>`:'';
+  if(n.kind==='done')return `<div class="crispy-done"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-joy"/></svg><div>${k
+      ?`<b>That's the whole list!</b><div class="meta">${c.rated?`You rated ${c.rated} and skipped ${k}.`:`You skipped ${k}.`} Know one we're missing? Add it and I'll put it to the vote.</div>`
+      :`<b>You've rated them all!</b><div class="meta">Know one we're missing? Add it and I'll put it to the vote.</div>`}</div></div>
+      <button class="btn btn-primary btn-block" data-act="close">Back to ${esc(it.listTitle)}</button>
+      ${showBtn}<button class="btn btn-block" data-act="add">＋ Add one we're missing</button>
+      ${more?`<button class="btn btn-block" data-act="sheet-second">More from ${esc(it.brand)}</button>`:''}`;
+  const name=(n.kind==='item'?n.short_label:n.title)||'';  // long pack names are cut with an ellipsis in CSS; the arrow always shows
+  return `${n.kind==='list'?`<div class="done-line">${k?`That's every ${esc(it.where.toLowerCase())} here rated or skipped.`:`That's every ${esc(it.where.toLowerCase())} here rated. 🎉`}</div>`:''}<button class="btn btn-primary btn-block next-btn" data-act="next"><span class="nx">${name?`Next: ${esc(name)}`:'Rate the next one'}</span><span aria-hidden="true">→</span></button>
+    ${showBtn}<button class="btn btn-block" data-act="sheet-second">${esc(second)}</button>`;
+}
+/* ---------- "Haven't tried it" (design/mockups/havent-tried.html, prompt 16) ----------
+   Skipped snacks are remembered on this device only (live: per user id; demo: inside the demo data), newest last, and
+   sent to next_snack as p_skip (migration 017), so Next, Keep rating and Start Rating stop offering them. Nothing about
+   skips is saved in the database. A skipped snack stays in its list: tapping it there opens the sheet as usual. */
+const SKIP_MAX=300;
+const skips=()=>{if(!me)return [];const v=LIVE?store.get('tasterank-skips-'+me.id):demoState().skips;return Array.isArray(v)?v:[]};
+function skipSave(a){a=a.slice(-SKIP_MAX);if(LIVE)return store.set('tasterank-skips-'+me.id,a);const d=demoState();d.skips=a;demoSave(d)}
+const skipAdd=id=>skipSave([...skips().filter(x=>x!==id),id]);
+const skipDrop=ids=>{const s=new Set(ids);skipSave(skips().filter(x=>!s.has(x)))};
+// Skipped and rated snacks on the page behind: the whole page, or only the flavour picked
+function skipCounts(all){
+  const v=page&&page.route&&page.route.variant,s=new Set(skips());
+  const items=((page&&page.items)||[]).filter(i=>all||!v||i.variant_id===v);
+  return {ids:items.filter(i=>!i.my_score&&s.has(i.id)).map(i=>i.id),rated:items.filter(i=>i.my_score).length};
+}
+const skipNote=()=>sheet.skipped?`<div class="skipped"><span>Skipped <b>${esc(sheet.skipped.name)}</b></span><button class="link" data-act="skip-undo" aria-label="Undo: go back to ${esc(sheet.skipped.name)}">Undo</button></div>`:'';
+// What Next would pick after this snack, leaving out skips. Before migration 017 is run, the database doesn't know p_skip
+// (PGRST202), so ask without it: Next still works, it just may offer a skipped snack.
+async function nextFor(it,from){
+  const args={p_item:it.id,p_variant:it.flavour,p_brand:from==='brand'},s=skips();
+  if(!s.length)return rpc('next_snack',args);
+  try{return await rpc('next_snack',{...args,p_skip:s})}catch(e){if(e&&e.code==='PGRST202')return rpc('next_snack',args);throw e}
+}
+async function skipSnack(){
+  if(!sheet||!me||sheet.it.my_score||sheet.busy)return;
+  const it=sheet.it;
+  skipAdd(it.id);track('skip-item',true);
+  sheet.busy=true;renderSheet();
+  let n;
+  try{n=await nextFor(it,sheet.from)}
+  catch(e){console.error(e);if(sheet&&sheet.it.id===it.id){sheet.busy=false;renderSheet();$('#rate-body [data-act="skip"]')?.focus()}return toast("Couldn't find the next snack. Pick one from the list.")}
+  if(!sheet||sheet.it.id!==it.id)return; // the sheet was closed meanwhile
+  const note={id:it.id,name:it.pack_name};
+  if(!(n.kind==='item'&&await openSheetOn(n.id,note))){sheet.busy=false;sheet.ended=true;sheet.next=n;sheet.skipped=note;renderSheet()}
+  $('#rate-title').focus();
+}
+async function skipUndo(){
+  const s=sheet&&sheet.skipped;if(!s)return;
+  skipDrop([s.id]);track('skip-undo',true);
+  if(await openSheetOn(s.id))$('#m-rate .face-btn')?.focus();
+}
+async function skipShow(){ // "Show the 6 I skipped": forget this list's skips and carry on with them
+  if(!sheet||!sheet.next)return;
+  const it=sheet.it,{ids}=skipCounts(sheet.next.kind==='done');
+  skipDrop(ids);track('skip-show-again',true);
+  if(!it.my_score){if(await openSheetOn(it.id))$('#rate-title').focus();return} // still on the snack just skipped: back to it
+  sheet.next=null;renderSheet();
+  let n;try{n=await nextFor(it,sheet.from)}catch(e){return oops(e)}
+  if(!sheet||sheet.it.id!==it.id)return;
+  if(n.kind==='item'&&await openSheetOn(n.id))return $('#rate-title').focus();
+  sheet.next=n;renderSheet();
+}
 async function loadNext(){
   const id=sheet.it.id;
-  try{const n=await rpc('next_snack',{p_item:id,p_variant:sheet.it.flavour,p_brand:sheet.from==='brand'});if(sheet&&sheet.it.id===id){sheet.next=n;renderSheet()}}
+  try{const n=await nextFor(sheet.it,sheet.from);if(sheet&&sheet.it.id===id){sheet.next=n;renderSheet()}}
   catch(e){console.error(e);if(sheet){sheet.next={kind:'done'};renderSheet()}}
 }
 async function saveRating(v){
@@ -1975,7 +2041,7 @@ async function saveRating(v){
     if(n===WOW_AT&&!wowState())wowSet('due');
     if(wowState()==='due'){if(placeUI&&placeUI.ctx==='ask'&&placeUI.item===it.id)sheet.wowWait=n;else wowShow(n)}
   }
-  it.my_score=v;sheet.editing=false;sheet.error=null;sheet.next=null;renderSheet();
+  it.my_score=v;sheet.editing=false;sheet.error=null;sheet.next=null;sheet.skipped=null;renderSheet();
   homeData=null;
   await refresh();                      // the page behind updates its counts, "You" tag and winner
   const fresh=itemFromPage(it.id);if(fresh&&sheet&&sheet.it.id===it.id)sheet.it={...fresh,my_score:v};
@@ -2126,14 +2192,19 @@ async function nextStep(){
   const n=sheet&&sheet.next;if(!n)return;
   if(n.kind==='list'){track('next-list',true);const cc=sheet.it.cc;closeM();return go({v:'category',cc,product:n.product_id,variant:n.variant_id})}
   track('next-item',true);
-  let it=itemFromPage(n.id);
+  if(await openSheetOn(n.id))$('#m-rate .face-btn')?.focus();
+}
+// The same sheet, on another snack (after Next, a skip, or Undo); skipped = the note to show at the top
+async function openSheetOn(id,skipped){
+  let it=itemFromPage(id);
   if(!it){ // another brand's snack, suggested from a brand page: move the page behind to its category, so "Back" and the counts match
-    await go({v:'category',cc:sheet.it.cc,product:sheet.it.product_id,variant:null});
-    it=itemFromPage(n.id);if(!it)return closeM();
+    const was=sheet.it;
+    await go({v:'category',cc:was.cc,product:was.product_id,variant:null});
+    it=itemFromPage(id);if(!it){closeM();return false}
   }
-  sheet={it,from:page.kind==='brandpage'?'brand':'list',editing:!it.my_score,next:null};
+  sheet={it,from:page.kind==='brandpage'?'brand':'list',editing:!it.my_score,next:null,skipped:skipped||null};
   if(it.my_score)loadNext();
-  renderSheet();$('#m-rate .face-btn')?.focus();
+  renderSheet();return true;
 }
 function sheetSecond(){ // "More from <brand>", or back to the list
   const it=sheet&&sheet.it,more=!!it&&sheet.from!=='brand'&&it.brand_snacks>=2;
@@ -2555,7 +2626,7 @@ async function rateRandom(){
   for(const x of pool){r-=x.snacks;if(r<0){pick=x;break}}
   await go({v:'category',cc:c.code.toLowerCase(),product:pick.id});
   const p=onCategory();if(!p||!p.items.length)return;
-  const left=p.items.filter(i=>!i.my_score),from=left.length?left:p.items,it=from[Math.floor(Math.random()*from.length)];
+  const skipped=new Set(skips()),left=p.items.filter(i=>!i.my_score&&!skipped.has(i.id)),from=left.length?left:p.items,it=from[Math.floor(Math.random()*from.length)];
   document.getElementById('snack-'+it.id)?.scrollIntoView({block:'center'});
   needUser({name:'rate',item:it.id,from:'category'});
 }

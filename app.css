@@ -258,6 +258,15 @@ div.ir{position:relative}
 .sheet-error{background:var(--soft);border-radius:12px;padding:10px 12px;font-size:14px;margin-top:-4px}
 .sheet-error small{display:block;color:var(--muted);font-size:12px;margin-top:4px;word-break:break-word}
 .remove-rating{display:block;margin:12px auto 0;min-height:44px;color:var(--danger)}
+/* "Haven't tried it": a quiet link under the faces, clearly less noticeable than them (design/mockups/havent-tried.html) */
+.skip-link{display:flex;align-items:center;justify-content:center;margin:2px auto 0;min-height:44px;padding:0 14px;color:var(--muted);font-size:14px;font-weight:700;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.skip-link:hover{color:var(--ink)}
+.skip-link:disabled{opacity:.6;cursor:default}
+.skipped{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--bg);border-radius:12px;padding:8px 12px;font-size:14px;font-weight:700;margin-bottom:12px;min-height:44px;color:var(--muted)}
+.skipped b{color:var(--ink);font-weight:800}
+.skipped span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skipped .link{flex:none;min-height:44px}
+#rate-title:focus{outline:none}
 .saved{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--hint);border-radius:12px;padding:8px 12px;font-size:14px;font-weight:700;margin-bottom:12px;min-height:44px}
 #rate-body .btn-block+.btn-block{margin-top:8px}
 .next-btn .nx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
