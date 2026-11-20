@@ -1312,9 +1312,12 @@ async function shrinkPhoto(file){ // max 800 px on the long side, JPEG, never ov
 async function uploadPhoto(blob){
   const path=`${me.id}/${(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2))}.jpg`;
   const {error}=await sb.storage.from('product-photos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'31536000',upsert:false});
-  if(error)throw /row-level security|violates|unauthori[sz]ed|403/i.test(error.message||'')  // the limit of 10 photos a day (migration 016)
-    ?new Error("You've added a lot of photos today. Try again tomorrow, or send it without a photo."):error;
-  return path;
+  if(!error)return path;
+  if(!/row-level security|violates|unauthori[sz]ed|403/i.test(error.message||''))throw error;
+  // refused by the storage rule: the limit of 10 photos a day (migration 016), or a sign-in that has run out, which the same rule refuses
+  const {data}=await sb.auth.getSession().catch(()=>({data:{}}));
+  throw new Error(data?.session?"You've added a lot of photos today. Try again tomorrow, or send it without a photo."
+    :"You've been signed out. Sign in again to add your photo, or send it without one.");
 }
 
 /* ---------- Sending ---------- */
@@ -2022,7 +2025,7 @@ async function skipShow(){ // "Show the 6 I skipped": forget this list's skips a
 async function loadNext(){
   const id=sheet.it.id;
   try{const n=await nextFor(sheet.it,sheet.from);if(sheet&&sheet.it.id===id){sheet.next=n;renderSheet()}}
-  catch(e){console.error(e);if(sheet){sheet.next={kind:'done'};renderSheet()}}
+  catch(e){console.error(e);if(sheet&&sheet.it.id===id){sheet.next={kind:'done'};renderSheet()}}
 }
 async function saveRating(v){
   if(!sheet||!me)return;
@@ -2699,12 +2702,12 @@ const tipSeen=n=>tips.seen.includes(n);
 function tipMark(n){if(!tipSeen(n)){tips.seen.push(n);saveTips()}}
 const tipKey=()=>view==='home'?'home':page?.key||view;
 const myRated=()=>profile?profile.rated:0;
-const TIPS={ // [Crispy's face, the words, whether it links to How it works]
+const TIPS={ // [Crispy's face, the words, whether it links to How it works, whether it carries a Share button]
   // under a "No winner yet" note, tip 2 leaves out what the note already says (10 ratings, How it works)
   2:()=>{const ask=me?'Know any of these? Tap a snack and pick a face.':'Know any of these? Sign in, then tap a snack and pick a face.';
     return $(`#v-${view} .early`)?['crisp-happy',ask]:['crisp-happy',`${ask} Each snack needs ${settings.rank_after_ratings} ratings to be ranked.`,true]},
   5:()=>['crisp-happy',`New snacks need ${settings.approval_votes} approvals to join the list. Know one of these? Approve it.`],
-  6:()=>['crisp-joy',"Think the crowd's wrong? Share this list and settle it."]};
+  6:()=>['crisp-joy',"Think the crowd's wrong? Share this list and settle it.",false,true]}; // its own Share button: on wide screens the page's one is in the other column
 function tipFits(n){
   if(tipSeen(n))return false;
   const c=onCategory();
@@ -2727,7 +2730,7 @@ function updateTips(){
 function drawTip(){
   const n=tipNow?tipNow.n:0,fresh=!!tipNow?.fresh,fab=$('#add-fab'),t7=$('#tip7');
   document.querySelectorAll('.tip-slot').forEach(el=>{const k=+el.dataset.n;el.innerHTML=k===n?tipHtml(k,fresh):''});
-  document.querySelectorAll('.share-btn').forEach(b=>b.classList.toggle('btn-primary',n===6));
+  document.querySelectorAll('.share-btn.narrow-only').forEach(b=>b.hidden=n===6); // tip 6 has its own Share button, right where this one sits
   const show7=n===7&&!openId&&!fab.hidden;
   t7.hidden=!show7;t7.classList.toggle('tip-in',show7&&fresh);
   if(show7)fab.setAttribute('aria-describedby','tip7');else fab.removeAttribute('aria-describedby');
@@ -2741,9 +2744,10 @@ const tip7Aside=()=>$('#tip7').classList.toggle('aside',bandUnder&&view==='home'
 const bandWatch=new IntersectionObserver(es=>{bandUnder=es[es.length-1].isIntersecting;tip7Aside()},{rootMargin:'-75% 0px 0px 0px'}); // the bottom quarter of the screen
 function watchBand(){bandWatch.disconnect();bandUnder=false;const b=$('#cards .band');if(b)bandWatch.observe(b);tip7Aside()}
 function tipHtml(n,fresh){
-  const [face,text,how]=TIPS[n]();
+  const [face,text,how,share]=TIPS[n]();
   return `<div class="tip${fresh?' tip-in':''}" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#${face}"/></svg><div><p>${esc(text)}</p>
-    <div class="acts"><button class="link" data-act="tip-ok" data-n="${n}">Got it</button>${how?'<button class="link" data-act="how">How it works</button>':''}</div></div></div>`;
+    ${share?`<div class="acts go"><button class="btn btn-primary" data-act="share-list">Share this list</button><button class="link" data-act="tip-ok" data-n="${n}">Not now</button></div>`
+      :`<div class="acts"><button class="link" data-act="tip-ok" data-n="${n}">Got it</button>${how?'<button class="link" data-act="how">How it works</button>':''}</div>`}</div></div>`;
 }
 function tipClose(n,how){ // Got it, or doing what the tip suggests
   tipMark(n);
