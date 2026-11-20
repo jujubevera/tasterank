@@ -3,7 +3,7 @@
    Run by .github/workflows/pages.yml after tools/build-pages.mjs; if a step fails, the site isn't published.
    It never touches the live database: it tests two copies of _site/ made in a temporary folder:
      1. Demo mode (all CONFIG keys blank, so nothing is sent anywhere): home shows cards; on a list, sign in, rate a snack,
-        see "Saved" and the Next button; "Haven't tried it" skips to another snack and Undo comes back; the + opens the add form; the profile counts the rating; no JavaScript errors.
+        see "Saved" and the Next button; searching the list leaves the matching snacks; "Haven't tried it" skips to another snack and Undo comes back; the + opens the add form; the profile counts the rating; no JavaScript errors.
      2. Database unreachable (the Supabase address points nowhere): a list page says it couldn't load the latest ratings.
    Try it locally:  node tools/build-pages.mjs
                     npm install --no-save --no-package-lock playwright-core@1.48.2
@@ -84,6 +84,14 @@ try {
   await step('a list page draws its ranking', async () => {
     await page.goto(demo.base + '/uk/crisps/');
     await page.locator('#v-category button.nm').first().waitFor();
+  });
+  await step('searching the list for "cheddar" leaves 3 snacks', async () => {
+    await page.locator('#v-category .ls-q').fill('cheddar');
+    const rows = await page.locator('#v-category .list .ir:visible').count();
+    const said = (await page.locator('#v-category .ls-count').innerText()).trim();
+    if (rows !== 3 || said !== '3 of 13 match') throw new Error(`${rows} rows, and it says "${said}"`);
+    await page.locator('#v-category .ls-q').press('Escape');
+    if (await page.locator('#v-category .list .ir:visible').count() !== 13) throw new Error('Escape did not bring the whole list back');
   });
   await step('signing in works (demo)', async () => {
     await page.getByRole('button', {name: 'Sign in', exact: true}).click();

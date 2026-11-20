@@ -2,6 +2,7 @@
 /* Colour tokens: Fiesta Fun (light, the default) and warm cocoa (dark, chosen in the settings panel under the gear icon). Every colour in this file comes from here. See design/DESIGN.md section 6. */
 :root{
   color-scheme:light;
+  --field-line:#9C8A75; --mark:#FCE7A8; /* search box edge 3.1:1 on the page; marked text 9.5:1, links 5.2:1 */
   --bg:#FEF6E4; --surface:#FFFFFF; --ink:#45352F; --muted:#6F625B; --line:#F3E1BB;
   --primary:#445E93; --on-primary:#FFFFFF; --winner:#C94A5A; --on-winner:#FFFFFF; --accent-text:#B33D4C;
   --soft:#FDE3E3; --hint:#EEF4FA; --bar:#7EB2DD; --bar-strong:#445E93; --tile:#FFFFFF; --pending:#7EB2DD;
@@ -14,6 +15,7 @@
 }
 html[data-theme="dark"]{
   color-scheme:dark;
+  --field-line:#7E6A63; --mark:#4A3818; /* 3.6:1; marked text 9.6:1, links 5.0:1 */
   --bg:#1C1416; --surface:#2A1F22; --ink:#FCECC9; --muted:#CDBBA8; --line:#3D2E31;
   --primary:#7EB2DD; --on-primary:#21171A; --winner:#FCB0B3; --on-winner:#21171A; --accent-text:#FCB0B3;
   --soft:#3D2A30; --hint:#24303F; --bar:#445E93; --bar-strong:#7EB2DD; --tile:#F6EEDF; --pending:#7EB2DD;
@@ -648,3 +650,31 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--in
 @keyframes twinkle{0%{transform:scale(.88);opacity:.35}45%{transform:scale(1.06);opacity:1}70%{transform:scale(.98)}100%{transform:none}}
 /* Reduce motion: nothing moves or fades (DESIGN.md section 6) */
 @media (prefers-reduced-motion:reduce){.btn,.lc,.toast,.float-tip{transition:none}.lc:hover{transform:none}}
+
+/* ---------- Search in a list (design/mockups/list-search.html, prompt 17) ---------- */
+.lsearch{position:relative;margin:16px 0 10px}
+.lsearch>svg{position:absolute;left:15px;top:50%;width:18px;height:18px;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.lsearch input{width:100%;min-height:48px;padding:12px 46px 12px 42px;border:1.5px solid var(--field-line);border-radius:999px;background:var(--surface);color:var(--ink);font-weight:600;font-size:16px;-webkit-appearance:none;appearance:none;text-overflow:ellipsis}
+.lsearch input::placeholder{color:var(--muted);opacity:1}
+.lsearch input::-webkit-search-cancel-button{display:none}
+.lsearch input.typed{border-color:var(--primary)}
+.lsearch .clear{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;background:none;border-radius:999px;color:var(--muted);display:grid;place-items:center;padding:0}
+.lsearch .clear svg{width:20px;height:20px}
+.lsearch .clear:hover{color:var(--ink)}
+.ls-count{margin:0 6px 10px;font-size:13px;font-weight:700;color:var(--muted)}
+.ls-count:empty{display:none}
+.ir.first-vis{border-top:0}
+.list mark,.pend mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
+.ls-none{display:grid;grid-template-columns:44px minmax(0,1fr);gap:12px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.ls-none>svg{width:44px;height:44px}
+.ls-none b{display:block;font-size:16px;line-height:1.3}
+.ls-none p{margin:4px 0 12px;color:var(--muted);font-size:14px;font-weight:600}
+.ls-none .acts{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}
+.ls-none .link{display:inline-block;padding:12px 0;margin:-12px 0}
+@media (max-width:899px){.lp-main.searching{min-height:calc(100vh - 60px)}} /* room to lift the box above the phone keyboard */
+@media (min-width:900px){
+  .lp-top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:10px 0 10px}
+  .lp-top .lp-head{margin:0}
+  .lp-top .lsearch{margin:0 0 0 auto;flex:0 1 300px}
+}
+

@@ -700,6 +700,9 @@ const ACT={
   'tips-info':()=>{const p=$('#tips-info'),b=$('[data-act="tips-info"]');p.hidden=!p.hidden;b.setAttribute('aria-expanded',!p.hidden)},
   how:()=>{showSettings(false);openHow()},
   'tip-ok':d=>tipClose(+d.n,'dismissed'),
+  'ls-clear':()=>lsClear(true),
+  'ls-all':lsShowAll,
+  'ls-add':lsAdd,
   owner:()=>{showSettings(false);go({v:'owner'})}
 };
 document.addEventListener('click',e=>{
@@ -719,6 +722,7 @@ const AFTER={
   approve:a=>doApprove(a.item,a.brand,a.mine),
   report:a=>openReport(a.item),
   add:a=>startAdd(),
+  'add-q':a=>startAdd(null,a.q), // "＋ Add it" under a list search that found nothing
   owner:()=>go({v:'owner'})
 };
 function needUser(a){
@@ -923,10 +927,10 @@ const checkState=()=>({pack:'',offPick:null,offBrand:'',barcode:null,brand:'',br
   dup:null,dupTracked:null,whichForced:false,whichTracked:false,checking:false,checkSeq:0,checkPromise:null,
   touched:false,photo:null,photoUrl:null,ownPhoto:false,score:null,error:null,sending:false});
 const whereNow=()=>{const c=onCategory(),b=onBrandPage();return c?`c${c.id}/${c.country.id}`:b?`b${b.id}/${b.country.id}`:'home'};
-async function startAdd(again){
+async function startAdd(again,q0){
   // a saved copy of the old page can be paired with this newer code for a few minutes after an update: reload once to match
   if(!$('#add-body')){if(!store.get('tasterank-reloaded',true)){store.set('tasterank-reloaded',1,true);toast('TasteRank was just updated. Reloading…');setTimeout(()=>location.reload(),900)}else oops(new Error('Add pop-up missing'));return}
-  if(add&&!again&&add.step!=='sent'&&add.where===whereNow()){openM('m-add');renderAdd();focusAdd();return} // closed: carry on where they left off
+  if(add&&!again&&!q0&&add.step!=='sent'&&add.where===whereNow()){openM('m-add');renderAdd();focusAdd();return} // closed: carry on where they left off
   const cat=again?null:onCategory(),br=again?null:onBrandPage(),from=again?'again':cat?'category':br?'brand':'home';
   add=freshAdd({from,where:whereNow(),country:again?again.country:cat||br?page.country.id:homeCountry().id,q:again?again.pack:''});
   track(again?'add-again':'add-open-'+from,true);
@@ -934,9 +938,10 @@ async function startAdd(again){
   if(cat)Object.assign(add,{ctxProduct:cat.id,ctxVariant:cat.route.variant||null});
   if(br)Object.assign(add,{ctxBrand:br.name,ctxBrandProducts:br.products.map(p=>p.id),q:br.name+' '});
   if(from==='home'&&prefs.cat!=='all')add.ctxType=+prefs.cat; // the type chip on home: its categories are suggested first
+  if(q0)add.q=br&&!norm(q0).startsWith(norm(br.name))?`${br.name} ${q0}`:q0; // from a list search: the words already typed
   if(again){openM('m-add');return startCheck({again})}
   renderAdd();openM('m-add');focusAdd();
-  if(br)runTyped(); // the brand's snacks straight away (A9)
+  if(br||q0)runTyped(); // the brand's snacks (A9), or what was searched, straight away
 }
 async function startCheck(src){ // step 1 → step 2, with what we could fill in
   const off=src.off||null,again=src.again||null;
@@ -1784,7 +1789,7 @@ async function renderCategory(r){
   if(r.vword&&!r.variant)r={...r,variant:(d.flavours.find(f=>slug(f.name)===r.vword)||{}).id||null};
   const variant=d.flavours.length>=2&&d.flavours.some(f=>f.id===r.variant)?r.variant:null; // an old link to a flavour that has no chip opens All
   nameIt('p',c.code,r.product,d.name);d.flavours.forEach(f=>nameIt('v',c.code,`${r.product}.${f.id}`,f.name));d.items.forEach(i=>nameIt('b',c.code,i.brand_id,i.brand));
-  page={...d,key,kind:'category',route:{v:'category',cc:c.code,product:r.product,variant},cc:c.code,gone:gonePick||null};
+  page={...d,key,kind:'category',route:{v:'category',cc:c.code,product:r.product,variant},cc:c.code,gone:gonePick||null,q:fresh?'':page.q||''};
   if(variant!==r.variant)setRoute(page.route);else canon(page.route);
   if(fresh)track('open-category',true);
   drawCategory();
@@ -1803,7 +1808,8 @@ function drawCategory(){
   setHead(listTitle(d.title,d.country),pathFor(d.route).split('?')[0]);
   const fresh=!n&&pend.length>0; // a new list: nothing live yet, so one note instead of No winner yet, the rating tip and None live yet
   const nudge=!fresh&&nudgeHere();
-  const won=items.some(i=>i.ranked);
+  const won=items.some(i=>i.ranked),what=d.title.toLowerCase();
+  const box=!fresh&&d.items.length>=LIST_SEARCH_FROM?lsBox(n>=2?`Search ${n} ${what}`:`Search ${what}`,`Search ${what} in this list`):'';
   $('#v-category').innerHTML=`<div class="lp"><div class="lp-side">
     <button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}">← ${esc(d.country.short_name)} <span>· ${esc(d.type)}</span></button>
     <h1 class="page-title">${esc(d.title)}: which one wins?</h1>
@@ -1817,15 +1823,15 @@ function drawCategory(){
     ${sideNote(won&&!fresh)}
     <button class="btn share-btn wide-only" data-act="share-list">Share this list</button>
     </div><div class="lp-main">
-    ${n?`<h2 class="lp-head">${rankedHead(n,d.title.toLowerCase())}</h2><div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
+    ${lsTop(n?`<h2 class="lp-head">${rankedHead(n,what)}</h2>`:'',box)}${n?`<div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
         ?`<a class="bl" href="${esc(pathFor({v:'brand',cc:d.cc,brand:it.brand_id}))}" data-act="brand" data-cc="${d.cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand))
-        +(chips&&!f?` · ${esc(flavour(it.variant_id))}`:''))).join('')}</div>`:''}
+        +(chips&&!f?` · ${esc(flavour(it.variant_id))}`:''))).join('')}</div>`:''}${box?'<div class="ls-none-slot"></div>':''}
     ${n<3&&!fresh?`<div class="alert"><b>${n?`Only ${n===1?'one':'two'} so far`:'None live yet'}</b><span>Know ${n?`another ${esc(d.title.toLowerCase())}`:'one'} sold in ${esc(d.country.name)}? Tap + to add it. It goes live once ${settings.approval_votes} people approve.</span></div>`:''}
-    ${pend.length?`${fresh?'':'<div class="tip-slot" data-n="5"></div>'}<h2>Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
+    ${pend.length?`${fresh?'':'<div class="tip-slot" data-n="5"></div>'}<h2 class="pend-h">Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
     <div class="tip-slot" data-n="6"></div>
     <button class="btn share-btn narrow-only" data-act="share-list">Share this list</button>
     </div></div>`;
-  updateTips();
+  lsApply();updateTips();
 }
 function pickFlavour(id){
   if(!page||page.kind!=='category'||page.route.variant===id)return;
@@ -1859,7 +1865,7 @@ async function renderBrandPage(r){
   let d;try{d=await rpc('brand_page',{p_brand:r.brand,p_country:c.id})}catch(e){oops(e);return}
   if(!d||!d.items.length)return gone();
   nameIt('b',c.code,d.id,d.name);d.products.forEach(p=>nameIt('p',c.code,p.id,p.name));d.flavours.forEach(f=>nameIt('v',c.code,`${f.product_id}.${f.id}`,f.name));
-  page={...d,key,kind:'brandpage',cc:c.code,route:brandRoute(d,c.code,r.product,r.variant)};
+  page={...d,key,kind:'brandpage',cc:c.code,route:brandRoute(d,c.code,r.product,r.variant),q:fresh?'':page.q||''};
   if(page.route.product!==r.product||page.route.variant!==r.variant)setRoute(page.route);else canon(page.route);
   if(fresh)track('open-brand',true);
   drawBrand();
@@ -1877,7 +1883,8 @@ function drawBrand(){
   d.title=d.name;
   const nudge=nudgeHere();
   setHead(brandTitle(d.name,d.country),pathFor({...d.route,product:null,variant:null})); // filtered views count as the brand page
-  const prodName=prod&&(d.products.find(p=>p.id===prod)||{}).name;
+  const prodName=prod&&(d.products.find(p=>p.id===prod)||{}).name,what=`${d.name} ${(prodName||'snacks').toLowerCase()}`,n=items.length;
+  const box=d.items.length>=LIST_SEARCH_FROM?lsBox(n>=2?`Search ${n} ${what}`:`Search ${what}`,`Search ${what} in this list`):'';
   $('#v-brand').innerHTML=`<div class="lp"><div class="lp-side">
     <button class="crumb" data-act="home-brands" data-cc="${d.cc}">← ${esc(d.country.short_name)} <span>· Brands</span></button>
     <h1 class="page-title">${esc(d.name)}: which one wins?</h1>
@@ -1889,11 +1896,11 @@ function drawBrand(){
     <div class="tip-slot" data-n="2"></div>
     ${sideNote(items.some(i=>i.ranked))}
     </div><div class="lp-main">
-    ${items.length?`<h2 class="lp-head">${rankedHead(items.length,`${d.name} ${(prodName||'snacks').toLowerCase()}`)}</h2>`:''}
+    ${lsTop(n?`<h2 class="lp-head">${rankedHead(n,what)}</h2>`:'',box)}
     <div class="list">${items.map((it,k)=>listRow(it,k,it.place?listLink(d.cc,it.product_id,`#${it.place} in ${esc(it.product)}`)
-      :`${listLink(d.cc,it.product_id,esc(it.product))} · not ranked yet`)).join('')}</div>
+      :`${listLink(d.cc,it.product_id,esc(it.product))} · not ranked yet`)).join('')}</div>${box?'<div class="ls-none-slot"></div>':''}
     </div></div>`;
-  updateTips();
+  lsApply();updateTips();
 }
 function pickBrandChip(product,variant,event){
   if(!page||page.kind!=='brandpage')return;
@@ -1902,6 +1909,113 @@ function pickBrandChip(product,variant,event){
   page.route=r;setRoute(r);track(event,true);
   redraw($('#v-brand'),drawBrand,event==='pick-category'?'bp-cat':'bp-flavour');
 }
+
+/* ---------- Search in a list (design/mockups/list-search.html, prompt 17) ----------
+   On list and brand pages with LIST_SEARCH_FROM+ snacks. Filters the rows already on the page as you type (hiding, never
+   redrawing, so the phone keyboard stays open), keeps each snack's real rank number, and searches waiting snacks too.
+   The words live in page.q: kept when a chip is picked or the page redraws after a rating, never in the address. */
+const LIST_SEARCH_FROM=10;
+const ICON_SEARCH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 20 20"/></svg>';
+const lsBox=(placeholder,label)=>`<div class="lsearch" role="search">${ICON_SEARCH}<input type="search" class="ls-q" placeholder="${esc(placeholder)}" aria-label="${esc(label)}" enterkeyhint="search" autocomplete="off" maxlength="60">
+  <button class="clear" data-act="ls-clear" aria-label="Clear search" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>`;
+// With a box: the heading and the box share a row on wide screens, and the count goes underneath
+const lsTop=(head,box)=>box?`<div class="lp-top">${head}${box}</div><p class="ls-count" role="status"></p>`:head;
+const lsView=()=>page&&(page.kind==='category'?$('#v-category'):page.kind==='brandpage'?$('#v-brand'):null);
+const lsWords=q=>snackKey(q).split(' ').filter(Boolean);
+// Every typed word must start a word of the name, brand (or subcategory) or flavour, compared the way snackKey does
+function lsFits(words,...texts){const hay=snackKey(texts.join(' ')).split(' ');return words.every(w=>hay.some(h=>h.startsWith(w)))}
+function lsItemFits(it,words){
+  if(page.kind==='category')return lsFits(words,it.pack_name,it.brand,(page.flavours.find(f=>f.id===it.variant_id)||{}).name||'');
+  return lsFits(words,it.pack_name,it.product,it.flavour||'');
+}
+// Marks where each word starts a word in the text (an extra cue only), leaving tags, links and "· You 😍" alone
+function lsUnmark(el){el.querySelectorAll('mark').forEach(m=>m.replaceWith(m.textContent));el.normalize()}
+function lsMark(el,words){
+  for(const w of words){
+    const re=new RegExp(`(^|[^\\p{L}\\p{N}'\u2019])(${[...w].map(c=>c.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join("['\u2019]?")})`,'giu');
+    const walk=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('mark,.mine')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
+    const nodes=[];while(walk.nextNode())nodes.push(walk.currentNode);
+    for(const t of nodes){
+      const s=t.nodeValue;let m,at=0,frag=null;re.lastIndex=0;
+      while((m=re.exec(s))){
+        const start=m.index+m[1].length;frag=frag||document.createDocumentFragment();
+        frag.append(s.slice(at,start));const mk=document.createElement('mark');mk.textContent=m[2];frag.append(mk);at=start+m[2].length;
+        if(m[0].length===0)re.lastIndex++;
+      }
+      if(frag){frag.append(s.slice(at));t.replaceWith(frag)}
+    }
+  }
+}
+function lsApply(){
+  const el=lsView(),inp=el&&el.querySelector('.ls-q');if(!inp)return;
+  const q=page.q||'',words=lsWords(q),on=!!q.trim();
+  if(inp.value!==q)inp.value=q;
+  inp.classList.toggle('typed',on);el.querySelector('.lsearch .clear').hidden=!on;
+  el.querySelector('.lp-main').classList.toggle('searching',on||document.activeElement===inp);
+  const rows=[...el.querySelectorAll('.list .ir')];let shown=0,first=true;
+  for(const r of rows){
+    const it=page.items.find(i=>'snack-'+i.id===r.id),ok=!on||!words.length||!!(it&&lsItemFits(it,words));
+    r.hidden=!ok;r.classList.toggle('first-vis',ok&&first);if(ok){shown++;first=false}
+    r.querySelectorAll('.nm-t,.sb').forEach(x=>{lsUnmark(x);if(ok&&on)lsMark(x,words)});
+  }
+  let waiting=0;
+  el.querySelectorAll('.pend').forEach(c=>{
+    const p=(page.pending||[]).find(x=>'snack-'+x.id===c.id),ok=!on||!words.length||!!(p&&lsFits(words,p.pack_name,p.brand));
+    c.hidden=!ok;if(ok)waiting++;
+    c.querySelectorAll('.bn,.pk').forEach(x=>{lsUnmark(x);if(ok&&on)lsMark(x,words)});
+  });
+  const pendH=el.querySelector('.pend-h');if(pendH){pendH.hidden=!waiting;el.querySelector('.pend-list').hidden=!waiting}
+  const list=el.querySelector('.list');if(list)list.hidden=on&&!shown;
+  el.querySelectorAll('.lp-main>.alert').forEach(a=>a.hidden=on); // "Only one so far" waits while searching
+  const none=on&&!shown&&!waiting;
+  el.querySelector('.ls-count').textContent=!on||none?'':`${shown} of ${rows.length} match${waiting&&pendH?`, and ${waiting} waiting for approval`:''}`;
+  el.querySelector('.ls-none-slot').innerHTML=none?lsNoneHtml(q.trim()):'';
+  if(none)lsOnce('list-search-none');
+}
+// Nothing found: in a flavour or subcategory with matches elsewhere in the list, offer them; otherwise offer to add it
+function lsNoneHtml(q){
+  const words=lsWords(q),cat=page.kind==='category',r=page.route;
+  const chip=cat?page.flavours.find(f=>f.id===r.variant):r.variant?page.flavours.find(f=>f.id===r.variant):r.product&&page.products.length>=2?page.products.find(p=>p.id===r.product):null;
+  const elsewhere=chip?page.items.filter(i=>lsItemFits(i,words)).length:0;
+  const all=cat?`all ${page.name.toLowerCase()}`:`all ${page.name} snacks`;
+  const head=elsewhere?`No “${esc(q)}” in ${esc(chip.name)}`:`No “${esc(q)}” in ${esc(cat?page.title:page.name)} yet`;
+  const line=elsewhere?`${elsewhere===1?"There's 1":`There are ${elsewhere}`} in ${esc(all)}.`:'Know it? Add it and it goes to the vote.';
+  const btn=elsewhere?`<button class="btn btn-primary" data-act="ls-all">Show ${elsewhere===1?'it':'them'} in ${esc(all)}</button>`:'<button class="btn btn-primary" data-act="ls-add">＋ Add it</button>';
+  return `<div class="ls-none" role="status"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><div><b>${head}</b><p>${line}</p>
+    <div class="acts">${btn}<button class="link" data-act="ls-clear">Clear search</button></div></div></div>`;
+}
+let lsSeen={key:null,done:new Set()}; // each event once per page
+function lsOnce(name){if(lsSeen.key!==page.key)lsSeen={key:page.key,done:new Set()};if(!lsSeen.done.has(name)){lsSeen.done.add(name);track(name,true)}}
+function lsClear(focus){
+  if(!page)return;page.q='';lsApply();
+  if(focus)lsView()?.querySelector('.ls-q')?.focus();
+}
+function lsShowAll(){
+  if(!page)return;lsOnce('list-search-all');
+  if(page.kind==='category')pickFlavour(null);else pickBrandChip(null,null,'pick-category');
+  lsView()?.querySelector('.ls-q')?.focus();
+}
+function lsAdd(){if(!page||!page.q)return;lsOnce('list-search-add');needUser({name:'add-q',q:page.q.trim()})}
+document.addEventListener('input',e=>{
+  if(!e.target.classList?.contains('ls-q')||!page)return;
+  page.q=e.target.value;if(page.q.trim())lsOnce('list-search');lsApply();
+});
+document.addEventListener('keydown',e=>{
+  if(!e.target.classList?.contains('ls-q'))return;
+  if(e.key==='Escape'){e.preventDefault();lsClear(true)}
+  else if(e.key==='Enter'){e.preventDefault();e.target.blur()} // closes the phone keyboard; the list is already filtered
+});
+// Phones: lift the box to just under the header so the results sit above the keyboard; .searching keeps a screen of room to do it
+document.addEventListener('focusin',e=>{
+  if(!e.target.classList?.contains('ls-q'))return;
+  e.target.closest('.lp-main').classList.add('searching');
+  if(innerWidth>=900)return;
+  const top=e.target.closest('.lsearch').getBoundingClientRect().top+scrollY-($('.bar')?.offsetHeight||60)-12;
+  scrollTo({top,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+});
+document.addEventListener('focusout',e=>{
+  if(e.target.classList?.contains('ls-q')&&!(page&&page.q))e.target.closest('.lp-main')?.classList.remove('searching');
+});
 
 /* ---------- Rating sheet: tapping a face saves straight away; "Next" suggests what to rate next ---------- */
 function itemFromPage(id){
@@ -2709,7 +2823,7 @@ const TIPS={ // [Crispy's face, the words, whether it links to How it works, whe
   5:()=>['crisp-happy',`New snacks need ${settings.approval_votes} approvals to join the list. Know one of these? Approve it.`],
   6:()=>['crisp-joy',"Think the crowd's wrong? Share this list and settle it.",false,true]}; // its own Share button: on wide screens the page's one is in the other column
 function tipFits(n){
-  if(tipSeen(n))return false;
+  if(tipSeen(n)||page?.q)return false; // Crispy's tips wait while someone is searching a list
   const c=onCategory();
   if(n===2)return !!(c||onBrandPage())&&!$(`#v-${view} .nudge`); // one note at a time: it waits while Crispy's sign-in note shows
   if(n===5)return !!(c&&me&&myRated()>=1&&$('#v-category .tip-slot[data-n="5"]')&&c.pending.some(p=>!p.mine&&!p.approved));
