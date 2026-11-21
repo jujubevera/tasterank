@@ -610,10 +610,12 @@ async function parseRoute(){
   return {v:'category',cc,product:pv.product,variant:pv.variant||null,vword:pv.vword||null,snack:+new URLSearchParams(location.search).get('snack')||null};
 }
 // The tab title and canonical address follow the page (the pre-built pages start with the same ones)
-const HOME_TITLE='TasteRank: which snack wins? Snack ratings by country';
+const HOME_TITLE='TasteRank: the snacks each country loves most, rated by real tasters';
 const ABOUT_TITLE='About TasteRank: how the snack rankings work'; // the same in tools/build-pages.mjs
 const inPlace=c=>/^[A-Z]{2,3}$/.test(c.short_name)?'the '+c.short_name:c.short_name; // the UK, Japan
-const listTitle=(title,c)=>`Best ${title.toLowerCase()} in ${inPlace(c)}, ranked by votes | TasteRank`;
+const theirs=c=>{const p=inPlace(c);return p.charAt(0).toUpperCase()+p.slice(1)+"'s"}; // The UK's, Japan's
+const lowerFirst=s=>s.charAt(0).toLowerCase()+s.slice(1); // "Salt & vinegar crisps" → "salt & vinegar crisps", later capitals kept
+const listTitle=(title,c)=>`${theirs(c)} favourite ${lowerFirst(title)}: best rated by real tasters | TasteRank`;
 const brandTitle=(name,c)=>`${name}: every snack ranked in ${inPlace(c)} | TasteRank`;
 function setHead(title,path){
   document.title=title;
@@ -678,7 +680,7 @@ const ACT={
   report:d=>needUser({name:'report',item:+d.id}),
   'wait-all':openWaitAll,
   'open-snack':d=>{closeM();go({v:'category',cc:d.cc,product:+d.product,variant:null,snack:+d.id})},
-  'share-list':()=>{if(!page)return;tipAct(6);track('share-list',true);share(`${page.title}: which one wins? Vote on TasteRank`)},
+  'share-list':()=>{if(!page)return;tipAct(6);track('share-list',true);const h=[...document.querySelectorAll('.page-title')].find(e=>e.offsetParent);share(`${h?h.textContent:page.title} Have your say on TasteRank`)},
   share:()=>share(),
   'share-snack':d=>{const p=page.pending.find(x=>x.id===+d.id);if(p)share(`Know ${p.pack_name}? Help it onto TasteRank: approve it in ${page.name}.`,snackLink({cc:page.cc,product:page.id,id:p.id}))},
   add:openAdd,
@@ -1603,6 +1605,7 @@ function typesInOrder(c){
 }
 async function renderHome(r){
   const c=homeCountry();
+  $('#home-h').textContent=`What snacks does ${inPlace(c)} love most?`;
   $('#country').innerHTML=places.map(p=>`<option value="${esc(p.code)}"${p===c?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('');
   homeBy=r&&r.by==='brands'?'brands':null;
   $('#trip').innerHTML=tripNote(c);
@@ -1627,7 +1630,7 @@ const panel=(emoji,type,photo,cls='pp')=>`<span class="${cls}" style="--tint:var
 // Under the name: the winner (up to 2 lines), or a bar filling up towards one (never "1/10", which reads like a score)
 function cardStatus(win,label,lead,goal){
   if(win)return `<span class="win2"><span class="k">${label}</span><b>${esc(win.pack_name)}</b><span class="s">${faceFor(win.avg).e} ${score1(win.avg)}</span></span>`;
-  if(lead==null)return `<span class="go"><b>No ${label.toLowerCase()} yet</b></span>`; // before migration 009
+  if(lead==null)return `<span class="go"><b>Not ranked yet</b></span>`; // before migration 009
   if(!lead)return `<span class="go"><b>No ratings yet</b> · Be the first</span>`;
   const need=settings.rank_after_ratings;
   return `<span class="wb" aria-hidden="true"><i style="width:${Math.min(100,Math.round(lead/need*100))}%"></i></span><span class="go"><b>${plural(Math.max(1,need-lead),'more rating')}</b> ${goal}</span>`;
@@ -1637,12 +1640,12 @@ const cardText=(name,meta,status)=>`<span class="tx"><span class="nm">${esc(name
 const isNew=x=>!x.snacks&&x.waiting>0;
 const catCard=(x,country)=>panel(x.emoji,x.type_id,listPhoto(x.id,country))+(isNew(x)
   ?cardText(x.name,`${plural(x.waiting,'snack')} waiting`,`<span class="newk">New list</span><span class="go">Help decide what's in it</span>`)
-  :cardText(x.name,plural(x.snacks,'snack')+ratingsPart(x.ratings),cardStatus(x.top[0],'Winner',x.lead??(x.to_rate[0]||{}).total,'to win')));
+  :cardText(x.name,plural(x.snacks,'snack')+ratingsPart(x.ratings),cardStatus(x.top[0],'Most loved',x.lead??(x.to_rate[0]||{}).total,'to be ranked')));
 // A brand card shows its main list's picture: the list it has most snacks in, within the category picked in the chips.
 // Matched by name, as home_brands gives the lists' names (most snacks first), not their ids.
 function brandCard(b,country){
   const lists=(b.categories||[]).map(n=>homeData.cats.find(x=>x.name===n)).filter(Boolean),main=lists.find(x=>inType(x.type_id))||lists[0];
-  return panel(main?.emoji||((b.thumbs||[b.thumb||{}])[0]||{}).emoji,main?.type_id??(b.type_ids||[])[0],main&&listPhoto(main.id,country))+cardText(b.name,plural(b.snacks,'snack')+ratingsPart(b.ratings),cardStatus(b.best,'Best',b.lead,'to be the best'));
+  return panel(main?.emoji||((b.thumbs||[b.thumb||{}])[0]||{}).emoji,main?.type_id??(b.type_ids||[])[0],main&&listPhoto(main.id,country))+cardText(b.name,plural(b.snacks,'snack')+ratingsPart(b.ratings),cardStatus(b.best,'Most loved',b.lead,'to be ranked'));
 }
 function renderHomeCards(){
   if(!homeData)return;
@@ -1826,7 +1829,7 @@ async function renderCategory(r){
 /* Wide screens (900 px+, design/mockups/browse.html section 4): the title, chips and winner stay put on the left while the
    ranking scrolls on the right, under "All 18 crisps, ranked". Phones show the two halves one after the other, as before. */
 const rankedHead=(n,what)=>n>=2?`All ${n} ${esc(what)}, ranked`:'Ranked so far'; // "All 6 salt & vinegar crisps", "All 4 Walkers snacks"
-const sideNote=on=>on?`<p class="side-note wide-only">Snacks are ranked once they have ${settings.rank_after_ratings} ratings, so one person's opinion can't decide the winner. <button class="link" data-act="how">How it works</button></p>`:'';
+const sideNote=on=>on?`<p class="side-note wide-only">Snacks are ranked once they have ${settings.rank_after_ratings} ratings, so one person's opinion can't decide the favourite. <button class="link" data-act="how">How it works</button></p>`:'';
 function drawCategory(){
   const d=page,f=d.flavours.find(x=>x.id===d.route.variant)||null,chips=d.flavours.length>=2;
   const items=f?d.items.filter(i=>i.variant_id===f.id):d.items,pend=f?d.pending.filter(p=>p.variant_id===f.id):d.pending;
@@ -1839,13 +1842,13 @@ function drawCategory(){
   const box=!fresh&&d.items.length>=LIST_SEARCH_FROM?lsBox(n>=2?`Search ${n} ${what}`:`Search ${what}`,`Search ${what} in this list`):'';
   $('#v-category').innerHTML=`<div class="lp"><div class="lp-side">
     <button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}">← ${esc(d.country.short_name)} <span>· ${esc(d.type)}</span></button>
-    <h1 class="page-title">${esc(d.title)}: which one wins?</h1>
+    <h1 class="page-title">Which ${esc(lowerFirst(d.title))} does ${esc(inPlace(d.country))} love most?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${fresh?'New list':plural(n,'snack')+ratingsPart(total)}</div>
     ${tripNote(placeBy('code',d.cc))}
     ${d.gone?`<div class="card gone-card" role="status"><span class="gone-e" aria-hidden="true">😶</span><b>${esc(d.gone.pack_name)} was withdrawn</b><span class="meta">The person who added it took it back before it went live, so there's nothing to approve.</span></div>`:''}
     ${chips?chipsHtml('Flavours','flavour',[{id:null,name:'All',count:d.items.length},...d.flavours],f?f.id:null):''}
     ${fresh?`<div class="newnote"><b>New list: help decide what's in it</b><span>Snacks join once ${settings.approval_votes} people approve them. Know one of these? Approve it. Missing one? Tap + to add it.</span></div>`
-      :`${nudge?nudgeHtml(total):''}${winnerHtml(items,'The winner so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'No winner yet',nudge)}
+      :`${nudge?nudgeHtml(total):''}${winnerHtml(items,'Most loved so far',w=>`${plural(w.total,'rating')} · ${Math.round(w.r5/w.total*100)}% love it`,'Not ranked yet',nudge)}
     <div class="tip-slot" data-n="2"></div>`}
     ${sideNote(won&&!fresh)}
     <button class="btn share-btn wide-only" data-act="share-list">Share this list</button>
@@ -1914,12 +1917,12 @@ function drawBrand(){
   const box=d.items.length>=LIST_SEARCH_FROM?lsBox(n>=2?`Search ${n} ${what}`:`Search ${what}`,`Search ${what} in this list`):'';
   $('#v-brand').innerHTML=`<div class="lp"><div class="lp-side">
     <button class="crumb" data-act="home-brands" data-cc="${d.cc}">← ${esc(d.country.short_name)} <span>· Brands</span></button>
-    <h1 class="page-title">${esc(d.name)}: which one wins?</h1>
+    <h1 class="page-title">Which ${esc(d.name)} snack does ${esc(inPlace(d.country))} love most?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${plural(items.length,'snack')}${ratingsPart(total)}</div>
     ${tripNote(placeBy('code',d.cc))}
     ${multi?chipsHtml('Subcategories','bp-cat',[{id:null,name:'All',count:d.items.length},...d.products],prod):''}
     ${fls.length>=2?chipsHtml('Flavours','bp-flavour',[{id:null,name:multi?`All ${(d.products.find(p=>p.id===prod)||{name:''}).name.toLowerCase()}`:'All',count:fls.reduce((s,f)=>s+f.count,0)},...fls],v):''}
-    ${nudge?nudgeHtml(total):''}${winnerHtml(items,`Best of ${d.name} so far`,w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'No best yet',nudge)}
+    ${nudge?nudgeHtml(total):''}${winnerHtml(items,'Most loved so far',w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'Not ranked yet',nudge)}
     <div class="tip-slot" data-n="2"></div>
     ${sideNote(items.some(i=>i.ranked))}
     </div><div class="lp-main">
@@ -2212,7 +2215,7 @@ function wowSet(v){if(LIVE)return store.set('tasterank-wow-'+me.id,v);const d=de
 function wowShow(n){wowSet('seen');sheet.wow={n,fresh:true};track('milestone-10',true)}
 const wowHtml=()=>`<div class="moment wow"><svg class="${sheet.wow.fresh?'twinkle':''}" viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-wow"/></svg>
   <h3 id="wow-title" tabindex="-1">Wow! ${sheet.wow.n} snacks rated</h3>
-  <p>You're now one of TasteRank's tasters. Every rating makes the winners fairer for everyone.</p>
+  <p>You're now one of TasteRank's tasters. Every rating makes the favourites more accurate for everyone.</p>
   <button class="btn btn-primary btn-block" data-act="wow-keep">Keep rating</button>
   <button class="btn btn-block" data-act="wow-share">Share TasteRank</button></div>`;
 function wowAfterPlace(){ // the place card is finished or skipped: the waiting moment takes its place
@@ -2814,7 +2817,7 @@ function subRow(x,i){ // a snack you sent in, and where it's got to: "🇬🇧 �
   return `<div class="ir subr">${inner}${act}</div>`;
 }
 async function share(text,url=location.href){
-  const data={title:'TasteRank',text:text||'Which snack wins? Snack brands from every country, rated like for like.',url};
+  const data={title:'TasteRank',text:text||'What snacks does each country love most? Rated by real snack lovers.',url};
   try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(url);toast('Link copied')}}catch(e){}
 }
 async function signedOut(msg){
@@ -2904,7 +2907,7 @@ function renderTipsSwitch(){document.querySelectorAll('[data-act="set-tips"]').f
 function openHow(){
   const lines=[['Like for like','Every snack in a list, like Crisps or Toffee, is ranked together, country by country. Tap a flavour to compare like with like: Walkers vs Pringles in salt & vinegar crisps.'],
     ['Tap a face','Rate the ones you know. It saves straight away, and you can change it any time.'],
-    ['Fair winners',`Every score comes from a real taster who signed in. A snack is ranked after ${settings.rank_after_ratings} ratings, so nobody wins on a handful of votes.`],
+    ['Fair favourites',`Every score comes from a real taster who signed in. A snack is ranked after ${settings.rank_after_ratings} ratings, so no snack becomes a favourite on a handful of votes.`],
     ['Grow it together',`New snacks go live with ${settings.approval_votes} approvals. Missing one? Tap + and type what's on the pack.`]];
   $('#how-list').innerHTML=lines.map(([b,t],k)=>`<li><span class="n" aria-hidden="true">${k+1}</span><div><b>${esc(b)}</b><span>${esc(t)}</span></div></li>`).join('');
   track('how-it-works',true);openM('m-how');

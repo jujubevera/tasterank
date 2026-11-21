@@ -23,7 +23,9 @@ const slug = s => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, 
 const word = (name, id, list = false) => { const s = slug(name); return !s || /^\d+$/.test(s) || (list && RESERVED.includes(s)) ? String(id) : s; };
 const ccPath = code => (code.toLowerCase() === 'gb' ? 'uk' : code.toLowerCase());
 const inPlace = c => (/^[A-Z]{2,3}$/.test(c.short_name) ? 'the ' + c.short_name : c.short_name); // the UK, Japan
-const listTitle = (title, c) => `Best ${title.toLowerCase()} in ${inPlace(c)}, ranked by votes | TasteRank`;
+const theirs = c => { const p = inPlace(c); return p.charAt(0).toUpperCase() + p.slice(1) + "'s"; }; // The UK's, Japan's (same as app.js)
+const lowerFirst = s => s.charAt(0).toLowerCase() + s.slice(1);
+const listTitle = (title, c) => `${theirs(c)} favourite ${lowerFirst(title)}: best rated by real tasters | TasteRank`;
 const brandTitle = (name, c) => `${name}: every snack ranked in ${inPlace(c)} | TasteRank`;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -77,7 +79,7 @@ for (const c of places) {
       const ranked = items.filter(i => i.ranked).slice(0, 3);
       const description = ranked.length
         ? `${c.adjective || c.short_name} snack fans' favourite ${title.toLowerCase()}: ${ranked.map((i, k) => `${k + 1}. ${i.pack_name} (${score1(i.avg)}/5)`).join(', ')}. Rate the ones you've tried on TasteRank.`
-        : `${title} sold in ${inPlace(c)}, ranked by the people who eat them. Rate ${some(items.map(i => i.pack_name))}, and see which one wins.`;
+        : `${title} sold in ${inPlace(c)}, ranked by the people who eat them. Rate ${some(items.map(i => i.pack_name))}, and help find the favourite.`;
       const chips = fls.length ? `<nav class="chips counted" aria-label="Flavours"><a class="chip${f ? '' : ' on'}" href="${base}">All <span class="n">${d.items.length}</span></a>${
         fls.filter(x => d.items.some(i => i.variant_id === x.id)).map(x => `<a class="chip${f && f.id === x.id ? ' on' : ''}" href="${vpath(x)}">${esc(x.name)} <span class="n">${d.items.filter(i => i.variant_id === x.id).length}</span></a>`).join('')}</nav>` : '';
       const rows = items.map((it, k) => {
@@ -88,7 +90,7 @@ for (const c of places) {
         path: path_, title: listTitle(title, c), description, view: 'category',
         ids: {v: 'category', cc, product: p.id, variant: f ? f.id : null},
         body: `<div class="lp"><div class="lp-side"><a class="crumb" href="/">← ${esc(c.short_name)} <span>· ${esc(d.type)}</span></a>
-<h1 class="page-title">${esc(title)}: which one wins?</h1>
+<h1 class="page-title">Which ${esc(lowerFirst(title))} does ${esc(inPlace(c))} love most?</h1>
 <div class="meta">${c.flag} ${esc(c.name)} · ${plural(items.length, 'snack')}${total ? ' · ' + plural(total, 'rating') : ''}</div>
 ${chips}</div><div class="lp-main"><h2 class="lp-head">${rankedHead(items.length, title.toLowerCase())}</h2><div class="list">${rows}</div>
 <p class="meta">Snacks are ranked once they have ${need} ratings. Sign in to rate the ones you've tried.</p></div></div>`,
@@ -110,7 +112,7 @@ ${chips}</div><div class="lp-main"><h2 class="lp-head">${rankedHead(items.length
       description: `Every ${d.name} snack sold in ${inPlace(c)} (${lists_}), ranked by the people who eat them: ${some(d.items.map(i => i.pack_name))}.`,
       ids: {v: 'brand', cc, brand: id, product: null, variant: null},
       body: `<div class="lp"><div class="lp-side"><a class="crumb" href="/brands/">← ${esc(c.short_name)} <span>· Brands</span></a>
-<h1 class="page-title">${esc(d.name)}: which one wins?</h1>
+<h1 class="page-title">Which ${esc(d.name)} snack does ${esc(inPlace(c))} love most?</h1>
 <div class="meta">${c.flag} ${esc(c.name)} · ${plural(d.items.length, 'snack')}${total ? ' · ' + plural(total, 'rating') : ''}</div>
 </div><div class="lp-main"><h2 class="lp-head">${rankedHead(d.items.length, `${d.name} snacks`)}</h2><div class="list">${d.items.map((it, k) => row(it, k, (listPath.has(it.product_id) ? `<a class="bl" href="${listPath.get(it.product_id)}">${esc(it.product)}</a>` : esc(it.product)) + ` · ${esc(it.flavour)}`)).join('')}</div></div></div>`,
       jsonld: itemList(`${d.name} snacks`, c, d.items, path_),
@@ -181,7 +183,7 @@ const homeHtml = swap(template, /<div class="cards" id="cards"><div class="card 
   `<div class="cards" id="cards"><div class="card empty js-only">Loading…</div><div class="prebuilt card empty no-js">${byCountry.map(({c, links}) =>
     `<p><b>${c.flag} ${esc(c.short_name)}:</b> ${links.map(l => `<a href="${l.href}">${esc(l.text)}</a>`).join(' · ')}</p>`).join('')}</div></div>`);
 await fs.writeFile(path.join(OUT, 'index.html'), homeHtml);
-await fs.writeFile(path.join(OUT, '404.html'), render({path: '/404.html', title: 'TasteRank: which snack wins?', description: 'Which snack wins? Rate snacks sold in your country on TasteRank.', robots: 'noindex'}).replace(/<link rel="canonical"[^>]*>\n/, ''));
+await fs.writeFile(path.join(OUT, '404.html'), render({path: '/404.html', title: 'TasteRank: the snacks each country loves most, rated by real tasters', description: "What snacks does your country love most? Rate the ones you've tried on TasteRank.", robots: 'noindex'}).replace(/<link rel="canonical"[^>]*>\n/, ''));
 // Pages only the signed-in app shows: real addresses so a reload works, kept out of search results
 // About: the words from index.html's <template id="about-tpl">, the same ones the app shows
 const aboutTpl = (template.match(/<template id="about-tpl">([\s\S]*?)<\/template>/) || [])[1];
@@ -190,7 +192,7 @@ pages.push({path: '/about/', view: 'about', title: 'About TasteRank: how the sna
   description: `How TasteRank ranks snacks: real tasters sign in and rate once, a snack is ranked after ${need} ratings, and new snacks go live with ${settings.approval_votes} approvals.`,
   body: aboutTpl.replaceAll('{{rank}}', need).replaceAll('{{approve}}', settings.approval_votes).trim()});
 for (const [p, title] of [['/me/', 'Your profile | TasteRank'], ['/owner/', 'Owner page | TasteRank'], ['/brands/', 'Snack brands, ranked by votes | TasteRank']])
-  pages.push({path: p, title, description: 'Which snack wins? Rate snacks sold in your country on TasteRank.', robots: p === '/brands/' ? null : 'noindex'});
+  pages.push({path: p, title, description: "What snacks does your country love most? Rate the ones you've tried on TasteRank.", robots: p === '/brands/' ? null : 'noindex'});
 
 const seen = new Set();
 for (const pg of pages) {

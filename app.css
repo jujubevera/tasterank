@@ -678,3 +678,5 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--in
   .lp-top .lsearch{margin:0 0 0 auto;flex:0 1 300px}
 }
 
+/* Headings split into even lines, so "most?" never sits alone (prompt 18) */
+#v-home>h1,.page-title{text-wrap:balance}

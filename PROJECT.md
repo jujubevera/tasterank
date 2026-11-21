@@ -1,6 +1,6 @@
 # TasteRank
 
-**Which snack wins? You decide.** TasteRank is a free community website where people rate snacks from the country they're sold in, so you can see which ones are really worth trying, bringing home or giving as a gift.
+**What snacks does each country love most?** TasteRank is a free community website where people rate snacks from the country they're sold in, so you can see which ones are really worth trying, bringing home or giving as a gift.
 
 Live at [tasterank.app](https://tasterank.app).
 
