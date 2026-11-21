@@ -876,21 +876,48 @@ function nearStart(name,brand,known){ // a known brand that's nearly how the nam
 
 /* ---------- Open Food Facts, the free food database: packs that aren't on TasteRank yet.
    One request at a time and at most 8 a minute (they allow 10 per visitor), 4 s timeout; any failure just hides the section.
-   Their search often answers "busy" (503) at once, so that's tried once more after a moment. ---------- */
+   Their search often answers "busy" (503) at once, and their busy answer often can't be read by the browser at all ("Failed to fetch"),
+   so either is tried once more after a moment. A long name that finds nothing is tried once with fewer words, so a search costs 3 requests at most.
+   Only what's sent to them changes: the search box keeps what was typed. ---------- */
 const OFF_COUNTRY={GB:'en:united-kingdom',US:'en:united-states',AU:'en:australia',JP:'en:japan',CN:'en:china'};
 const offLog=[]; let offBusy=false, offNext=null;
-async function offSearch(q,again){
+// Open Food Facts spells brands out, and "&" splits a short one into single letters: "M&S truffles" finds nothing there
+const OFF_SPELL=[[/(^|\s)M(?:\s?&\s?|\sand\s)S(?=\s|$)/gi,'$1Marks & Spencer']];
+// …and back again for what we show and keep, so a pick joins TasteRank's own "M&S" brand instead of starting a second one
+const OFF_HOUSE=[[/^marks\s*(?:&|and)?\s*spencers?(?=\s|$)/i,'M&S']];
+const offHouse=t=>OFF_HOUSE.reduce((x,[re,to])=>x.replace(re,to),String(t||'').trim());
+const offTerms=q=>OFF_SPELL.reduce((t,[re,to])=>t.replace(re,to),q).replace(/\s+/g,' ').trim();
+// Fewer words, for a long name that found nothing: the first word (usually the brand) and the last (usually the kind of snack),
+// so "M&S Luxury Swiss Chocolate Truffles" becomes "Marks & Spencer Truffles". Nothing for 3 words or fewer.
+function offShorter(q){
+  const one=OFF_SPELL.reduce((t,[re])=>t.replace(re,'$1M&S'),String(q||'')); // "M and S" counts as one word
+  const w=one.trim().split(/\s+/).filter(x=>x!=='&'&&!/^\d+(?:[.,]\d+)?\s?(?:g|kg|ml|cl|l|oz|%)?$/i.test(x));
+  return w.length>3?offTerms(w[0]+' '+w[w.length-1]):'';
+}
+async function offFetch(q,again){
   const now=Date.now();while(offLog.length&&now-offLog[0]>60000)offLog.shift();
   if(offLog.length>=8)return null;
   offLog.push(now);
-  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),4000);
+  const ctl=new AbortController();let timer=setTimeout(()=>ctl.abort(),4000);
+  const retry=async()=>{clearTimeout(timer);timer=null;await new Promise(w=>setTimeout(w,800));const r=await offFetch(q,true);if(r&&r.length)track('add-off-retry-ok',true);return r};
   try{
     const r=await fetch('https://world.openfoodfacts.org/cgi/search.pl?'+new URLSearchParams({search_terms:q,json:1,page_size:10,
       fields:'code,product_name,brands,categories_tags,countries_tags,quantity,image_front_small_url,image_front_url'}),{signal:ctl.signal});
-    if(r.status===503&&!again){clearTimeout(timer);await new Promise(w=>setTimeout(w,800));return offSearch(q,true)}
+    if(r.status===503&&!again)return retry();
     if(!r.ok)return null;
     return ((await r.json()).products||[]).filter(p=>String(p.product_name||'').trim());
-  }catch(e){return null}finally{clearTimeout(timer)}
+  }catch(e){ // a timeout isn't tried again (they're slow, not busy); "Failed to fetch" is
+    if(!again&&e&&e.name!=='AbortError')return retry();
+    return null;
+  }finally{if(timer)clearTimeout(timer)}
+}
+async function offSearch(q){
+  const r=await offFetch(offTerms(q)),short=offShorter(q);
+  if(r&&!r.length&&short&&short!==offTerms(q)){ // found nothing (not failed): one try with fewer words, not retried
+    const s=await offFetch(short,true);
+    if(s&&s.length){track('add-off-shorter-ok',true);return s}
+  }
+  return r;
 }
 function offLookup(q,done){ // a newer search waits for the one in flight; older waiting ones are dropped
   if(offBusy){offNext=[q,done];return}
@@ -899,11 +926,11 @@ function offLookup(q,done){ // a newer search waits for the one in flight; older
 }
 // Open Food Facts lists brands with commas, sometimes the maker or importer first ("Storck", "Conaxess Trade Norway"):
 // the brand is the one the name starts with, else the first
-const offBrands=p=>String(p.brands||'').split(',').map(b=>b.replace(/[‘’]/g,"'").trim()).filter(Boolean);
-const offBrand=p=>{const k=bkey(p.product_name);return offBrands(p).find(b=>k.startsWith(bkey(b)))||offBrands(p)[0]||''};
+const offBrands=p=>String(p.brands||'').split(',').map(b=>offHouse(b.replace(/[‘’]/g,"'"))).filter(Boolean);
+const offBrand=p=>{const k=bkey(offHouse(p.product_name));return offBrands(p).find(b=>k.startsWith(bkey(b)))||offBrands(p)[0]||''};
 // The name as on the pack. Open Food Facts often leaves the brand out ("Soft Caramels" by Werther's Original), so it goes in front,
 // unless the name already starts with a brand: one listed, or the first word typed in the search
-const offName=p=>{const n=tidyCase(String(p.product_name||'').replace(/\s+\d+(?:[.,]\d+)?\s?(?:g|kg|ml|cl|l|oz)\.?\s*$/i,'')),k=bkey(n),b=offBrand(p),typed=bkey(String(add&&add.q||'').trim().split(/\s+/)[0]);
+const offName=p=>{const n=offHouse(tidyCase(String(p.product_name||'').replace(/\s+\d+(?:[.,]\d+)?\s?(?:g|kg|ml|cl|l|oz)\.?\s*$/i,''))),k=bkey(n),b=offBrand(p),typed=bkey(String(add&&add.q||'').trim().split(/\s+/)[0]);
   return !b||k.startsWith(bkey(b))||(typed.length>=3&&k.startsWith(typed))?n:`${tidyCase(b)} ${n}`};
 const offImg=u=>/^https:\/\/images\.openfoodfacts\.org\//.test(String(u||''))&&String(u).length<=500?String(u):null;
 const offBarcode=p=>p&&/^\d{8,14}$/.test(String(p.code||''))?String(p.code):null;
