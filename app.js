@@ -658,8 +658,9 @@ const refresh=()=>view==='home'?show({v:'home',by:homeBy}):route();
 const ACT={
   home:()=>go({v:'home'}),
   'home-by':d=>{if(d.by===(homeBy||'categories'))return;track('home-'+d.by,true);go({v:'home',by:d.by==='brands'?'brands':null})}, // the switch
-  'home-brands':d=>{prefs.country=d.cc;savePrefs();go({v:'home',by:'brands'})}, // the crumb on a brand page
-  'home-type':d=>{prefs.country=d.cc;prefs.cat=d.type;savePrefs();go({v:'home'})}, // the crumb on a category page: home, with its type picked
+  'home-brands':d=>{prefs.country=d.cc;prefs.cat='all';savePrefs();homeFocus={brand:d.brand};go({v:'home',by:'brands'})}, // the crumb on a brand page: the Brands tab, All picked
+  'home-all':d=>{prefs.country=d.cc;prefs.cat='all';savePrefs();homeFocus={product:d.product};go({v:'home'})}, // the trail's first step: home, All picked
+  'home-type':d=>{prefs.country=d.cc;prefs.cat=d.type;savePrefs();homeFocus={product:d.product};go({v:'home'})}, // its second step: home, with the list's type picked
   me:()=>needUser({name:'profile'}),
   cat:d=>{prefs.cat=d.cat;savePrefs();renderHomeCards()},
   category:d=>go({v:'category',cc:d.cc,product:+d.product,variant:d.variant?+d.variant:null}),
@@ -1628,6 +1629,7 @@ const listPhoto=(product,country)=>product===2&&country===5?null:LIST_PHOTOS[pro
 // The emoji always sits underneath, so a photo that fails to load just leaves the emoji showing
 const panel=(emoji,type,photo,cls='pp')=>`<span class="${cls}" style="--tint:var(--t-${TINTS[type]||'crisp'})" aria-hidden="true"><span class="emo">${esc(emoji||'🍽️')}</span>${photo?`<img src="/assets/lists/${photo}.jpg" alt="" loading="lazy" decoding="async">`:''}</span>`;
 // Under the name: the winner (up to 2 lines), or a bar filling up towards one (never "1/10", which reads like a score)
+let homeFocus=null; // {product} or {brand}: the card to bring into view after a back link (prompt 19)
 function cardStatus(win,label,lead,goal){
   if(win)return `<span class="win2"><span class="k">${label}</span><b>${esc(win.pack_name)}</b><span class="s">${faceFor(win.avg).e} ${score1(win.avg)}</span></span>`;
   if(lead==null)return `<span class="go"><b>Not ranked yet</b></span>`; // before migration 009
@@ -1664,6 +1666,7 @@ function renderHomeCards(){
   cards.splice(wide.matches?6:4,0,bandHtml(waitList(),c.code)); // after 2 rows of lists, never further down; at the end when there are fewer
   $('#cards').innerHTML=empty+cards.join('');
   watchBand();setFab();evenCards();
+  if(homeFocus){const f=homeFocus;homeFocus=null;const el=$(f.brand?`#cards [data-act="brand"][data-brand="${+f.brand}"]`:`#cards [data-act="category"][data-product="${+f.product}"]`);if(el)requestAnimationFrame(()=>el.scrollIntoView({block:'center'}))}
 }
 /* Every home card is as tall as the tallest one, so a 2-line name ("Chocolate biscuits") doesn't make one row bigger than the rest.
    Measured, not a grid rule: the new snacks band sits in the same grid, and equal rows would stretch the cards to its height. */
@@ -1764,9 +1767,9 @@ function chipsHtml(label,act,list,on){
   return `<div class="chips counted" role="group" aria-label="${label}">${list.map(x=>{const p=x.id===on;
     return `<button class="chip${p?' on':''}" aria-pressed="${p}" data-act="${act}" data-id="${x.id??''}" aria-label="${esc(x.name)}, ${plural(x.count,'snack')}">${esc(x.name)} <span class="n">${x.count}</span></button>`}).join('')}</div>`;
 }
-function winnerHtml(items,label,line,none,nudge){
+function winnerHtml(items,label,line,none,nudge,noBrand){
   const w=items.find(i=>i.ranked);
-  return w?`<div class="winner"><span class="lbl">${esc(label)}</span><span class="wrow"><span class="nm">${esc(w.pack_name)}</span><span class="face" aria-hidden="true">${faceFor(w.avg).e}</span><span class="num">${score1(w.avg)}</span></span><span class="cnt">${line(w)}</span></div>`
+  return w?`<div class="winner"><span class="lbl">${esc(label)}</span>${noBrand?'':w.brand_snacks>=2&&page?`<a class="wbr" href="${esc(pathFor({v:'brand',cc:page.cc,brand:w.brand_id}))}" data-act="brand" data-cc="${page.cc}" data-brand="${w.brand_id}">${esc(w.brand)}</a>`:`<span class="wbr">${esc(w.brand)}</span>`}<span class="wrow"><span class="nm">${esc(splitBrand(w)[1])}</span><span class="face" aria-hidden="true">${faceFor(w.avg).e}</span><span class="num">${score1(w.avg)}</span></span><span class="cnt">${line(w)}</span></div>`
     :`<div class="early"><b>${none}</b>Each snack needs ${settings.rank_after_ratings} ratings.${nudge?'':me?' Rate the ones you know!':' Sign in and rate the ones you know!'} <button class="link" data-act="how">How it works</button></div>`;
 }
 /* Crispy's sign-in note (design/mockups/sign-in-nudge.html), for people who aren't signed in: on the first list or brand page
@@ -1787,14 +1790,27 @@ function nudgeHtml(total){
 }
 /* A row leads with the snack's name (up to 2 lines, the whole name in its label). The name is the button that opens the rating sheet,
    stretched over the row; the link underneath (brand, or "#1 in Crisps") sits above it, so it's a separate tap and Tab stop. */
-function listRow(it,k,sub){
+// "Walkers Salt & Vinegar Crisps" → ['Walkers','Salt & Vinegar Crisps']. A name that doesn't start with its brand stays whole.
+// Same rule in tools/build-pages.mjs.
+function splitBrand(it){
+  const n=String(it.pack_name||''),b=String(it.brand||''),norm=x=>x.toLowerCase().replace(/[’`]/g,"'");
+  return b&&norm(n).startsWith(norm(b)+' ')?[b,n.slice(b.length+1)]:[b,n];
+}
+// The flavour under a name, only when the name doesn't already say it ("Mature Cheddar & Chive" → "Cheese & onion"); never "Other"
+function flavourNote(it,fl){
+  const norm=x=>String(x||'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]+/g,' ').trim();
+  return !fl||fl==='Other'||norm(it.pack_name).includes(norm(fl))?'':esc(fl);
+}
+const brandLink=(cc,it)=>it.brand_snacks>=2
+  ?`<a class="bl" href="${esc(pathFor({v:'brand',cc,brand:it.brand_id}))}" data-act="brand" data-cc="${cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand);
+function listRow(it,k,sub,brandHtml){
   const need=settings.rank_after_ratings,rank=it.ranked?k+1:null,mine=it.my_score?FACES.find(f=>f.v===it.my_score):null;
   const pct=it.ranked?Math.round(it.avg/5*100):Math.min(100,Math.round(it.total/need*100));
   const label=`${rank?`Number ${rank}: `:''}${it.pack_name}. ${it.ranked?`${score1(it.avg)} out of 5, ${plural(it.total,'rating')}`:`${it.total} of ${need} ratings`}${mine?`. You rated it ${mine.l}`:''}`;
   return `<div class="ir${it.ranked&&k<3?' top3':''}${it.ranked?'':' unranked'}" id="snack-${it.id}">
     <span class="rk" aria-hidden="true">${rank||'–'}</span>${thumb(it,'sm')}
-    <span class="in"><button class="nm" data-act="rate" data-id="${it.id}" aria-label="${esc(label)}"><span class="nm-t">${esc(it.pack_name)}</span></button>
-      <span class="sb">${sub}${mine?` <span class="mine">· You ${mine.e}</span>`:''}</span>
+    <span class="in">${brandHtml?`<span class="br">${brandHtml}</span>`:''}<button class="nm" data-act="rate" data-id="${it.id}" aria-label="${esc(label)}"><span class="nm-t">${esc(splitBrand(it)[1])}</span></button>
+      ${sub||mine?`<span class="sb">${sub}${mine?` <span class="mine">${sub?'· ':''}You ${mine.e}</span>`:''}</span>`:''}
       <span class="track" aria-hidden="true"><span class="fill" style="width:${pct}%"></span></span></span>
     <span class="sc" aria-hidden="true">${it.ranked?`${faceFor(it.avg).e} ${score1(it.avg)}<small>${fmt(it.total)}</small>`:`<span class="nr">${it.total} of ${need}<small>ratings</small></span>`}</span>
   </div>`;
@@ -1841,7 +1857,7 @@ function drawCategory(){
   const won=items.some(i=>i.ranked),what=d.title.toLowerCase();
   const box=!fresh&&d.items.length>=LIST_SEARCH_FROM?lsBox(n>=2?`Search ${n} ${what}`:`Search ${what}`,`Search ${what} in this list`):'';
   $('#v-category').innerHTML=`<div class="lp"><div class="lp-side">
-    <button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}">← ${esc(d.country.short_name)} <span>· ${esc(d.type)}</span></button>
+    <nav class="trail" aria-label="You are here"><button class="crumb" data-act="home-all" data-cc="${d.cc}" data-product="${d.id}">← All ${esc(d.country.short_name)} snacks</button><span class="sep" aria-hidden="true">›</span><button class="crumb" data-act="home-type" data-cc="${d.cc}" data-type="${d.type_id}" data-product="${d.id}">${esc(d.type)}</button></nav>
     <h1 class="page-title">Which ${esc(lowerFirst(d.title))} does ${esc(inPlace(d.country))} love most?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${fresh?'New list':plural(n,'snack')+ratingsPart(total)}</div>
     ${tripNote(placeBy('code',d.cc))}
@@ -1853,9 +1869,7 @@ function drawCategory(){
     ${sideNote(won&&!fresh)}
     <button class="btn share-btn wide-only" data-act="share-list">Share this list</button>
     </div><div class="lp-main">
-    ${lsTop(n?`<h2 class="lp-head">${rankedHead(n,what)}</h2>`:'',box)}${n?`<div class="list">${items.map((it,k)=>listRow(it,k,(it.brand_snacks>=2
-        ?`<a class="bl" href="${esc(pathFor({v:'brand',cc:d.cc,brand:it.brand_id}))}" data-act="brand" data-cc="${d.cc}" data-brand="${it.brand_id}">${esc(it.brand)}</a>`:esc(it.brand))
-        +(chips&&!f?` · ${esc(flavour(it.variant_id))}`:''))).join('')}</div>`:''}${box?'<div class="ls-none-slot"></div>':''}
+    ${lsTop(n?`<h2 class="lp-head">${rankedHead(n,what)}</h2>`:'',box)}${n?`<div class="list">${items.map((it,k)=>listRow(it,k,chips&&!f?flavourNote(it,flavour(it.variant_id)):'',brandLink(d.cc,it))).join('')}</div>`:''}${box?'<div class="ls-none-slot"></div>':''}
     ${n<3&&!fresh?`<div class="alert"><b>${n?`Only ${n===1?'one':'two'} so far`:'None live yet'}</b><span>Know ${n?`another ${esc(d.title.toLowerCase())}`:'one'} sold in ${esc(d.country.name)}? Tap + to add it. It goes live once ${settings.approval_votes} people approve.</span></div>`:''}
     ${pend.length?`${fresh?'':'<div class="tip-slot" data-n="5"></div>'}<h2 class="pend-h">Waiting for approval</h2><div class="pend-list">${pend.map(pendCard).join('')}</div>`:''}
     <div class="tip-slot" data-n="6"></div>
@@ -1871,7 +1885,7 @@ function pickFlavour(id){
 function pendCard(p){
   const n=settings.approval_votes,w=Math.min(100,Math.round(p.approvals/n*100));
   return `<div class="pend${p.mine?' mine':''}" id="snack-${p.id}">${thumb(p,'sm')}
-    <div class="in"><div class="bn">${esc(p.pack_name)}</div><div class="pk">${esc(p.brand)}${p.mine?' · <span class="mine">added by you</span>':''}</div>
+    <div class="in"><div class="pk">${esc(p.brand)}${p.mine?' · <span class="mine">added by you</span>':''}</div><div class="bn">${esc(splitBrand(p)[1])}</div>
       <div class="meta">${p.approvals} of ${n} approvals${p.mine?` · closes in ${p.days_left} days`:''}</div><div class="prog"><i style="width:${w}%"></i></div></div>
     <div class="pend-acts">${p.mine?`<button class="btn" data-act="share-snack" data-id="${p.id}" aria-label="Share ${esc(p.pack_name)}">Share</button>`:''}
       ${p.mine&&LIVE?'':p.approved?'<button class="btn" disabled>Approved ✓</button>'
@@ -1916,13 +1930,13 @@ function drawBrand(){
   const prodName=prod&&(d.products.find(p=>p.id===prod)||{}).name,what=`${d.name} ${(prodName||'snacks').toLowerCase()}`,n=items.length;
   const box=d.items.length>=LIST_SEARCH_FROM?lsBox(n>=2?`Search ${n} ${what}`:`Search ${what}`,`Search ${what} in this list`):'';
   $('#v-brand').innerHTML=`<div class="lp"><div class="lp-side">
-    <button class="crumb" data-act="home-brands" data-cc="${d.cc}">← ${esc(d.country.short_name)} <span>· Brands</span></button>
+    <button class="crumb" data-act="home-brands" data-cc="${d.cc}" data-brand="${d.id}">← All ${esc(d.country.short_name)} brands</button>
     <h1 class="page-title">Which ${esc(d.name)} snack does ${esc(inPlace(d.country))} love most?</h1>
     <div class="meta">${d.country.flag} ${esc(d.country.name)} · ${plural(items.length,'snack')}${ratingsPart(total)}</div>
     ${tripNote(placeBy('code',d.cc))}
     ${multi?chipsHtml('Subcategories','bp-cat',[{id:null,name:'All',count:d.items.length},...d.products],prod):''}
     ${fls.length>=2?chipsHtml('Flavours','bp-flavour',[{id:null,name:multi?`All ${(d.products.find(p=>p.id===prod)||{name:''}).name.toLowerCase()}`:'All',count:fls.reduce((s,f)=>s+f.count,0)},...fls],v):''}
-    ${nudge?nudgeHtml(total):''}${winnerHtml(items,'Most loved so far',w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'Not ranked yet',nudge)}
+    ${nudge?nudgeHtml(total):''}${winnerHtml(items,'Most loved so far',w=>`${plural(w.total,'rating')}${w.place?` · #${w.place} in ${esc(w.product)}`:''}`,'Not ranked yet',nudge,true)}
     <div class="tip-slot" data-n="2"></div>
     ${sideNote(items.some(i=>i.ranked))}
     </div><div class="lp-main">
@@ -1986,7 +2000,7 @@ function lsApply(){
   for(const r of rows){
     const it=page.items.find(i=>'snack-'+i.id===r.id),ok=!on||!words.length||!!(it&&lsItemFits(it,words));
     r.hidden=!ok;r.classList.toggle('first-vis',ok&&first);if(ok){shown++;first=false}
-    r.querySelectorAll('.nm-t,.sb').forEach(x=>{lsUnmark(x);if(ok&&on)lsMark(x,words)});
+    r.querySelectorAll('.nm-t,.sb,.br').forEach(x=>{lsUnmark(x);if(ok&&on)lsMark(x,words)});
   }
   let waiting=0;
   el.querySelectorAll('.pend').forEach(c=>{

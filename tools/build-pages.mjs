@@ -26,6 +26,11 @@ const inPlace = c => (/^[A-Z]{2,3}$/.test(c.short_name) ? 'the ' + c.short_name 
 const theirs = c => { const p = inPlace(c); return p.charAt(0).toUpperCase() + p.slice(1) + "'s"; }; // The UK's, Japan's (same as app.js)
 const lowerFirst = s => s.charAt(0).toLowerCase() + s.slice(1);
 const listTitle = (title, c) => `${theirs(c)} favourite ${lowerFirst(title)}: best rated by real tasters | TasteRank`;
+// "Walkers Salt & Vinegar Crisps" → ['Walkers','Salt & Vinegar Crisps']: the same as splitBrand() and flavourNote() in app.js
+const splitBrand = it => { const n = String(it.pack_name || ''), b = String(it.brand || ''), norm = x => x.toLowerCase().replace(/[’`]/g, "'");
+  return b && norm(n).startsWith(norm(b) + ' ') ? [b, n.slice(b.length + 1)] : [b, n]; };
+const flavourNote = (it, fl) => { const norm = x => String(x || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+  return !fl || fl === 'Other' || norm(it.pack_name).includes(norm(fl)) ? '' : esc(fl); };
 const brandTitle = (name, c) => `${name}: every snack ranked in ${inPlace(c)} | TasteRank`;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -84,12 +89,12 @@ for (const c of places) {
         fls.filter(x => d.items.some(i => i.variant_id === x.id)).map(x => `<a class="chip${f && f.id === x.id ? ' on' : ''}" href="${vpath(x)}">${esc(x.name)} <span class="n">${d.items.filter(i => i.variant_id === x.id).length}</span></a>`).join('')}</nav>` : '';
       const rows = items.map((it, k) => {
         const b = brandPath.has(it.brand_id) ? `<a class="bl" href="${brandPath.get(it.brand_id)}">${esc(it.brand)}</a>` : esc(it.brand);
-        return row(it, k, b + (fls.length && !f ? ` · ${esc(flavourOf(it.variant_id))}` : ''));
+        return row(it, k, fls.length && !f ? flavourNote(it, flavourOf(it.variant_id)) : '', b);
       }).join('');
       pages.push({
         path: path_, title: listTitle(title, c), description, view: 'category',
         ids: {v: 'category', cc, product: p.id, variant: f ? f.id : null},
-        body: `<div class="lp"><div class="lp-side"><a class="crumb" href="/">← ${esc(c.short_name)} <span>· ${esc(d.type)}</span></a>
+        body: `<div class="lp"><div class="lp-side"><nav class="trail" aria-label="You are here"><a class="crumb" href="/">← All ${esc(c.short_name)} snacks</a><span class="sep" aria-hidden="true">›</span><a class="crumb" href="/">${esc(d.type)}</a></nav>
 <h1 class="page-title">Which ${esc(lowerFirst(title))} does ${esc(inPlace(c))} love most?</h1>
 <div class="meta">${c.flag} ${esc(c.name)} · ${plural(items.length, 'snack')}${total ? ' · ' + plural(total, 'rating') : ''}</div>
 ${chips}</div><div class="lp-main"><h2 class="lp-head">${rankedHead(items.length, title.toLowerCase())}</h2><div class="list">${rows}</div>
@@ -111,7 +116,7 @@ ${chips}</div><div class="lp-main"><h2 class="lp-head">${rankedHead(items.length
       path: path_, title: brandTitle(d.name, c), view: 'brand',
       description: `Every ${d.name} snack sold in ${inPlace(c)} (${lists_}), ranked by the people who eat them: ${some(d.items.map(i => i.pack_name))}.`,
       ids: {v: 'brand', cc, brand: id, product: null, variant: null},
-      body: `<div class="lp"><div class="lp-side"><a class="crumb" href="/brands/">← ${esc(c.short_name)} <span>· Brands</span></a>
+      body: `<div class="lp"><div class="lp-side"><a class="crumb" href="/brands/">← All ${esc(c.short_name)} brands</a>
 <h1 class="page-title">Which ${esc(d.name)} snack does ${esc(inPlace(c))} love most?</h1>
 <div class="meta">${c.flag} ${esc(c.name)} · ${plural(d.items.length, 'snack')}${total ? ' · ' + plural(total, 'rating') : ''}</div>
 </div><div class="lp-main"><h2 class="lp-head">${rankedHead(d.items.length, `${d.name} snacks`)}</h2><div class="list">${d.items.map((it, k) => row(it, k, (listPath.has(it.product_id) ? `<a class="bl" href="${listPath.get(it.product_id)}">${esc(it.product)}</a>` : esc(it.product)) + ` · ${esc(it.flavour)}`)).join('')}</div></div></div>`,
@@ -124,10 +129,10 @@ ${chips}</div><div class="lp-main"><h2 class="lp-head">${rankedHead(items.length
 function rankedHead(n, what) { return n >= 2 ? `All ${n} ${esc(what)}, ranked` : 'Ranked so far'; }
 
 // One ranking row, with the same classes as listRow() in app.js so the page doesn't jump when the app takes over
-function row(it, k, sub) {
+function row(it, k, sub, brand) {
   const rank = it.ranked ? k + 1 : null, pct = it.ranked ? Math.round(it.avg / 5 * 100) : Math.min(100, Math.round(it.total / need * 100));
   return `<div class="ir${it.ranked && k < 3 ? ' top3' : ''}${it.ranked ? '' : ' unranked'}"><span class="rk">${rank || '–'}</span>`
-    + thumb(it) + `<span class="in"><span class="nm"><span class="nm-t">${esc(it.pack_name)}</span></span><span class="sb">${sub}</span>`
+    + thumb(it) + `<span class="in">${brand ? `<span class="br">${brand}</span>` : ''}<span class="nm"><span class="nm-t">${esc(splitBrand(it)[1])}</span></span>${sub ? `<span class="sb">${sub}</span>` : ''}`
     + `<span class="track" aria-hidden="true"><span class="fill" style="width:${pct}%"></span></span></span>`
     + `<span class="sc">${it.ranked ? `${score1(it.avg)}<small>${plural(it.total, 'rating')}</small>` : `<span class="nr">${it.total} of ${need}<small>ratings</small></span>`}</span></div>`;
 }

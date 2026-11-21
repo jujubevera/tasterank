@@ -680,3 +680,13 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--in
 
 /* Headings split into even lines, so "most?" never sits alone (prompt 18) */
 #v-home>h1,.page-title{text-wrap:balance}
+
+/* Prompt 19: the back-link trail, the brand above the name, the brand pill on the Most loved card */
+.trail{display:flex;flex-wrap:wrap;align-items:center;column-gap:6px}
+.trail .sep{color:var(--muted);font-weight:800}
+.ir .br{display:block;font-size:12.5px;font-weight:800;color:var(--muted);line-height:1.25;margin:0 0 2px}
+.ir .br .bl{padding:4px 0}
+.pend .pk{font-weight:800;margin-bottom:1px}
+.winner .wbr{justify-self:start;background:var(--on-winner);color:var(--winner);font-size:14px;font-weight:900;line-height:1.2;padding:4px 11px;border-radius:999px;margin:4px 0 2px;text-decoration:none}
+a.wbr:hover{text-decoration:underline}
+a.wbr:focus-visible{outline:3px solid var(--on-winner);outline-offset:2px}
