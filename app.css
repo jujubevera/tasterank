@@ -5,7 +5,7 @@
   --field-line:#9C8A75; --mark:#FCE7A8; /* search box edge 3.1:1 on the page; marked text 9.5:1, links 5.2:1 */
   --bg:#FEF6E4; --surface:#FFFFFF; --ink:#45352F; --muted:#6F625B; --line:#F3E1BB;
   --primary:#445E93; --on-primary:#FFFFFF; --winner:#C94A5A; --on-winner:#FFFFFF; --accent-text:#B33D4C;
-  --soft:#FDE3E3; --hint:#EEF4FA; --bar:#7EB2DD; --bar-strong:#445E93; --tile:#FFFFFF; --pending:#7EB2DD;
+  --soft:#FDE3E3; --hint:#EEF4FA; --bar:#7EB2DD; --bar-strong:#445E93; --tile:#FFFFFF; --letterbox:#FFFFFF; --pending:#7EB2DD;
   --danger:#B3261E; --ok:#2F7D4F; --amber:#9A6200; --amber-bg:#FFF4DC;
   --crisp-line:#445E93; --crisp-w:4; --conf:#445E93;
   --scrim:rgba(20,16,12,.48); --shadow-c:rgba(69,53,47,.08);
@@ -18,7 +18,7 @@ html[data-theme="dark"]{
   --field-line:#7E6A63; --mark:#4A3818; /* 3.6:1; marked text 9.6:1, links 5.0:1 */
   --bg:#1C1416; --surface:#2A1F22; --ink:#FCECC9; --muted:#CDBBA8; --line:#3D2E31;
   --primary:#7EB2DD; --on-primary:#21171A; --winner:#FCB0B3; --on-winner:#21171A; --accent-text:#FCB0B3;
-  --soft:#3D2A30; --hint:#24303F; --bar:#445E93; --bar-strong:#7EB2DD; --tile:#F6EEDF; --pending:#7EB2DD;
+  --soft:#3D2A30; --hint:#24303F; --bar:#445E93; --bar-strong:#7EB2DD; --tile:#F6EEDF; --letterbox:#1F1618; --pending:#7EB2DD;
   --danger:#F28B82; --ok:#8FD3A8; --amber:#F5B947; --amber-bg:#3A2A1A;
   --crisp-line:#CFA46B; --crisp-w:3.2; --conf:#FCB0B3;
   --scrim:rgba(10,5,6,.62); --shadow-c:rgba(0,0,0,.35);
@@ -163,6 +163,42 @@ html[data-theme="dark"] .wc{background:var(--surface)}
 .thumb img{width:100%;height:100%;object-fit:contain;background:var(--tile)}
 .thumb.sm{width:40px;height:40px;font-size:21px;border-radius:10px}
 .thumb.big{width:72px;height:72px;font-size:40px;border-radius:16px}
+/* A photo you can tap for a bigger look (thumb(…, kind), design/mockups/photo-zoom.html), and the bigger look itself.
+   --letterbox: the space around tall packs in the big photos, white in light mode and near-black in dark so it doesn't glare. */
+button.thumb{padding:0;font:inherit;color:inherit;cursor:zoom-in;position:relative;z-index:1;overflow:visible} /* above the row's stretched "rate" tap area */
+button.thumb img{position:absolute;inset:0;border-radius:inherit} /* overflow shows the magnifier, so the photo is held in place here */
+button.thumb.sm{width:48px;height:48px;font-size:25px;border-radius:11px}
+button.thumb:disabled{cursor:default}
+button.thumb:disabled .mag{display:none}
+@media (hover:hover){button.thumb:not(:disabled):hover{border-color:var(--bar-strong)}}
+.mag{position:absolute;right:-5px;bottom:-5px;width:20px;height:20px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;box-shadow:0 1px 2px var(--shadow-c)}
+.mag svg,.pill svg{width:12px;height:12px;fill:none;stroke:var(--primary);stroke-width:2.6;stroke-linecap:round}
+/* The rating sheet: the brand · list · flag line beside the ×, then the photo across the sheet (or the emoji and name when there's none) */
+.item-head .meta{min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:0 4px;padding-right:48px;margin:-10px 0 0}
+.ih-row{display:grid;grid-template-columns:52px minmax(0,1fr);gap:12px;align-items:center}
+.item-head.has-pic .ih-row{display:block}
+.item-head.has-pic #rate-thumb{display:none}
+.item-head:not(.has-pic) #rate-pic{display:none}
+.sheet-pic{position:relative;display:block;width:100%;height:168px;margin:6px 0 12px;padding:0;border-radius:14px;background:var(--letterbox);border:1px solid var(--line);overflow:hidden;cursor:zoom-in}
+.sheet-pic img{position:absolute;inset:6px;width:calc(100% - 12px);height:calc(100% - 12px);object-fit:contain}
+@media (hover:hover){.sheet-pic:hover{border-color:var(--bar-strong)}}
+.pill{position:absolute;right:8px;bottom:8px;display:inline-flex;gap:6px;align-items:center;background:rgba(43,34,36,.82);color:#fff;font-size:12px;font-weight:800;border-radius:999px;padding:5px 10px}
+.pill svg{width:13px;height:13px;stroke:#fff}
+/* The big view: a card filling the screen apart from a 12 px edge */
+.zoom{position:fixed;inset:0;z-index:70;background:var(--scrim);display:flex;align-items:center;align-items:safe center;justify-content:center;padding:12px;overflow-y:auto;cursor:zoom-out} /* a phone on its side scrolls */
+.zoom-card{position:relative;margin:0;width:100%;max-width:600px;background:var(--surface);border-radius:22px;padding:10px 10px 14px;box-shadow:var(--shadow);cursor:default}
+.zoom-card .x{top:-4px;right:-4px;z-index:2;background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.zoom-pic{position:relative;height:min(430px,calc(100vh - 250px));height:min(430px,calc(100dvh - 250px));min-height:200px;border-radius:16px;background:var(--letterbox);overflow:hidden;cursor:zoom-out}
+.zoom-pic img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.zoom-card figcaption{text-align:center;margin:12px 6px 12px}
+.zoom-meta{display:block;font-size:13px;font-weight:700;color:var(--muted)}
+.zoom-name{display:block;font-weight:900;font-size:18px;line-height:1.2;color:var(--ink);margin-top:2px}
+#zoom-acts{display:grid;justify-items:center;gap:4px}
+#zoom-acts .btn{width:100%;max-width:280px}
+#zoom-acts .link{font-size:13.5px;font-weight:800;color:var(--muted);text-decoration:underline;text-underline-offset:3px;min-height:44px}
+#zoom-acts .sent{font-size:13.5px;font-weight:800;color:var(--ok);min-height:44px;display:flex;align-items:center}
+@media (min-width:640px){.sheet-pic{height:200px}.zoom{padding:24px}.zoom-pic{height:min(560px,70vh,calc(100vh - 260px))}}
+@media (prefers-reduced-motion:no-preference){.zoom-card{animation:up .18s ease-out}}
 .me-pic svg{width:56px;height:56px} /* Crispy with a drop, like the profile button */
 .meta{color:var(--muted);font-size:13px}
 .empty{padding:28px;text-align:center;color:var(--muted)}
@@ -253,7 +289,7 @@ div.ir{position:relative}
 .face-btn{border:2px solid var(--line);background:var(--surface);border-radius:12px;padding:9px 2px 7px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;font-size:12px;font-weight:700;line-height:1.15;text-align:center;color:var(--muted)}
 .face-btn span{font-size:28px;line-height:1;height:28px}
 .face-btn.on{border-color:var(--primary);background:var(--soft);color:var(--ink)}
-.item-head{display:grid;grid-template-columns:52px minmax(0,1fr);gap:12px;align-items:center;margin:0 0 14px;padding-right:44px}
+.item-head{margin:0 0 14px}
 .item-name{font-size:16px!important;line-height:1.25!important;margin:2px 0 0!important;padding:0!important}
 .ver{display:inline-block;white-space:nowrap;background:var(--soft);color:var(--ink);border-radius:999px;padding:0 7px;font-weight:800}
 .help{font-size:13px;color:var(--muted);text-align:center;margin-top:-6px}
@@ -339,6 +375,13 @@ p.src{margin:4px 0 12px}
 .ok{color:var(--ok);font-weight:800;font-size:12.5px;white-space:nowrap}
 .left{text-align:center;color:var(--accent-text);font-weight:800;font-size:13px;margin:4px 0 8px}
 .photo-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;margin-bottom:10px}
+/* "Is this your pack?": the Open Food Facts photo large enough to check before sending (photo-zoom.html) */
+.pack-check{margin:0 0 10px;text-align:center}
+.pc-pic{position:relative;height:160px;border-radius:14px;background:var(--letterbox);border:1px solid var(--line);overflow:hidden}
+.pc-pic img{position:absolute;inset:6px;width:calc(100% - 12px);height:calc(100% - 12px);object-fit:contain}
+.pc-q{margin:8px 0 0;font-size:15px}
+.pc-q .src{display:block}
+.pack-check .link{min-height:44px;font-size:14px}
 .photo-tried{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start}
 .photo-tried .upload{margin-top:0}
 .tried .faces{margin:4px 0 6px}

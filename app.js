@@ -43,10 +43,24 @@ const store={
   del(k,session){try{(session?sessionStorage:localStorage).removeItem(k)}catch(e){}}
 };
 const photoUrl=it=>it.image_url||(it.image_path&&CONFIG.SUPABASE_URL?`${CONFIG.SUPABASE_URL}/storage/v1/object/public/product-photos/${it.image_path}`:null);
-function thumb(it,cls=''){
-  const e=esc(it.emoji||'🍽️'),u=photoUrl(it);
-  const inner=u?`<img src="${esc(u)}" alt="" loading="lazy" data-e="${e}" onerror="this.replaceWith(this.dataset.e)">`:e;
-  return `<span class="thumb${cls?' '+cls:''}" aria-hidden="true">${inner}</span>`;
+// kind ('row': a list row, 'pend': a snack in the vote): the photo becomes a button with a magnifier that shows it bigger
+// (openZoom); a photo that fails to load turns the button off
+const MAG='<span class="mag" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg></span>';
+const zoomData=(it,kind,u)=>`data-act="zoom" data-kind="${kind}" data-id="${it.id}" data-src="${esc(u)}" data-name="${esc(it.pack_name)}" aria-label="See a bigger photo of ${esc(it.pack_name)}"`;
+function thumb(it,cls='',kind=false){
+  const e=esc(it.emoji||'🍽️'),u=photoUrl(it),c=`thumb${cls?' '+cls:''}`;
+  if(!u)return `<span class="${c}" aria-hidden="true">${e}</span>`;
+  const img=`<img src="${esc(u)}" alt="" loading="lazy" data-e="${e}" onerror="if(this.parentNode.tagName==='BUTTON')this.parentNode.disabled=true;this.replaceWith(this.dataset.e)">`;
+  return kind?`<button type="button" class="${c} zoomable" ${zoomData(it,kind,u)}>${img}${MAG}</button>`
+    :`<span class="${c}" aria-hidden="true">${img}</span>`;
+}
+// The rating sheet's photo, across the sheet. "Tap to see it bigger" shows until the big view has been used once.
+// If it doesn't load, the sheet falls back to the emoji beside the name.
+function sheetPic(it){
+  const u=photoUrl(it);if(!u)return '';
+  const fine=matchMedia('(hover:hover) and (pointer:fine)').matches;
+  const pill=store.get('tasterank-zoomed')?'':`<span class="pill" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21M10.5 7.5v6M7.5 10.5h6"/></svg>${fine?'Click':'Tap'} to see it bigger</span>`;
+  return `<button type="button" class="sheet-pic zoomable" ${zoomData(it,'sheet',u)}><img src="${esc(u)}" alt="" onerror="this.closest('.item-head').classList.remove('has-pic')">${pill}</button>`;
 }
 function toast(msg,btn){ // btn: {label, act, id}: a button in the note (kept up longer, so there's time to tap it)
   const t=$('#toast');t.innerHTML=esc(msg)+(btn?` <button class="link" data-act="${esc(btn.act)}" data-id="${esc(btn.id)}">${esc(btn.label)}</button>`:'');
@@ -333,10 +347,11 @@ const DEMO_RPC={
   },
   report_item({p_item,p_reason,p_note},st){
     const it=D.all().find(i=>i.id===p_item),note=String(p_note||'').trim()||null;
-    if(!['not_sold','wrong_list','wrong_name','duplicate','other'].includes(p_reason))throw new Error("Pick what's not right");
+    if(!['not_sold','wrong_list','wrong_name','wrong_photo','duplicate','other'].includes(p_reason))throw new Error("Pick what's not right");
     if(note&&note.length>200)throw new Error('Please keep the note under 200 letters');
-    if(!it||!D.waiting(it,st))throw new Error("This snack isn't waiting for approval any more");
-    if(it.mine)throw new Error('You added this one. You can withdraw it from your profile.');
+    const wait=it&&D.waiting(it,st);  // migration 018: "Wrong photo" on live snacks too
+    if(!it||!(wait||(p_reason==='wrong_photo'&&D.live(it,st))))throw new Error("This snack isn't waiting for approval any more");
+    if(wait&&it.mine)throw new Error('You added this one. You can withdraw it from your profile.');
     (st.reports=st.reports||{})[p_item]={reason:p_reason,note,at:Date.now()};delete (st.cleared||{})[p_item];demoSave(st);
     return {ok:true,pack_name:it.pack};
   },
@@ -345,7 +360,7 @@ const DEMO_RPC={
     return [...new Set(all.map(r=>r.item))].map(id=>{
       const i=D.all().find(x=>x.id===id),rs=all.filter(r=>r.item===id);if(!i||i.withdrawn||i.hidden)return null;
       const reasons={};rs.forEach(r=>reasons[r.reason]=(reasons[r.reason]||0)+1);
-      return {item_id:id,pack_name:i.pack,brand:i.b,product_id:i.p,product:D.product(i.p,i.c),emoji:D.emoji(i.p),country_id:i.c,
+      return {item_id:id,pack_name:i.pack,brand:i.b,product_id:i.p,product:D.product(i.p,i.c),emoji:D.emoji(i.p),image_url:i.img||null,image_path:null,country_id:i.c,
         status:D.live(i,st)?'live':i.closed?'closed':'pending',approvals:D.approvals(i,st),reports:rs.length,reasons,
         notes:rs.filter(r=>r.note).sort((a,b)=>b.at-a.at).map(r=>r.note),last_at:new Date(Math.max(...rs.map(r=>r.at))).toISOString()};
     }).filter(Boolean).sort((a,b)=>b.last_at.localeCompare(a.last_at));
@@ -388,12 +403,14 @@ const DEMO_RPC={
     demoSave(st);return 'Declined. The sender will see "Not this time".';
   },
   owner_save_snack({p_item,p_pack_name,p_brand_name,p_country,p_category,p_subcategory,p_flavour,p_photo},st){
-    const it=D.all().find(i=>i.id===p_item),pack=tidyCase(p_pack_name);
+    // migration 018: the brand is spelt exactly as the owner types it ("innocent"), and the name starts with that spelling
+    const it=D.all().find(i=>i.id===p_item),brand=String(p_brand_name||'').replace(/\s+/g,' ').trim(),t=tidyCase(p_pack_name);
+    const lb=brand.toLowerCase(),lt=t.toLowerCase(),pack=lb&&(lt===lb||lt.startsWith(lb+' '))?brand+t.slice(brand.length):t;
     if(!pack)throw new Error('Type the name on the pack');if(!norm(p_brand_name))throw new Error('Add the brand');
     if(D.all().some(i=>i.id!==p_item&&i.c===p_country&&!i.hidden&&(D.live(i,st)||D.waiting(i,st))&&snackKey(i.pack)===snackKey(pack)))
       throw new Error(`Another snack in ${D.country(p_country).short_name} already has that name. Change one of them, or hide the extra one.`);
     const pid=ownDemoProduct(st,p_subcategory,p_category),v=p_flavour?ownDemoVariant(st,pid,p_flavour):pid===it.p?it.v:D.guessVariant(pid,pack,null);
-    const o={pack,b:D.all().map(i=>i.b).find(b=>norm(b)===norm(p_brand_name))||tidyCase(p_brand_name),c:p_country,p:pid,v};
+    const o={pack,b:brand,c:p_country,p:pid,v};
     if(p_photo!=null)o.img=p_photo||null;
     ownDemoItem(st,p_item,o);return DEMO_RPC.owner_snacks({p_item},st)[0];
   },
@@ -497,7 +514,7 @@ function openM(id){
   else if(!openId)lastFocus=document.activeElement;
   openId=id;$('#tip7').hidden=true;
   const m=$('#'+id);m.hidden=false;
-  const first=m.querySelector('[data-autofocus]')||m.querySelector('.face-btn,input:not([type=checkbox]),textarea,select,.btn-primary,button:not(.x)');
+  const first=m.querySelector('[data-autofocus]')||m.querySelector('.face-btn,input:not([type=checkbox]),textarea,select,.btn-primary,button:not(.x):not(.zoomable)'); // not the photo: the faces come first
   (first||m.querySelector('button')).focus();
 }
 function closeM(){
@@ -523,6 +540,73 @@ document.addEventListener('keydown',e=>{
   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
 });
+
+/* ---------- A bigger look at a snack's photo: it sits on top of the page or the rating sheet, which stay as they were.
+   Closes on a tap anywhere, ×, Escape or Back; focus goes back to the photo that opened it ---------- */
+/* The big view (design/mockups/photo-zoom.html): the photo as large as the screen allows, sharpened to Open Food Facts' full-size
+   photo once that has loaded, with the brand · list · flag, the name, "Rate it" (from a list) and "Wrong photo? Tell us". */
+let zoomFrom=null,zoomCur=null,zoomSeq=0;
+const zoomOpen=()=>!$('#zoom').hidden;
+const fullPhoto=u=>/^https:\/\/images\.openfoodfacts\.org\/.+\.400\.jpg$/.test(u)?u.replace(/\.400\.jpg$/,'.full.jpg'):null;
+function zoomInfo(d){
+  const id=+d.id;
+  if(d.kind==='sheet'&&sheet&&sheet.it.id===id){const it=sheet.it;return {meta:[it.brand,it.where,it.country?.flag],live:true}}
+  if(d.kind==='row'){const it=itemFromPage(id);if(it)return {meta:[it.brand,it.where,it.country?.flag],live:true,rate:true,rated:!!it.my_score}}
+  if(d.kind==='pend'){const p=findWaiting(id);if(p)return {meta:[p.brand,p.product,p.place?.flag],pend:true}}
+  return {meta:[]};
+}
+function zoomActs(){
+  const z=zoomCur;if(!z)return '';
+  return `${z.rate?`<button class="btn btn-primary" data-act="zoom-rate" data-id="${z.id}">${z.rated?'See your rating':'Rate it'}</button>`:''}
+    ${z.sent?'<span class="sent" role="status">✓ Thanks! We\'ll check the photo.</span>'
+      :z.live||z.pend?'<button class="link" data-act="zoom-wrong">Wrong photo? Tell us</button>':''}`;
+}
+function openZoom(d){
+  if(!d.src)return;
+  zoomFrom=zoomFrom||document.activeElement;
+  const info=zoomInfo(d),seq=++zoomSeq,img=$('#zoom-img'),full=fullPhoto(d.src);
+  zoomCur={...info,id:+d.id,name:d.name};
+  img.src=d.src;img.alt=`Pack photo: ${d.name}`;
+  if(full){const pre=new Image();pre.onload=()=>{if(seq===zoomSeq&&zoomOpen())img.src=full};pre.src=full}
+  $('#zoom-meta').textContent=info.meta.filter(Boolean).join(' · ');
+  $('#zoom-name').textContent=d.name;
+  $('#zoom-acts').innerHTML=zoomActs();
+  $('#zoom').hidden=false;$('#zoom .x').focus();
+  if(!store.get('tasterank-zoomed')){store.set('tasterank-zoomed',1);document.querySelectorAll('.sheet-pic .pill').forEach(p=>p.remove())}
+  track('photo-zoom',true);
+}
+// "Wrong photo? Tell us": for a snack in the vote, the "Not right?" form with Wrong photo picked; for a live one, sent straight away
+function zoomWrong(){
+  const z=zoomCur;if(!z)return;
+  if(z.pend){closeZoom();return needUser({name:'report',item:z.id,reason:'wrong_photo'})}
+  if(!me){closeZoom();return needUser({name:'wrong-photo',item:z.id,pack:z.name})}
+  sendWrongPhoto(z.id,z.name);
+}
+async function sendWrongPhoto(id,name){
+  try{await rpc('report_item',{p_item:id,p_reason:'wrong_photo',p_note:null})}
+  catch(err){toast(err.message||'Something went wrong. Please try again.');console.error(err);return}
+  track('report-photo',true);
+  if(zoomCur&&zoomCur.id===id){zoomCur.sent=true;$('#zoom-acts').innerHTML=zoomActs();$('#zoom .x').focus()}
+  else toast("Thanks! We'll check the photo.");
+  emailOwner(`TasteRank: someone says the photo of "${name}" is wrong`,
+    `${name} is live on TasteRank. Someone says its photo shows a different pack.\n\nSee it on the owner page, under To check, and use Fix it to change the photo.`);
+}
+function closeZoom(){
+  if(!zoomOpen())return false;
+  zoomSeq++;zoomCur=null;$('#zoom').hidden=true;$('#zoom-img').removeAttribute('src');
+  if(zoomFrom&&document.contains(zoomFrom))zoomFrom.focus();
+  zoomFrom=null;return true;
+}
+$('#zoom').addEventListener('click',e=>{if(e.target===e.currentTarget||e.target.closest('.zoom-pic'))closeZoom()}); // the photo or around it
+document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button.zoomable');if(b&&!b.disabled)zoomFrom=b},true); // Safari doesn't focus a tapped button, so remember it here
+document.addEventListener('keydown',e=>{ // runs before the pop-up's keys, so Escape closes the photo, not the sheet under it
+  if(!zoomOpen())return;
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeZoom()}
+  else if(e.key==='Tab'){ // focus stays on the photo's own buttons
+    const b=[...$('#zoom').querySelectorAll('button:not([disabled])')],i=b.indexOf(document.activeElement);
+    e.preventDefault();e.stopPropagation();b[(i+(e.shiftKey?-1:1)+b.length)%b.length]?.focus();
+  }
+},true);
 
 /* ---------- Sideways chip rows fade only where there are more chips to scroll to ---------- */
 function fadeChips(){
@@ -649,6 +733,7 @@ function canon(r){const h=pathFor(r);if(location.pathname!==h)history.replaceSta
 function gone(){history.replaceState(null,'','/');toast("That list isn't here any more.");return show({v:'home'})}
 const route=async()=>{const r=await parseRoute();if(r.v==='gone')return gone();if(r.v==='profile'&&!me){r.v='home';history.replaceState(null,'','/')}return show(r)};
 window.addEventListener('popstate',()=>{
+  if(zoomOpen()){closeZoom();history.pushState(null,'',currentUrl);return} // Back closes the bigger photo first
   if(openId){closeM();history.pushState(null,'',currentUrl);return} // Back closes the pop-up instead of leaving the page
   route();
 });
@@ -706,7 +791,11 @@ const ACT={
   'ls-clear':()=>lsClear(true),
   'ls-all':lsShowAll,
   'ls-add':lsAdd,
-  owner:()=>{showSettings(false);go({v:'owner'})}
+  owner:()=>{showSettings(false);go({v:'owner'})},
+  zoom:openZoom,
+  'zoom-close':closeZoom,
+  'zoom-rate':d=>{closeZoom();ACT.rate(d)},
+  'zoom-wrong':zoomWrong
 };
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');
@@ -723,7 +812,8 @@ const AFTER={
   profile:()=>go({v:'profile'}),
   rate:a=>openRate(a.item),
   approve:a=>doApprove(a.item,a.brand,a.mine),
-  report:a=>openReport(a.item),
+  report:a=>openReport(a.item,a.reason),
+  'wrong-photo':a=>sendWrongPhoto(a.item,a.pack),
   add:a=>startAdd(),
   'add-q':a=>startAdd(null,a.q), // "＋ Add it" under a list search that found nothing
   owner:()=>go({v:'owner'})
@@ -735,9 +825,9 @@ function needUser(a){
 }
 // Crispy's tip 3: rating or approving signed out, the pop-up names the snack, shows the faces that come next (greyed) and says why
 function signInFor(a){
-  const it=a.name==='rate'?itemFromPage(a.item):null,p=a.name==='approve'||a.name==='report'?findWaiting(a.item):null,rep=a.name==='report';
-  const name=it?it.pack_name:p?p.pack_name:null;
-  $('#signin-title').textContent=name?(rep?`Something not right with ${name}?`:`${it?'Rate':'Approve'} ${name}`):'Join TasteRank';
+  const it=a.name==='rate'?itemFromPage(a.item):null,p=a.name==='approve'||a.name==='report'?findWaiting(a.item):null;
+  const wp=a.name==='wrong-photo',rep=a.name==='report'||wp,name=it?it.pack_name:p?p.pack_name:wp?a.pack:null;
+  $('#signin-title').textContent=name?(wp?`Wrong photo on ${name}?`:rep?`Something not right with ${name}?`:`${it?'Rate':'Approve'} ${name}`):'Join TasteRank';
   const m=$('#signin-meta');m.hidden=!it;if(it)m.textContent=`${it.country.flag} ${it.country.short_name} · ${it.where}`;
   const f=$('#signin-faces');f.hidden=!it;if(it)f.innerHTML=FACES.map(x=>`<span class="face-btn"><span>${x.e}</span>${x.l}</span>`).join('');
   $('#signin-why').textContent=name?(rep?'Sign in first, so each person tells us once. Only TasteRank\'s owner sees what you send, and never your name.'
@@ -804,18 +894,29 @@ const catalogues={};
 const NEW_TAG=' <span class="newtag sm">new</span>';
 // The same rules as tidy_case() in the database: commas and stray punctuation between words become spaces
 // ("Boundless, Sea Salt" → "Boundless Sea Salt"; "&", apostrophes and "%" stay); then text typed ALL IN CAPITALS or all small
-// gets a capital at the start of each word ("TONY'S" → "Tony's"), and mixed capitals ("KitKat") are kept.
+// gets a capital at the start of each word ("TONY'S" → "Tony's").
+// In mixed text (2026-11-22, migration 018), words in small letters get a capital too ("Walkers smoky bacon" → "Walkers Smoky Bacon",
+// small words like "and" stay small) and shouting words of 4+ letters calm down ("KETTLE Chips" → "Kettle Chips"); words with a capital
+// inside (KitKat, McVitie's), short capitals (KP, BBQ) and words with numbers or & are kept.
+// A brand that starts the name keeps its saved spelling ("innocent"): the add form does that (brandSpelling), the database too.
 // sentence: "Chocolate sweets" style, for category names.
+const SMALL_WORDS=['and','of','the','with','in','on','a','n','to'];
 function tidyCase(t,sentence){
   const c=String(t||'').replace(/\s*[,;|*]+\s*/g,' ').replace(/\s+[-–—:]+\s+/g,' ').replace(/\s+/g,' ').trim().replace(/^[ ,;:\-–—]+|[ ,;:\-–—]+$/g,'');
   const mixed=c!==c.toUpperCase()&&c!==c.toLowerCase(),caps=c===c.toUpperCase();
-  if(!c||(mixed&&!sentence))return c;
+  if(!c)return c;
+  const cap=w=>w.toLowerCase().replace(/\p{L}/u,ch=>ch.toUpperCase());
   return c.split(' ').map((w,i)=>{
-    const l=w.toLowerCase();
+    const l=w.toLowerCase(),u=w.toUpperCase(),plain=!/[0-9&]/.test(w);
+    if(mixed&&!sentence){
+      if(plain&&w===l&&w!==u)return i&&SMALL_WORDS.includes(l)?l:cap(w);                       // smoky → Smoky
+      if(plain&&w===u&&w!==l&&(w.match(/\p{L}/gu)||[]).length>=4)return cap(w);                  // KETTLE → Kettle, not KP or BBQ
+      return w;
+    }
     if(mixed)return i&&/^\p{Lu}[\p{Ll}']+$/u.test(w)?l:w;
     if(/[0-9&]/.test(w)||(caps&&w.length<=2&&!['of','in','on','a','to','n'].includes(l)))return w; // 70%, M&S, KP
-    if(i&&(sentence||['and','of','the','with','in','on','a','n','to'].includes(l)))return l;
-    return l.replace(/\p{L}/u,ch=>ch.toUpperCase());
+    if(i&&(sentence||SMALL_WORDS.includes(l)))return l;
+    return cap(w);
   }).join(' ');
 }
 async function loadCatalogue(c){return catalogues[c]||(catalogues[c]=await rpc('catalogue',{p_country:c}))}
@@ -1237,7 +1338,9 @@ function drawMid(el){
   const tried=`<div class="field tried"><span class="lab">Tried it? <span class="optional">(optional)</span></span><div class="faces sm">${FACES.map(f=>
     `<button class="face-btn${add.score===f.v?' on':''}" aria-pressed="${add.score===f.v}" aria-label="${f.l}" data-act="add-face" data-v="${f.v}"><span aria-hidden="true">${f.e}</span></button>`).join('')}</div></div>`;
   const photo=add.photoUrl&&!add.ownPhoto
-    ?`<div class="photo-row"><span class="thumb big"><img src="${esc(add.photoUrl)}" alt="Pack photo: ${esc(add.pack)}"></span><div><span class="src">Photo from Open Food Facts</span><br><button class="link" data-act="add-own-photo">Use my own photo</button></div></div>${tried}`
+    ?`<div class="pack-check"><div class="pc-pic"><img src="${esc(add.photoUrl)}" alt="Pack photo: ${esc(add.pack)}"></div>
+        <p class="pc-q"><b>Is this your pack?</b> <span class="src">Photo from Open Food Facts</span></p>
+        <button class="link" data-act="add-own-photo">No, use my own photo</button></div>${tried}`
     :`<div class="photo-tried"><label class="upload${add.photo?' has-photo':''}">${add.photo?`<img src="${add.photo.url}" alt="Your photo"><span class="change">Change</span>`:'<span class="cam" aria-hidden="true">📷</span>Add photo<span class="optional">optional</span>'}
         <input type="file" id="add-photo" accept="image/*" class="sr-only"></label>${tried}</div>`;
   el.innerHTML=`<div class="rows">${brandRow()}${typeRow()}${catRow()}${countryRow()}</div>
@@ -1727,17 +1830,17 @@ function findWaiting(id){
 }
 /* "Not right?": one of 5 reasons and an optional note. It goes to the owner page's "To check" and the owner's inbox; it never says who sent it */
 const REASONS=[['not_sold',w=>`Not sold in ${placeIn(w.place)}`],['wrong_list',()=>"It's in the wrong list",'It belongs in another list, or a new one'],
-  ['wrong_name',()=>'Wrong name or photo'],['duplicate',()=>"It's already listed",'The same snack under another name'],['other',()=>'Something else']];
+  ['wrong_name',()=>'Wrong name'],['wrong_photo',()=>'Wrong photo','It shows a different pack'],['duplicate',()=>"It's already listed",'The same snack under another name'],['other',()=>'Something else']];
 let reporting=null;
-function openReport(id){
+function openReport(id,pick){ // pick: a reason chosen already ("Wrong photo? Tell us" in the big view)
   const w=findWaiting(id);if(!w)return toast("This snack isn't waiting for approval any more.");
   reporting=w;
   $('#report-body').innerHTML=`<h3 id="report-title">What's not right?</h3><p class="hm">${esc(w.pack_name)} · ${esc(w.product)}</p>
     <form id="f-report"><fieldset class="opts"><legend class="sr-only">What's not right?</legend>
-      ${REASONS.map(([k,t,sub])=>`<label class="opt"><input type="radio" name="reason" value="${k}"><span>${esc(t(w))}${sub?`<small>${esc(sub)}</small>`:''}</span></label>`).join('')}</fieldset>
+      ${REASONS.map(([k,t,sub])=>`<label class="opt"><input type="radio" name="reason" value="${k}"${k===pick?' checked':''}><span>${esc(t(w))}${sub?`<small>${esc(sub)}</small>`:''}</span></label>`).join('')}</fieldset>
       <label class="fl" for="report-note">Anything to add? <span>(optional)</span></label>
       <textarea id="report-note" maxlength="200" rows="3" placeholder="e.g. what it should be called, or which list"></textarea>
-      <button class="btn btn-primary btn-block" type="submit" disabled>Send</button></form>`;
+      <button class="btn btn-primary btn-block" type="submit"${pick?'':' disabled'}>Send</button></form>`;
   track('report-open',true);openM('m-report');
 }
 async function sendReport(e){
@@ -1808,7 +1911,7 @@ function listRow(it,k,sub,brandHtml){
   const pct=it.ranked?Math.round(it.avg/5*100):Math.min(100,Math.round(it.total/need*100));
   const label=`${rank?`Number ${rank}: `:''}${it.pack_name}. ${it.ranked?`${score1(it.avg)} out of 5, ${plural(it.total,'rating')}`:`${it.total} of ${need} ratings`}${mine?`. You rated it ${mine.l}`:''}`;
   return `<div class="ir${it.ranked&&k<3?' top3':''}${it.ranked?'':' unranked'}" id="snack-${it.id}">
-    <span class="rk" aria-hidden="true">${rank||'–'}</span>${thumb(it,'sm')}
+    <span class="rk" aria-hidden="true">${rank||'–'}</span>${thumb(it,'sm','row')}
     <span class="in">${brandHtml?`<span class="br">${brandHtml}</span>`:''}<button class="nm" data-act="rate" data-id="${it.id}" aria-label="${esc(label)}"><span class="nm-t">${esc(splitBrand(it)[1])}</span></button>
       ${sub||mine?`<span class="sb">${sub}${mine?` <span class="mine">${sub?'· ':''}You ${mine.e}</span>`:''}</span>`:''}
       <span class="track" aria-hidden="true"><span class="fill" style="width:${pct}%"></span></span></span>
@@ -1884,7 +1987,7 @@ function pickFlavour(id){
 }
 function pendCard(p){
   const n=settings.approval_votes,w=Math.min(100,Math.round(p.approvals/n*100));
-  return `<div class="pend${p.mine?' mine':''}" id="snack-${p.id}">${thumb(p,'sm')}
+  return `<div class="pend${p.mine?' mine':''}" id="snack-${p.id}">${thumb(p,'sm','pend')}
     <div class="in"><div class="pk">${esc(p.brand)}${p.mine?' · <span class="mine">added by you</span>':''}</div><div class="bn">${esc(splitBrand(p)[1])}</div>
       <div class="meta">${p.approvals} of ${n} approvals${p.mine?` · closes in ${p.days_left} days`:''}</div><div class="prog"><i style="width:${w}%"></i></div></div>
     <div class="pend-acts">${p.mine?`<button class="btn" data-act="share-snack" data-id="${p.id}" aria-label="Share ${esc(p.pack_name)}">Share</button>`:''}
@@ -2078,7 +2181,11 @@ async function openRate(id){
 function renderSheet(){
   if(!sheet)return;
   const it=sheet.it,home=profile&&profile.home_place,homeCountryId=home&&(home.country_id||null);
-  $('#rate-thumb').outerHTML=thumb(it).replace('class="thumb"','class="thumb" id="rate-thumb"');
+  const u=photoUrl(it)||'',pic=$('#rate-pic'); // redrawn only for another snack or photo, so it doesn't flicker
+  if(pic.dataset.id!==String(it.id)||pic.dataset.src!==u){
+    pic.innerHTML=sheetPic(it);pic.dataset.id=it.id;pic.dataset.src=u;$('#rate-head').classList.toggle('has-pic',!!u);
+    $('#rate-thumb').outerHTML=thumb({emoji:it.emoji}).replace('class="thumb','id="rate-thumb" class="thumb');
+  }
   // the brand, the list (the flavour when one is picked) and the country: "Walkers · Salt & vinegar crisps · 🇬🇧"
   $('#rate-meta').innerHTML=`${esc(it.brand)} · ${esc(it.where)} · ${it.country.flag}${homeCountryId&&homeCountryId!==it.country.id?` <span class="ver">${esc(placeBy('id',it.country.id)?.adjective||it.country.short_name)} version</span>`:''}`;
   $('#rate-title').textContent=it.pack_name;
@@ -2461,11 +2568,11 @@ function ownCheckHtml(){
   return own.reports.map(ownReportCard).join('')+own.queue.map(ownReqCard).join(''); // reports first: those snacks are in the vote now
 }
 /* "Not right?" reports (migration 015): one card per snack, with how many said what and their notes; never who sent them */
-const REPORT_LABEL={not_sold:'Not sold here',wrong_list:'In the wrong list',wrong_name:'Wrong name or photo',duplicate:'Already listed',other:'Something else'};
+const REPORT_LABEL={not_sold:'Not sold here',wrong_list:'In the wrong list',wrong_name:'Wrong name',wrong_photo:'Wrong photo',duplicate:'Already listed',other:'Something else'};
 function ownReportCard(x){
   const pl=placeBy('id',x.country_id)||{},busy=own.repBusy===x.item_id?' disabled':'';
-  return `<div class="card own-req own-rep" id="own-rep-${x.item_id}"><div class="own-top">${thumb({emoji:x.emoji})}<div><h3 class="own-name">${esc(x.pack_name)}</h3>
-    <p class="meta">${esc(x.brand)} · ${esc(x.product)} · ${esc(pl.short_name||'')} · ${x.approvals} of ${settings.approval_votes} approvals</p>
+  return `<div class="card own-req own-rep" id="own-rep-${x.item_id}"><div class="own-top">${thumb(x,(x.reasons||{}).wrong_photo?'big':'')}<div><h3 class="own-name">${esc(x.pack_name)}</h3>
+    <p class="meta">${esc(x.brand)} · ${esc(x.product)} · ${esc(pl.short_name||'')}${x.status==='pending'?` · ${x.approvals} of ${settings.approval_votes} approvals`:''}</p>
     <p class="own-what"><span class="reptag">${x.reports===1?'1 person says':`${x.reports} people say`} it's not right</span> ${ownPill(x.status)}</p></div></div>
     <ul class="own-reasons">${Object.entries(x.reasons||{}).sort((a,b)=>b[1]-a[1]).map(([k,c])=>`<li>${esc(REPORT_LABEL[k]||k)}${c>1?` <b>×${c}</b>`:''}</li>`).join('')}</ul>
     ${(x.notes||[]).length?`<div class="own-notes">${x.notes.map(t=>`<p>“${esc(t)}”</p>`).join('')}</div>`:''}
@@ -2598,7 +2705,7 @@ function ownSnackSheet(){
   return `<h3 id="own-sheet-title">Change this snack</h3><p class="own-sum">${esc(ownStatusLine(e))}${link}</p>
     <div class="own-photo">${thumb(pic,'big')}<label class="btn sm">Change photo<input type="file" id="own-photo" accept="image/*" class="sr-only"></label>${hasPic?'<button class="link btn-danger" data-act="own-photo-remove">Remove</button>':''}</div>
     <label class="field">Name on the pack<input data-edit="pack_name" value="${esc(e.pack_name)}" autocomplete="off"></label>
-    <label class="field">Brand<input data-edit="brand" value="${esc(e.brand)}" autocomplete="off"></label>
+    <label class="field">Brand<input data-edit="brand" value="${esc(e.brand)}" autocomplete="off"><span class="hint">Saved exactly as you type it, small letters too ("innocent"). New capitals change it on all this brand's snacks.</span></label>
     <label class="field">Sold in<select id="own-e-country">${places.map(p=>`<option value="${p.id}"${p.id===e.country_id?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('')}</select></label>
     <div class="own-f"><span class="lab">Category</span>${ownCatChips(e.cat,'own-edit-cat')}</div>
     <div class="own-two"><label class="field">Subcategory<select id="own-e-sub">${prods.map(p=>`<option value="${esc(p.name)}"${cur?.id===p.id?' selected':''}>${esc(p.name)}</option>`).join('')}<option value="new"${cur?'':' selected'}>＋ New…</option></select></label>

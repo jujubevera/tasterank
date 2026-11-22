@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–016 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–018 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -931,5 +931,59 @@ ok('everything skipped: done',(await nx17(31,`${from17.id},${v17},false,${skip17
 ok('signed out it still works',!(await las(null,`select public.next_snack(${from17.id},${v17},false,${skip17([before17.v.id])})`)).err);
 await lone(31,`select public.rate_item(${before17.v.id},4)`);
 ok('a rated snack still isn\'t offered, skip list or not',(await nx17(31,`${from17.id},${v17},false,'{}'`)).id!==before17.v.id);
+
+// ---- Migration 018: tidier names that keep each brand's spelling, and "Wrong photo" reports ----
+console.log('\n---- Migration 018 ----');
+const mig18=fs.readFileSync(R+'migrate-018-names-photos.sql','utf8');
+const pre18=await lq(`select id,pack_name from public.items order by id`);
+try{await live.exec(mig18);await live.exec(mig18);ok('018 runs twice without errors',true)}catch(e){ok('018 runs twice without errors',false,e.message);return}
+ok('…and renames nothing already saved',JSON.stringify(await lq(`select id,pack_name from public.items order by id`))===JSON.stringify(pre18));
+const t18=async(t,s=false)=>(await lq(`select public.tidy_case('${t.replace(/'/g,"''")}',${s}) t`))[0].t;
+const cases18=[['Walkers smoky bacon crisps','Walkers Smoky Bacon Crisps'],['Walkers Roast Chicken crisps','Walkers Roast Chicken Crisps'],
+  ['CRUNCHO Chips Mature Cheddar','Cruncho Chips Mature Cheddar'],['Sea Salt and Vinegar','Sea Salt and Vinegar'],['KitKat Chunky','KitKat Chunky'],
+  ["M&S Percy Pig's 70%","M&S Percy Pig's 70%"],['KP Nuts BBQ flavour','KP Nuts BBQ Flavour'],["McVitie's digestives","McVitie's Digestives"],
+  ["TONY'S CHOCOLONELY DARK CHOCOLATE 70%","Tony's Chocolonely Dark Chocolate 70%"],['walkers salt and vinegar','Walkers Salt and Vinegar'],
+  ['KP NUTS','KP Nuts'],['Pocky (strawberry)','Pocky (Strawberry)'],['かっぱえびせん','かっぱえびせん'],['Boundless, Sea Salt and Cider Vinegar Chips','Boundless Sea Salt and Cider Vinegar Chips']];
+const bad18=[];for(const [a,b] of cases18){const r=await t18(a);if(r!==b)bad18.push(`${a} → ${r}`)}
+ok('the new rule: small letters get capitals, shouting calms down, KitKat/KP/BBQ/M&S/70% kept (same as the site\'s tidyCase)',!bad18.length,bad18.join('; '));
+ok('…sentence style (categories) works as before',(await t18('DARK CHOCOLATE',true))==='Dark chocolate'&&(await t18('Dark Chocolate',true))==='Dark chocolate'&&(await t18('Matcha KitKat',true))==='Matcha KitKat');
+await lq(`insert into public.brands(name,status) values ('innocent','live'),('GoodNess Co','live') on conflict do nothing`);
+ok('a known brand at the start keeps its saved spelling: Innocent Smoothie mango → innocent Smoothie Mango',(await t18('Innocent Smoothie mango'))==='innocent Smoothie Mango'&&(await t18('INNOCENT SMOOTHIE'))==='innocent Smoothie',await t18('Innocent Smoothie mango'));
+ok('…brands of more than one word too, and only at the start',(await t18('goodness co crisps'))==='GoodNess Co Crisps'&&(await t18('Fresh Innocent Juice'))==='Fresh Innocent Juice');
+ok('…a brand saved in capitals keeps them (KETTLE here) until the owner changes its spelling',(await t18('Kettle chips'))==='KETTLE Chips');
+ok('…but not in category names',(await t18('Innocent smoothies',true))==='Innocent smoothies');
+ok('nobody can call tidy_case directly',ldenied(await las(null,`select public.tidy_case('abc')`))&&ldenied(await las(24,`select public.tidy_case('abc')`)));
+await live.query('insert into auth.users(id) values ($1) on conflict do nothing',[U(32)]);
+const s18=await las(32,`select public.submit_snack(1,${cr17},'Innocent','Innocent smoothie mango') r`);
+const it18=s18.rows&&(await lq(`select i.id,i.pack_name,b.name brand from public.items i join public.brands b on b.id=i.brand_id where i.submitted_by='${U(32)}'`))[0];
+ok('a snack sent as "Innocent smoothie mango" is saved as "innocent Smoothie Mango", under the brand innocent',it18&&it18.pack_name==='innocent Smoothie Mango'&&it18.brand==='innocent',s18.err||JSON.stringify(it18));
+// The owner's spelling
+await lq(`insert into public.brands(name,status) values ('Nakd','live') on conflict do nothing`);
+const sv18=(id,pack,brand,who=2)=>lone(2,`select public.owner_snacks(null,${id})`).then(x=>x[0]).then(x=>las(who,`select public.owner_save_snack(${id},'${pack}','${brand}',${x.country_id},${x.category_id},'${x.product.replace(/'/g,"''")}',null,null) r`));
+const s18b=await las(32,`select public.submit_snack(1,${cr17},'Nakd','Nakd Berry Delight') r`);
+const id18b=(await lq(`select i.id from public.items i where i.submitted_by='${U(32)}' and i.pack_name like 'Nakd%'`))[0]?.id;
+await lone(2,`select public.owner_set_status(${id18b},'live')`);
+const r18=await sv18(it18.id,'Nakd Cocoa Delight','nakd');
+const b18=await lq(`select name from public.brands where name_key=public.norm('nakd')`);
+ok('the owner types an existing brand in small letters: the brand is renamed, kept as typed',!r18.err&&b18.length===1&&b18[0].name==='nakd',r18.err||JSON.stringify(b18));
+ok('…the snack saved starts with it, and the brand\'s other snacks follow',(await lq(`select pack_name from public.items where id=${it18.id}`))[0].pack_name==='nakd Cocoa Delight'&&(await lq(`select pack_name from public.items where id=${id18b}`))[0].pack_name==='nakd Berry Delight',JSON.stringify(await lq(`select pack_name from public.items where id in (${it18.id},${id18b})`)));
+const r18c=await sv18(it18.id,'Brewski Cocoa','BrewSki co');
+ok('…a new brand is saved exactly as typed, not tidied',!r18c.err&&(await lq(`select b.name from public.items i join public.brands b on b.id=i.brand_id where i.id=${it18.id}`))[0].name==='BrewSki co',r18c.err);
+ok('…a brand that differs by more than capitals isn\'t renamed (Werthers ≠ Werther\'s)',!(await lq(`select 1 from public.brands where name='Werthers'`)).length);
+ok('…signed in but not the owner: refused',/for TasteRank's owner/.test((await sv18(it18.id,'X Y','x',24)).err||''));
+// Wrong photo
+const live18=(await lq(`select id from public.items where status='live' and country_id=1 order by id limit 1`))[0].id;
+const wp18=await las(24,`select public.report_item(${live18},'wrong_photo','It shows the bacon bag') r`);
+ok('"Wrong photo" can be reported on a live snack',!wp18.err&&(await lq(`select reason from public.item_reports where item_id=${live18}`))[0]?.reason==='wrong_photo',wp18.err);
+ok('…but other reasons still only on snacks in the vote',/isn't waiting for approval/.test((await las(24,`select public.report_item(${live18},'not_sold')`)).err||''));
+ok('…and it works on a snack in the vote too',!(await las(24,`select public.report_item(${a15},'wrong_photo')`)).err);
+ok('…an unknown reason is still refused',/Pick what/.test((await las(24,`select public.report_item(${live18},'ugly')`)).err||''));
+ok('…someone can report the photo on a live snack they added',!(await las(32,`select public.report_item(${id18b},'wrong_photo')`)).err);
+ok('…signed out: can\'t',!!(await las(null,`select public.report_item(${live18},'wrong_photo')`)).err);
+const or18=(await lone(2,'select public.owner_reports()')).find(x=>x.item_id===live18);
+ok('the owner sees it, with the snack\'s photo, marked live',or18&&or18.reasons.wrong_photo===1&&'image_url' in or18&&'image_path' in or18&&or18.status==='live'&&JSON.stringify(or18.notes)==='["It shows the bacon bag"]',JSON.stringify(or18));
+ok('…and the gear menu counts it',(await lone(2,'select public.owner_status()')).reports>=1);
+ok('its check at the end runs',(await lq(mig18.slice(mig18.lastIndexOf('select public.tidy_case'))))[0].small_letters==='Walkers Smoky Bacon Crisps');
+ok('after it all, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${cr17},1)`)));
 }
 }
