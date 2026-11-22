@@ -2493,8 +2493,8 @@ async function sendFeedback(e){
   try{
     const r=await fetch('https://api.web3forms.com/submit',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
       body:JSON.stringify({access_key:CONFIG.WEB3FORMS_KEY,subject:'TasteRank feedback',from_name:'TasteRank',
-        message,email:$('#fb-email').value.trim()||undefined,page:location.href,
-        signed_in:me?'yes':'no',botcheck:$('#fb-bot').checked})});
+        message:`${message}\n\nSent from: ${location.href}`, // the page they were on, in the message itself so it's easy to spot
+        email:$('#fb-email').value.trim()||undefined,signed_in:me?'yes':'no',botcheck:$('#fb-bot').checked})});
     const j=await r.json();if(!j.success)throw new Error(j.message||'Feedback not sent');
   }catch(err){btn.disabled=false;return oops(err)}
   btn.disabled=false;track('feedback-sent',true);
