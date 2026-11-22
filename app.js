@@ -2830,7 +2830,8 @@ document.addEventListener('change',async e=>{
     const v=t.value?+t.value:null,p=t.id==='own-fsub'&&own.cat.products.find(x=>x.id===v);
     if(t.id==='own-fcat'){own.fcat=v;if(v&&own.cat.products.find(x=>x.id===own.fsub)?.category_id!==v)own.fsub=null}else{own.fsub=v;if(p)own.fcat=p.category_id}
     drawOwner();$('#'+t.id)?.focus();return}
-  if(t.id==='own-country'){own.country=t.value?+t.value:null;await ownRefresh();$('#own-country')?.focus()}
+  if(t.id==='own-country'){ // not ownRefresh(): that skips the redraw while the focus is in a box, and here it's on this one
+    own.country=t.value?+t.value:null;try{await ownFetch()}catch(x){return oops(x)}drawOwner();$('#own-country')?.focus()}
   if(t.id==='own-e-country'&&own.edit)own.edit.country_id=+t.value;
   if(t.id==='own-e-sub'&&own.edit){Object.assign(own.edit,t.value==='new'?{newSub:true,sub:''}:{newSub:false,sub:t.value},{flavour:''});ownDrawSheet();$(t.value==='new'?'#owner-body [data-edit="sub"]':'#own-e-sub')?.focus()}
   if(t.id==='own-move-into'&&own.sub){own.sub.into=+t.value;ownDrawSheet();$('#own-move-into')?.focus()}
