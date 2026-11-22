@@ -7,6 +7,7 @@
    Run by .github/workflows/pages.yml on every push to main and once a day, so new snacks and ratings reach the pages.
    Try it locally:  node tools/build-pages.mjs  then  node tools/serve.mjs  and open http://localhost:8000
    Needs Node 20 or newer; no packages. Reads only public data, with the same publishable key as the site. */
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -58,6 +59,7 @@ const [places, settings] = await Promise.all([rpc('place_list'), rpc('app_settin
 const need = settings.rank_after_ratings;
 const pages = []; // {path, title, description, view, ids, body, jsonld}
 const homeLinks = []; // for the home page's own pre-built list of links
+const brandLinks = []; // the same for /brands/
 
 for (const c of places) {
   const cc = c.code.toLowerCase(), cp = ccPath(cc);
@@ -71,6 +73,7 @@ for (const c of places) {
     for (const i of d.items) if (i.brand_snacks >= 2) brands.set(i.brand_id, i.brand);
   }
   const brandPath = new Map([...brands].map(([id, name]) => [id, `/${cp}/brands/${word(name, id)}/`]));
+  for (const [id, name] of brands) brandLinks.push({c, href: brandPath.get(id), text: name});
 
   for (const {p, d, w} of lists) {
     const base = `/${cp}/${w}/`, fls = d.flavours.length >= 2 ? d.flavours : [];
@@ -93,6 +96,9 @@ for (const c of places) {
       }).join('');
       pages.push({
         path: path_, title: listTitle(title, c), description, view: 'category',
+        // "Other" is a catch-all, not a flavour anyone searches for: built (its chip links here, and a missing page reads
+        // to Google as a broken link) but kept out of search results and the sitemap
+        robots: f && f.is_other ? 'noindex, follow' : null,
         ids: {v: 'category', cc, product: p.id, variant: f ? f.id : null},
         body: `<div class="lp"><div class="lp-side"><nav class="trail" aria-label="You are here"><a class="crumb" href="/">← All ${esc(c.short_name)} snacks</a><span class="sep" aria-hidden="true">›</span><a class="crumb" href="/">${esc(d.type)}</a></nav>
 <h1 class="page-title">Which ${esc(lowerFirst(title))} does ${esc(inPlace(c))} love most?</h1>
@@ -103,7 +109,7 @@ ${chips}</div><div class="lp-main"><h2 class="lp-head">${rankedHead(items.length
       });
     };
     one(null);
-    for (const f of fls) if (!f.is_other) one(f); // "Other" is a catch-all, not a flavour anyone searches for: it opens from 404.html
+    for (const f of fls) one(f);
   }
 
   for (const [id] of brands) {
@@ -182,12 +188,13 @@ await fs.rm(OUT, {recursive: true, force: true});
 await fs.mkdir(OUT, {recursive: true});
 for (const f of PUBLIC) await fs.cp(path.join(ROOT, f), path.join(OUT, f), {recursive: true}).catch(e => { if (e.code !== 'ENOENT') throw e; });
 
-// Home: the same page, with links to every list in place of "Loading…", so search engines can find them
-const byCountry = places.map(c => ({c, links: homeLinks.filter(l => l.c === c)})).filter(x => x.links.length);
-const homeHtml = swap(template, /<div class="cards" id="cards"><div class="card empty">Loading…<\/div><\/div>/,
-  `<div class="cards" id="cards"><div class="card empty js-only">Loading…</div><div class="prebuilt card empty no-js">${byCountry.map(({c, links}) =>
-    `<p><b>${c.flag} ${esc(c.short_name)}:</b> ${links.map(l => `<a href="${l.href}">${esc(l.text)}</a>`).join(' · ')}</p>`).join('')}</div></div>`);
-await fs.writeFile(path.join(OUT, 'index.html'), homeHtml);
+// Home and /brands/: the same page, with links to every list (or brand) in place of "Loading…", so search engines can find them
+const linkBlock = all => places.map(c => ({c, links: all.filter(l => l.c === c)})).filter(x => x.links.length).map(({c, links}) =>
+  `<p><b>${c.flag} ${esc(c.short_name)}:</b> ${links.map(l => `<a href="${l.href}">${esc(l.text)}</a>`).join(' · ')}</p>`).join('');
+const withLinks = (html, block) => swap(html, /<div class="cards" id="cards"><div class="card empty">Loading…<\/div><\/div>/,
+  `<div class="cards" id="cards"><div class="card empty js-only">Loading…</div><div class="prebuilt card empty no-js">${block}</div></div>`);
+const homeBlock = linkBlock(homeLinks), brandBlock = linkBlock(brandLinks);
+await fs.writeFile(path.join(OUT, 'index.html'), withLinks(template, homeBlock));
 await fs.writeFile(path.join(OUT, '404.html'), render({path: '/404.html', title: 'TasteRank: the snacks each country loves most, rated by real tasters', description: "What snacks does your country love most? Rate the ones you've tried on TasteRank.", robots: 'noindex'}).replace(/<link rel="canonical"[^>]*>\n/, ''));
 // Pages only the signed-in app shows: real addresses so a reload works, kept out of search results
 // About: the words from index.html's <template id="about-tpl">, the same ones the app shows
@@ -196,8 +203,11 @@ if (!aboutTpl) throw new Error('index.html changed: no about-tpl template');
 pages.push({path: '/about/', view: 'about', title: 'About TasteRank: how the snack rankings work',
   description: `How TasteRank ranks snacks: real tasters sign in and rate once, a snack is ranked after ${need} ratings, and new snacks go live with ${settings.approval_votes} approvals.`,
   body: aboutTpl.replaceAll('{{rank}}', need).replaceAll('{{approve}}', settings.approval_votes).trim()});
-for (const [p, title] of [['/me/', 'Your profile | TasteRank'], ['/owner/', 'Owner page | TasteRank'], ['/brands/', 'Snack brands, ranked by votes | TasteRank']])
-  pages.push({path: p, title, description: "What snacks does your country love most? Rate the ones you've tried on TasteRank.", robots: p === '/brands/' ? null : 'noindex'});
+for (const [p, title] of [['/me/', 'Your profile | TasteRank'], ['/owner/', 'Owner page | TasteRank']])
+  pages.push({path: p, title, description: "What snacks does your country love most? Rate the ones you've tried on TasteRank.", robots: 'noindex'});
+// Home by brand: indexed, with a link to every brand page (otherwise brand pages are reachable only from list rows)
+pages.push({path: '/brands/', title: 'Snack brands, ranked by votes | TasteRank', links: brandBlock,
+  description: `Snack brands on TasteRank, country by country: see which of each brand's snacks the people who eat them rate highest.`});
 
 const seen = new Set();
 for (const pg of pages) {
@@ -205,17 +215,33 @@ for (const pg of pages) {
   seen.add(pg.path);
   const dir = path.join(OUT, pg.path);
   await fs.mkdir(dir, {recursive: true});
-  await fs.writeFile(path.join(dir, 'index.html'), render(pg));
+  await fs.writeFile(path.join(dir, 'index.html'), pg.links ? withLinks(render(pg), pg.links) : render(pg));
 }
 
+// Sitemap. Each page's <lastmod> is the day its words last changed, not the build day: dates that say "changed today"
+// on every page every day teach Google to ignore them. The last build's dates and a short fingerprint of each page's
+// words are read back from the live sitemap (the fingerprint sits in a comment after each entry); if the live sitemap
+// can't be read, every page gets today's date, as before.
 const today = new Date().toISOString().slice(0, 10);
-const indexed = ['/', ...pages.filter(p => !p.robots && p.body).map(p => p.path)];
+const fingerprint = s => crypto.createHash('sha256').update(s).digest('hex').slice(0, 12);
+const before = new Map();
+try {
+  const r = await fetch(SITE + '/sitemap.xml', {signal: AbortSignal.timeout(15000)});
+  if (r.ok) for (const m of (await r.text()).matchAll(/<loc>([^<]+)<\/loc><lastmod>([^<]+)<\/lastmod><\/url><!-- ([0-9a-f]+) -->/g)) before.set(m[1], {date: m[2], fp: m[3]});
+} catch (e) { console.warn('Could not read the live sitemap, so every page gets today\'s date: ' + e.message); }
+const words = new Map([['/', homeBlock], ['/privacy.html', await fs.readFile(path.join(ROOT, 'privacy.html'), 'utf8')]]);
+for (const pg of pages) if (!pg.robots && (pg.body || pg.links) && !words.has(pg.path))
+  words.set(pg.path, [pg.title, pg.description, pg.body || '', pg.links || '', JSON.stringify(pg.jsonld || '')].join('\n'));
+const entries = [...words].map(([p, w]) => {
+  const loc = SITE + p, fp = fingerprint(w), old = before.get(loc);
+  return `  <url><loc>${loc}</loc><lastmod>${old && old.fp === fp ? old.date : today}</lastmod></url><!-- ${fp} -->`;
+});
 await fs.writeFile(path.join(OUT, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
-<!-- Written by tools/build-pages.mjs on each build -->
+<!-- Written by tools/build-pages.mjs on each build. The comment after each page is a fingerprint of its words, for the next build -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${[...indexed, '/privacy.html'].map(p => `  <url><loc>${SITE}${p}</loc><lastmod>${today}</lastmod></url>`).join('\n')}
+${entries.join('\n')}
 </urlset>
 `);
 await fs.writeFile(path.join(OUT, '.nojekyll'), ''); // serve the files as they are
-console.log(`Built ${seen.size} pages (${indexed.length - 1} lists, flavours and brands in the sitemap) into _site/`);
-for (const p of indexed) console.log('  ' + p);
+console.log(`Built ${seen.size} pages (${words.size} in the sitemap, ${entries.filter(e => e.includes(today)).length} with today's date) into _site/`);
+for (const p of words.keys()) console.log('  ' + p);
