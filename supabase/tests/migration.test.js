@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–018 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–019 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -985,5 +985,55 @@ ok('the owner sees it, with the snack\'s photo, marked live',or18&&or18.reasons.
 ok('…and the gear menu counts it',(await lone(2,'select public.owner_status()')).reports>=1);
 ok('its check at the end runs',(await lq(mig18.slice(mig18.lastIndexOf('select public.tidy_case'))))[0].small_letters==='Walkers Smoky Bacon Crisps');
 ok('after it all, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${cr17},1)`)));
+
+// ---- Migration 019: where each photo came from, on the owner page ----
+console.log('\n---- Migration 019 ----');
+const mig19=fs.readFileSync(R+'migrate-019-photo-source.sql','utf8');
+const pre19=await lq(`select id,pack_name,image_url,image_path from public.items order by id`);
+try{await live.exec(mig19);await live.exec(mig19);ok('019 runs twice without errors',true)}catch(e){ok('019 runs twice without errors',false,e.message);return}
+ok('…and changes no snack or photo',JSON.stringify(await lq(`select id,pack_name,image_url,image_path from public.items order by id`))===JSON.stringify(pre19));
+// One snack of each kind: an Open Food Facts link, the owner's upload, a taster's upload, none
+const ids19=(await lq(`select id from public.items where status='live' and image_url is null and image_path is null order by id limit 3`)).map(r=>r.id);
+const off19=(await lq(`select id from public.items where status='live' order by id desc limit 1`))[0].id;
+await lq(`update public.items set image_url='https://images.openfoodfacts.org/images/products/501/776/443/0092/front_en.3.400.jpg',image_path=null where id=${off19}`);
+await lq(`update public.items set image_path='${U(2)}/mine.jpg' where id=${ids19[0]}`);
+await lq(`update public.items set image_path='${U(24)}/theirs.jpg' where id=${ids19[1]}`);
+const snack19=async id=>(await lone(2,`select public.owner_snacks(null,${id})`))[0];
+const src19=async id=>(await snack19(id)).photo_source;
+ok('the owner sees where each photo came from: off, you, taster, none',
+  (await src19(off19))==='off'&&(await src19(ids19[0]))==='you'&&(await src19(ids19[1]))==='taster'&&(await src19(ids19[2]))==='none',
+  JSON.stringify([await src19(off19),await src19(ids19[0]),await src19(ids19[1]),await src19(ids19[2])]));
+ok('…every snack in the list has a source',(await lone(2,'select public.owner_snacks(null)')).every(x=>['off','you','taster','none','commons'].includes(x.photo_source)));
+ok('nobody can call photo_source_of directly, and visitors still can\'t read snacks',ldenied(await las(null,`select public.photo_source_of(null,null,null)`))&&ldenied(await las(2,`select public.photo_source_of(null,null,null)`))&&ldenied(await las(null,`select photo_credit from public.items limit 1`)));
+// Saving: the owner marks a photo as Commons
+const sv19=async(id,src,credit,link,photo='null',who=2)=>{const x=await snack19(id);const lit=v=>v==null?'null':`'${String(v).replace(/'/g,"''")}'`;
+  return las(who,`select public.owner_save_snack(${id},${lit(x.pack_name)},${lit(x.brand)},${x.country_id},${x.category_id},${lit(x.product)},null,${photo},${lit(src)},${lit(credit)},${lit(link)}) r`)};
+const c19=await sv19(ids19[0],'commons','choo chin nian, CC BY-SA 2.0','commons.wikimedia.org/wiki/File:Meiji.jpg');
+const a19=await snack19(ids19[0]);
+ok('the owner marks her upload as Commons, with credit and page (https:// added)',!c19.err&&a19.photo_source==='commons'&&a19.photo_credit==='choo chin nian, CC BY-SA 2.0'&&a19.photo_link==='https://commons.wikimedia.org/wiki/File:Meiji.jpg',c19.err||JSON.stringify(a19));
+ok('…the answer it sends back has it too',c19.rows?.[0]?.r?.photo_source==='commons');
+const k19=await sv19(ids19[0],null,null,null);
+ok('…saving other changes without saying keeps it',!k19.err&&(await snack19(ids19[0])).photo_credit==='choo chin nian, CC BY-SA 2.0',k19.err);
+ok('…a Commons photo needs its credit',/Add the credit/.test((await sv19(ids19[0],'commons','  ',null)).err||''));
+ok('…the page must be a Wikimedia link',/commons\.wikimedia\.org link/.test((await sv19(ids19[0],'commons','X, CC0','https://example.com/x.jpg')).err||''));
+ok('…an unknown source is refused',/Say where/.test((await sv19(ids19[0],'flickr','X',null)).err||''));
+ok('…a taster\'s photo or an Open Food Facts one can\'t be marked Commons',/Only a photo uploaded/.test((await sv19(ids19[1],'commons','X, CC0',null)).err||'')&&/Only a photo uploaded/.test((await sv19(off19,'commons','X, CC0',null)).err||''));
+ok('…nor a snack with no photo',/Only a photo uploaded/.test((await sv19(ids19[2],'commons','X, CC0',null)).err||''));
+ok('…and the taster\'s photo stays theirs',(await src19(ids19[1]))==='taster');
+ok('"My own photo" clears the Commons mark',!(await sv19(ids19[0],'own',null,null)).err&&(await snack19(ids19[0])).photo_source==='you'&&(await snack19(ids19[0])).photo_credit===null);
+await sv19(ids19[0],'commons','X, CC0',null);
+const n19=await sv19(ids19[0],null,null,null,`'${U(2)}/new.jpg'`);
+ok('a new photo clears the old source',!n19.err&&(await snack19(ids19[0])).photo_source==='you'&&(await snack19(ids19[0])).photo_credit===null,n19.err);
+await sv19(ids19[0],'commons','X, CC0',null);
+ok('…a new photo can be marked Commons as it\'s saved',!(await sv19(ids19[0],'commons','Y, CC BY 4.0',null,`'${U(2)}/newer.jpg'`)).err&&(await snack19(ids19[0])).photo_credit==='Y, CC BY 4.0');
+ok('…removing the photo clears it too',!(await sv19(ids19[0],null,null,null,`''`)).err&&(await src19(ids19[0]))==='none'&&(await lq(`select photo_source,photo_credit,photo_link from public.items where id=${ids19[0]}`))[0].photo_source===null);
+ok('…an Open Food Facts photo too',!(await sv19(ids19[0],'commons','Z, CC0',null,`'${U(2)}/z.jpg'`)).err&&!(await sv19(ids19[0],null,null,null,`'https://images.openfoodfacts.org/images/products/1/front.400.jpg'`)).err&&(await src19(ids19[0]))==='off'&&(await lq(`select photo_credit from public.items where id=${ids19[0]}`))[0].photo_credit===null);
+ok('the database itself refuses a Commons mark with no upload or no credit',!!(await las(null,'select 1')).rows&&await live.query(`update public.items set photo_source='commons',photo_credit=null where id=${ids19[1]}`).then(()=>false,()=>true)&&await live.query(`update public.items set photo_source='commons',photo_credit='X' where id=${ids19[2]}`).then(()=>false,()=>true));
+ok('the old site\'s 8-field save still works',!(await las(2,`select public.owner_save_snack(${ids19[2]},${"'"+(await snack19(ids19[2])).pack_name.replace(/'/g,"''")+"'"},'${(await snack19(ids19[2])).brand.replace(/'/g,"''")}',${(await snack19(ids19[2])).country_id},${(await snack19(ids19[2])).category_id},'${(await snack19(ids19[2])).product.replace(/'/g,"''")}',null,null)`)).err);
+ok('…signed in but not the owner: refused',/for TasteRank's owner/.test((await sv19(ids19[0],'own',null,null,'null',24)).err||''));
+await las(24,`select public.report_item(${off19},'wrong_photo')`);
+ok('wrong-photo reports say where the photo came from',(await lone(2,'select public.owner_reports()')).find(x=>x.item_id===off19)?.photo_source==='off');
+ok('its check at the end runs',(await lq(mig19.slice(mig19.lastIndexOf('select public.photo_source_of')))).some(r=>r.photo==='off'));
+ok('after 019, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${cr17},1)`)));
 }
 }

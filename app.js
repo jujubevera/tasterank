@@ -169,6 +169,7 @@ const D={
       :{id,level:'country',name:p.c.name,short_name:p.c.short_name,country_id:p.c.id,country_name:p.c.name,flag:p.c.flag}},
   all:()=>{const st=demoState(),o=(st.own||{}).items||{};   // the sample items plus anything added on this device, with the owner's changes
     return [...DEMO.items,...(st.added||[])].map(i=>o[i.id]?{...i,...o[i.id]}:i)},
+  photoSrc:i=>!i.img?'none':i.img.startsWith(OFF)?'off':i.by==='owner'||i.mine?(i.src==='commons'?'commons':'you'):'taster', // as photo_source_of() (019); the demo visitor is the owner
   brandId:name=>[...new Set(D.all().map(i=>i.b))].indexOf(name)+1,
   brandName:id=>[...new Set(D.all().map(i=>i.b))][id-1],
   local:(kind,id,c)=>DEMO.local[`${kind}:${id}:${c}`],
@@ -360,7 +361,7 @@ const DEMO_RPC={
     return [...new Set(all.map(r=>r.item))].map(id=>{
       const i=D.all().find(x=>x.id===id),rs=all.filter(r=>r.item===id);if(!i||i.withdrawn||i.hidden)return null;
       const reasons={};rs.forEach(r=>reasons[r.reason]=(reasons[r.reason]||0)+1);
-      return {item_id:id,pack_name:i.pack,brand:i.b,product_id:i.p,product:D.product(i.p,i.c),emoji:D.emoji(i.p),image_url:i.img||null,image_path:null,country_id:i.c,
+      return {item_id:id,pack_name:i.pack,brand:i.b,product_id:i.p,product:D.product(i.p,i.c),emoji:D.emoji(i.p),image_url:i.img||null,image_path:null,photo_source:D.photoSrc(i),country_id:i.c,
         status:D.live(i,st)?'live':i.closed?'closed':'pending',approvals:D.approvals(i,st),reports:rs.length,reasons,
         notes:rs.filter(r=>r.note).sort((a,b)=>b.at-a.at).map(r=>r.note),last_at:new Date(Math.max(...rs.map(r=>r.at))).toISOString()};
     }).filter(Boolean).sort((a,b)=>b.last_at.localeCompare(a.last_at));
@@ -378,7 +379,8 @@ const DEMO_RPC={
       const total=r.reduce((a,b)=>a+b,0),approvals=D.approvals(i,st);
       return {id:i.id,pack_name:i.pack,brand:i.b,brand_id:D.brandId(i.b),product_id:i.p,product:p.name,category_id:p.category_id,emoji:p.emoji,variant_id:i.v,flavour:v.name,is_other:!!v.is_other,
         country_id:i.c,status:i.hidden?'hidden':i.closed?'closed':approvals>=n||!i.pending?'live':'pending',hidden_from:i.hidden_from||null,ratings:total,
-        avg:total?Math.round(r.reduce((s,x,k)=>s+x*(k+1),0)/total*100)/100:null,approvals,days_left:i.days_left??30,image_url:i.img||null,image_path:null};
+        avg:total?Math.round(r.reduce((s,x,k)=>s+x*(k+1),0)/total*100)/100:null,approvals,days_left:i.days_left??30,image_url:i.img||null,image_path:null,barcode:i.barcode||null,
+        photo_source:D.photoSrc(i),photo_credit:i.credit||null,photo_link:i.clink||null};
     }).sort((a,b)=>b.id-a.id);
   },
   owner_catalogue(_,st){
@@ -402,7 +404,7 @@ const DEMO_RPC={
     (st.reviewed=st.reviewed||{})[p_request]='declined';const mine=(st.requests||[]).find(x=>x.id===p_request);if(mine)mine.status='declined';
     demoSave(st);return 'Declined. The sender will see "Not this time".';
   },
-  owner_save_snack({p_item,p_pack_name,p_brand_name,p_country,p_category,p_subcategory,p_flavour,p_photo},st){
+  owner_save_snack({p_item,p_pack_name,p_brand_name,p_country,p_category,p_subcategory,p_flavour,p_photo,p_photo_source,p_photo_credit,p_photo_link},st){
     // migration 018: the brand is spelt exactly as the owner types it ("innocent"), and the name starts with that spelling
     const it=D.all().find(i=>i.id===p_item),brand=String(p_brand_name||'').replace(/\s+/g,' ').trim(),t=tidyCase(p_pack_name);
     const lb=brand.toLowerCase(),lt=t.toLowerCase(),pack=lb&&(lt===lb||lt.startsWith(lb+' '))?brand+t.slice(brand.length):t;
@@ -411,7 +413,17 @@ const DEMO_RPC={
       throw new Error(`Another snack in ${D.country(p_country).short_name} already has that name. Change one of them, or hide the extra one.`);
     const pid=ownDemoProduct(st,p_subcategory,p_category),v=p_flavour?ownDemoVariant(st,pid,p_flavour):pid===it.p?it.v:D.guessVariant(pid,pack,null);
     const o={pack,b:brand,c:p_country,p:pid,v};
-    if(p_photo!=null)o.img=p_photo||null;
+    if(p_photo!=null){o.img=p_photo||null;o.by=p_photo&&!p_photo.startsWith(OFF)?'owner':null;o.src=null;o.credit=null;o.clink=null} // migration 019: a new photo clears its source
+    if(p_photo_source==='own')Object.assign(o,{src:null,credit:null,clink:null});
+    if(p_photo_source==='commons'){ // as migration 019: only the owner's uploads, with a credit, and a Wikimedia page if any
+      if(D.photoSrc({...it,...o,src:null})!=='you')throw new Error('Only a photo uploaded from the owner page can be marked as from Wikimedia Commons');
+      const credit=String(p_photo_credit||'').replace(/\s+/g,' ').trim();let link=String(p_photo_link||'').trim();
+      if(!credit)throw new Error('Add the credit: the photographer and licence, as the Commons page shows them');
+      if(credit.length>200)throw new Error('Keep the credit under 200 letters');
+      if(link&&!/^https?:\/\//i.test(link))link='https://'+link;
+      if(link&&!/^https:\/\/([a-z-]+\.)?(wikimedia|wikipedia)\.org\//.test(link))throw new Error('The Commons page should be a commons.wikimedia.org link');
+      Object.assign(o,{src:'commons',credit,clink:link||null});
+    }
     ownDemoItem(st,p_item,o);return DEMO_RPC.owner_snacks({p_item},st)[0];
   },
   owner_set_status({p_item,p_action},st){
@@ -2520,7 +2532,14 @@ const OWN_EMOJI_RE=/^[©®‍‰-⯿〰〽㊗㊙︎️\u{1F000}-\u{1FAFF}\u{E002
 const okEmoji=e=>!e||([...e].length<=10&&OWN_EMOJI_RE.test(e));
 const OWN_FILTERS=[['all','All'],['live','Live'],['pending','In the vote'],['closed','Closed'],['hidden','Hidden'],['sort','Flavour to sort']];
 const ownIn=(x,f)=>f==='all'||(f==='sort'?x.is_other&&x.status!=='hidden':x.status===f);
-const ownInCat=x=>(!own.fcat||x.category_id===own.fcat)&&(!own.fsub||x.product_id===own.fsub); // the category and subcategory pickers
+const ownInSub=x=>(!own.fcat||x.category_id===own.fcat)&&(!own.fsub||x.product_id===own.fsub); // the category and subcategory pickers
+const ownInCat=x=>ownInSub(x)&&(!own.fphoto||photoSrc(x)===own.fphoto); // …and the Photos picker
+/* Where a snack's photo came from (migration 019 works it out; before that, a guess from the photo itself) */
+const PHOTO_SRC={off:'Open Food Facts',commons:'Wikimedia Commons',you:'Your photo',taster:"A taster's photo",upload:'Uploaded photo',none:'No photo'};
+const PHOTO_PICK=[['off','Open Food Facts'],['commons','Wikimedia Commons'],['you','Your photos'],['taster',"Tasters' photos"],['upload','Uploaded photos'],['none','No photo']];
+const photoSrc=x=>x.photo_source||(x.image_url?'off':x.image_path?'upload':'none');
+const srcTag=k=>`<span class="src src-${k}"><i aria-hidden="true"></i>${esc(PHOTO_SRC[k]||k)}</span>`;
+const offPage=x=>{const c=x.barcode||((x.image_url||'').match(/\/products\/([\d/]+)\/[^/]+$/)||[])[1]?.replace(/\//g,'');return c?`https://world.openfoodfacts.org/product/${encodeURIComponent(c)}`:null};
 const ownCats=()=>own.cat.categories.filter(c=>c.visible);
 const ownProduct=name=>own.cat.products.find(p=>norm(p.name)===norm(tidyCase(name||'',true)));
 const ownQ=id=>own.queue.find(x=>String(x.id)===String(id));
@@ -2574,7 +2593,7 @@ function ownReportCard(x){
   return `<div class="card own-req own-rep" id="own-rep-${x.item_id}"><div class="own-top">${thumb(x,(x.reasons||{}).wrong_photo?'big':'')}<div><h3 class="own-name">${esc(x.pack_name)}</h3>
     <p class="meta">${esc(x.brand)} · ${esc(x.product)} · ${esc(pl.short_name||'')}${x.status==='pending'?` · ${x.approvals} of ${settings.approval_votes} approvals`:''}</p>
     <p class="own-what"><span class="reptag">${x.reports===1?'1 person says':`${x.reports} people say`} it's not right</span> ${ownPill(x.status)}</p></div></div>
-    <ul class="own-reasons">${Object.entries(x.reasons||{}).sort((a,b)=>b[1]-a[1]).map(([k,c])=>`<li>${esc(REPORT_LABEL[k]||k)}${c>1?` <b>×${c}</b>`:''}</li>`).join('')}</ul>
+    <ul class="own-reasons">${Object.entries(x.reasons||{}).sort((a,b)=>b[1]-a[1]).map(([k,c])=>`<li>${esc(REPORT_LABEL[k]||k)}${c>1?` <b>×${c}</b>`:''}${k==='wrong_photo'?` · ${srcTag(photoSrc(x))}`:''}</li>`).join('')}</ul>
     ${(x.notes||[]).length?`<div class="own-notes">${x.notes.map(t=>`<p>“${esc(t)}”</p>`).join('')}</div>`:''}
     <div class="own-acts"><button class="btn btn-primary" data-act="own-rep-fix" data-id="${x.item_id}"${busy}>Fix it</button>
       <button class="btn btn-danger" data-act="own-rep-hide" data-id="${x.item_id}"${busy}>${x.status==='pending'?'Take it out of the vote':'Hide it'}</button>
@@ -2669,7 +2688,9 @@ function ownCatPickers(list){
   const opt=p=>`<option value="${p.id}"${on(p.id,own.fsub)}>${esc(p.name)} (${n(x=>x.product_id===p.id)})</option>`;
   const subOpts=own.fcat?subs.map(opt).join(''):cats.map(c=>{const ps=subs.filter(p=>p.category_id===c.id);return ps.length?`<optgroup label="${esc(c.name)}">${ps.map(opt).join('')}</optgroup>`:''}).join('');
   return `<div class="own-srow own-frow"><select id="own-fcat" aria-label="Category"${own.fcat?' class="on"':''}><option value="">All categories</option>${cats.map(c=>`<option value="${c.id}"${on(c.id,own.fcat)}>${esc(c.name)} (${n(x=>x.category_id===c.id)})</option>`).join('')}</select>
-    <select id="own-fsub" aria-label="Subcategory"${own.fsub?' class="on"':''}><option value="">All subcategories</option>${subOpts}</select></div>`;
+    <select id="own-fsub" aria-label="Subcategory"${own.fsub?' class="on"':''}><option value="">All subcategories</option>${subOpts}</select></div>
+    <div class="own-srow own-frow"><select id="own-fphoto" aria-label="Photos"${own.fphoto?' class="on"':''}><option value="">All photos (${n(ownInSub)})</option>${
+      PHOTO_PICK.map(([k,l])=>[k,l,n(x=>ownInSub(x)&&photoSrc(x)===k)]).filter(([k,,c])=>k!=='upload'||c||own.fphoto===k).map(([k,l,c])=>`<option value="${k}"${on(k,own.fphoto)}>${l} (${c})</option>`).join('')}</select></div>`;
 }
 const ownPill=st=>`<span class="own-pill ${st}">${{live:'Live',pending:'In the vote',closed:'Closed',hidden:'Hidden'}[st]||esc(st)}</span>`;
 function ownListHtml(){
@@ -2681,14 +2702,15 @@ function ownListHtml(){
     const more=x.status==='pending'?`${x.approvals} of ${n} approvals`:x.status==='closed'?`closed, ${x.approvals} of ${n} approvals`
       :x.status==='hidden'?`${plural(x.ratings,'rating')} kept`:x.ratings?plural(x.ratings,'rating'):'no ratings yet';
     return `<button class="ir own-row${x.status==='hidden'?' hid':''}" data-act="own-open" data-id="${x.id}">${thumb(x,'sm')}
-      <span class="in"><span class="bn">${esc(x.pack_name)}</span><span class="pk">${pl?pl.flag+' ':''}${esc(x.product)} · ${esc(x.brand)} · ${more}</span></span>${ownPill(x.status)}</button>`}).join('')}</div>`;
+      <span class="in"><span class="bn">${esc(x.pack_name)}</span><span class="pk">${pl?pl.flag+' ':''}${esc(x.product)} · ${esc(x.brand)} · ${more}</span>${srcTag(photoSrc(x))}</span>${ownPill(x.status)}</button>`}).join('')}</div>`;
 }
 function ownDrawList(){const el=$('#own-list');if(el)el.innerHTML=ownListHtml()}
 async function ownOpenSnack(id){
   let x=own?.snacks?.find(s=>String(s.id)===String(id));
   if(!x)try{x=(await rpc('owner_snacks',{p_country:null,p_item:+id}))[0]}catch(e){return oops(e)}
   if(!x)return toast("That snack isn't here any more.");
-  own.sub=null;own.edit={...x,sub:x.product,newSub:false,cat:x.category_id,photo:null,removePhoto:false,error:null,busy:false};
+  own.sub=null;own.edit={...x,sub:x.product,newSub:false,cat:x.category_id,photo:null,removePhoto:false,error:null,busy:false,
+    src:x.photo_source==='commons'?'commons':'own',credit:x.photo_credit||'',clink:x.photo_link||''};
   ownDrawSheet();openM('m-owner');
 }
 function ownDrawSheet(){$('#owner-body').innerHTML=own.edit?ownSnackSheet():own.sub?ownSubSheet():''}
@@ -2704,6 +2726,7 @@ function ownSnackSheet(){
   const link=['live','pending'].includes(e.status)?` · <a href="${esc(pathFor({v:'category',cc:pl.code,product:e.product_id,snack:e.status==='pending'?e.id:null}))}" target="_blank" rel="noopener">Open on TasteRank</a>`:'';
   return `<h3 id="own-sheet-title">Change this snack</h3><p class="own-sum">${esc(ownStatusLine(e))}${link}</p>
     <div class="own-photo">${thumb(pic,'big')}<label class="btn sm">Change photo<input type="file" id="own-photo" accept="image/*" class="sr-only"></label>${hasPic?'<button class="link btn-danger" data-act="own-photo-remove">Remove</button>':''}</div>
+    ${ownSrcBox(e)}
     <label class="field">Name on the pack<input data-edit="pack_name" value="${esc(e.pack_name)}" autocomplete="off"></label>
     <label class="field">Brand<input data-edit="brand" value="${esc(e.brand)}" autocomplete="off"><span class="hint">Saved exactly as you type it, small letters too ("innocent"). New capitals change it on all this brand's snacks.</span></label>
     <label class="field">Sold in<select id="own-e-country">${places.map(p=>`<option value="${p.id}"${p.id===e.country_id?' selected':''}>${p.flag} ${esc(p.name)}</option>`).join('')}</select></label>
@@ -2719,15 +2742,29 @@ function ownSnackSheet(){
         :`<button class="btn btn-block btn-danger" data-act="own-status" data-a="hide"${e.busy?' disabled':''}>Hide from TasteRank</button><p class="hint">It disappears from the site, but its ratings are kept and you can show it again.</p>`}
     </div>`;
 }
+// The photo's source: you choose for your own uploads (My own photo / Wikimedia Commons); the others just say where it's from
+const ownCanMark=e=>!!e.photo||(!e.removePhoto&&['you','commons'].includes(photoSrc(e)));
+function ownSrcBox(e){
+  if(e.removePhoto||(!e.photo&&photoSrc(e)==='none'))return '';
+  if(ownCanMark(e)){const c=e.src==='commons',r=(v,l,sm)=>`<label class="own-radio"><input type="radio" name="own-src" value="${v}"${e.src===v?' checked':''}> ${l} <small>${sm}</small></label>`;
+    return `<fieldset class="own-srcbox"><legend class="lab">Where's this photo from?</legend>${r('own','My own photo','taken or saved by me')}${r('commons','Wikimedia Commons','or Wikipedia')}
+      ${c?`<label class="field">Credit<input data-edit="credit" value="${esc(e.credit)}" maxlength="200" autocomplete="off" placeholder="e.g. Sam Jones, CC BY-SA 4.0"><span class="hint">The photographer and licence, as the Commons page shows them</span></label>
+      <label class="field"><span>Commons page <small class="opt-l">(optional)</small></span><input data-edit="clink" value="${esc(e.clink)}" type="url" inputmode="url" autocomplete="off" placeholder="commons.wikimedia.org/wiki/File:…"></label>`:''}</fieldset>`}
+  const k=photoSrc(e),link=k==='off'&&offPage(e);
+  return `<div class="own-srcbox"><p class="lab">Photo source</p><p class="own-srcline">${srcTag(k)}${link?` · <a href="${esc(link)}" target="_blank" rel="noopener">See it there <span aria-hidden="true">↗</span><span class="sr-only">(opens Open Food Facts)</span></a>`:''}</p>
+    ${k==='off'?`<p class="hint">If it's the wrong pack, fix it there too, so it doesn't come back.</p>`:k==='taster'?`<p class="hint">Uploaded with the snack by the person who added it. We never show who.</p>`:''}</div>`;
+}
 async function ownSave(){
   const e=own.edit;if(e.busy)return;
-  const sub=(e.sub||'').trim();
-  e.error=!sub?'Pick or name the subcategory':!norm(e.pack_name)?'Type the name on the pack':!norm(e.brand)?'Add the brand':null;
+  const sub=(e.sub||'').trim(),mark=ownCanMark(e),commons=mark&&e.src==='commons';
+  e.error=!sub?'Pick or name the subcategory':!norm(e.pack_name)?'Type the name on the pack':!norm(e.brand)?'Add the brand'
+    :commons&&!e.credit.trim()?'Add the credit: the photographer and licence, as the Commons page shows them':null;
   if(e.error)return ownDrawSheet();
   e.busy=true;ownDrawSheet();
   try{
     const photo=e.photo?(LIVE?await uploadPhoto(e.photo.blob):e.photo.dataUrl):e.removePhoto?'':null;
-    await rpc('owner_save_snack',{p_item:e.id,p_pack_name:e.pack_name,p_brand_name:e.brand,p_country:e.country_id,p_category:e.cat,p_subcategory:sub,p_flavour:e.flavour||null,p_photo:photo});
+    await rpc('owner_save_snack',{p_item:e.id,p_pack_name:e.pack_name,p_brand_name:e.brand,p_country:e.country_id,p_category:e.cat,p_subcategory:sub,p_flavour:e.flavour||null,p_photo:photo,
+      ...(mark?{p_photo_source:commons?'commons':'own',p_photo_credit:commons?e.credit.trim():null,p_photo_link:commons?e.clink.trim()||null:null}:{})}); // migration 019
     if(e.fromReport)await rpc('owner_resolve_report',{p_item:e.id,p_action:'clear'}).catch(console.error);
     closeM();toast(e.fromReport?'Saved, and its reports are cleared':'Saved');ownRefresh();
   }catch(err){e.busy=false;e.error=ownErr(err);ownDrawSheet()}
@@ -2797,7 +2834,7 @@ const OWN_ACT={
   'own-decline-no':d=>{own.req[d.id].confirm=false;ownRedrawReq(d.id,'[data-act="own-decline"]')},
   'own-decline-yes':d=>ownDecline(d.id),
   'own-filter':d=>{own.filter=d.f;drawOwner();$(`#own-body [data-f="${d.f}"]`)?.focus()},
-  'own-show-all':()=>{Object.assign(own,{q:'',filter:'all',fcat:null,fsub:null});drawOwner();$('#own-q')?.focus()},
+  'own-show-all':()=>{Object.assign(own,{q:'',filter:'all',fcat:null,fsub:null,fphoto:null});drawOwner();$('#own-q')?.focus()},
   'own-open':d=>{$('#toast').hidden=true;ownOpenSnack(d.id)},
   'own-edit-cat':d=>{const e=own.edit;if(e.cat===+d.cat)return;e.cat=+d.cat;const first=own.cat.products.find(p=>p.category_id===e.cat);
     Object.assign(e,{sub:first?.name||'',newSub:!first,flavour:'',error:null});ownDrawSheet();$(`#owner-body [data-cat="${d.cat}"]`)?.focus()},
@@ -2830,13 +2867,15 @@ document.addEventListener('change',async e=>{
     const v=t.value?+t.value:null,p=t.id==='own-fsub'&&own.cat.products.find(x=>x.id===v);
     if(t.id==='own-fcat'){own.fcat=v;if(v&&own.cat.products.find(x=>x.id===own.fsub)?.category_id!==v)own.fsub=null}else{own.fsub=v;if(p)own.fcat=p.category_id}
     drawOwner();$('#'+t.id)?.focus();return}
+  if(t.id==='own-fphoto'){own.fphoto=t.value||null;drawOwner();$('#own-fphoto')?.focus();return}
+  if(t.name==='own-src'&&own.edit){own.edit.src=t.value;own.edit.error=null;ownDrawSheet();$(`#owner-body input[name="own-src"][value="${t.value}"]`)?.focus();return}
   if(t.id==='own-country'){ // not ownRefresh(): that skips the redraw while the focus is in a box, and here it's on this one
     own.country=t.value?+t.value:null;try{await ownFetch()}catch(x){return oops(x)}drawOwner();$('#own-country')?.focus()}
   if(t.id==='own-e-country'&&own.edit)own.edit.country_id=+t.value;
   if(t.id==='own-e-sub'&&own.edit){Object.assign(own.edit,t.value==='new'?{newSub:true,sub:''}:{newSub:false,sub:t.value},{flavour:''});ownDrawSheet();$(t.value==='new'?'#owner-body [data-edit="sub"]':'#own-e-sub')?.focus()}
   if(t.id==='own-move-into'&&own.sub){own.sub.into=+t.value;ownDrawSheet();$('#own-move-into')?.focus()}
   if(t.id==='own-photo'&&t.files[0]&&own.edit){
-    try{own.edit.photo=await shrinkPhoto(t.files[0]);own.edit.removePhoto=false;own.edit.error=null}catch(x){own.edit.error=x.message}
+    try{own.edit.photo=await shrinkPhoto(t.files[0]);own.edit.removePhoto=false;own.edit.src='own';own.edit.error=null}catch(x){own.edit.error=x.message}
     ownDrawSheet();$('#own-photo')?.focus();
   }
 });

@@ -7,6 +7,7 @@
   --primary:#445E93; --on-primary:#FFFFFF; --winner:#C94A5A; --on-winner:#FFFFFF; --accent-text:#B33D4C;
   --soft:#FDE3E3; --hint:#EEF4FA; --bar:#7EB2DD; --bar-strong:#445E93; --tile:#FFFFFF; --letterbox:#FFFFFF; --pending:#7EB2DD;
   --danger:#B3261E; --ok:#2F7D4F; --amber:#9A6200; --amber-bg:#FFF4DC;
+  --src-off:#2F7D4F; --src-commons:#8A4FB5; --src-you:#445E93; --src-taster:#9A6200; --src-none:#8C7E76; /* owner page: where a photo came from */
   --crisp-line:#445E93; --crisp-w:4; --conf:#445E93;
   --scrim:rgba(20,16,12,.48); --shadow-c:rgba(69,53,47,.08);
   --hair:rgba(69,53,47,.14); --band:#FFFFFF; --t-choc:#F2E4DD; --t-sweet:#FBE4E7; --t-crisp:#E5EDF6; --new-bg:#E8EDF6; --new-ink:#34497A;
@@ -20,6 +21,7 @@ html[data-theme="dark"]{
   --primary:#7EB2DD; --on-primary:#21171A; --winner:#FCB0B3; --on-winner:#21171A; --accent-text:#FCB0B3;
   --soft:#3D2A30; --hint:#24303F; --bar:#445E93; --bar-strong:#7EB2DD; --tile:#F6EEDF; --letterbox:#1F1618; --pending:#7EB2DD;
   --danger:#F28B82; --ok:#8FD3A8; --amber:#F5B947; --amber-bg:#3A2A1A;
+  --src-off:#8FD3A8; --src-commons:#D2AEF0; --src-you:#7EB2DD; --src-taster:#F5B947; --src-none:#B5A496;
   --crisp-line:#CFA46B; --crisp-w:3.2; --conf:#FCB0B3;
   --scrim:rgba(10,5,6,.62); --shadow-c:rgba(0,0,0,.35);
   --hair:rgba(252,236,201,.16); --band:#241A1D; --t-choc:#3A2A26; --t-sweet:#3D2A30; --t-crisp:#24303F; --new-bg:#24303F; --new-ink:#A9CBEA;
@@ -733,3 +735,25 @@ h1.own-h,h2.own-h{margin:8px 0 4px;font-size:19px;font-weight:800;color:var(--in
 .winner .wbr{justify-self:start;background:var(--on-winner);color:var(--winner);font-size:14px;font-weight:900;line-height:1.2;padding:4px 11px;border-radius:999px;margin:4px 0 2px;text-decoration:none}
 a.wbr:hover{text-decoration:underline}
 a.wbr:focus-visible{outline:3px solid var(--on-winner);outline-offset:2px}
+
+/* Owner page: where each photo came from (migration 019). The words carry the meaning; the dot only helps scanning. */
+.src{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:800;color:var(--ink);--c:var(--src-none)}
+.own-row .src{margin-top:3px}
+.src i{width:8px;height:8px;border-radius:50%;flex:none;background:var(--c)}
+.src-off{--c:var(--src-off)}.src-commons{--c:var(--src-commons)}.src-you,.src-upload{--c:var(--src-you)}.src-taster{--c:var(--src-taster)}
+.src-none i{background:none;border:2px dashed var(--c);width:9px;height:9px}
+.own-reasons .src{font-size:13px}
+.own-srcbox{margin:0 0 14px;border:1px solid var(--line);border-radius:14px;padding:10px 12px 12px;background:var(--bg);min-width:0}
+.own-srcbox .lab{font-size:12px;font-weight:900;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px;padding:0}
+.own-srcbox .hint{margin:4px 0 0}
+.own-srcbox .field{margin:10px 0 0}
+.own-srcbox .opt-l{font-weight:600;color:var(--muted);font-size:12px}
+.own-srcbox .own-srcline{margin:0;font-size:14px;font-weight:700;color:var(--ink)}
+.own-srcline .src{font-size:14px}
+.own-srcline a{color:var(--primary);font-weight:800;text-decoration:none}
+.own-radio{display:flex;align-items:center;gap:8px;min-height:40px;font-size:15px;font-weight:700;cursor:pointer}
+.own-radio input{flex:none;width:18px;height:18px;margin:0;accent-color:var(--primary)}
+.own-radio small{color:var(--muted);font-weight:600;font-size:12px}
+.own-srcbox legend{float:left;width:100%} /* keeps the heading inside the box, not on its border */
+.own-srcbox legend+*{clear:both}
+@media (min-width:520px){.own-frow #own-fphoto{flex:0 1 calc(50% - 4px)}} /* half width, like the two above, once its longest label fits */
