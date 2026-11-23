@@ -2460,9 +2460,10 @@ async function saveRating(v){
   }
   it.my_score=v;sheet.editing=false;sheet.error=null;sheet.next=null;sheet.skipped=null;renderSheet();
   homeData=null;
-  await refresh();                      // the page behind updates its counts, "You" tag and winner
-  const fresh=itemFromPage(it.id);if(fresh&&sheet&&sheet.it.id===it.id)sheet.it={...fresh,my_score:v};
-  if(sheet)await loadNext();
+  // The page behind (its counts, "You" tag and winner) and "Next" load side by side, so Next doesn't wait for the page
+  await Promise.all([
+    Promise.resolve(refresh()).then(()=>{const fresh=itemFromPage(it.id);if(fresh&&sheet&&sheet.it.id===it.id)sheet.it={...fresh,my_score:v}}),
+    sheet?loadNext():null]);
   if(first&&!profile&&me)await loadProfile();
 }
 async function removeRating(){
