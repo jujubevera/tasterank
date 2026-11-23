@@ -2,8 +2,10 @@
 /* A quick check that the built site still works, in headless Chrome, before it's published.
    Run by .github/workflows/pages.yml after tools/build-pages.mjs; if a step fails, the site isn't published.
    It never touches the live database: it tests two copies of _site/ made in a temporary folder:
-     1. Demo mode (all CONFIG keys blank, so nothing is sent anywhere): home shows cards; on a list, sign in, rate a snack,
-        see "Saved" and the Next button; searching the list leaves the matching snacks; "Haven't tried it" skips to another snack and Undo comes back; the + opens the add form; the profile counts the rating; no JavaScript errors.
+     1. Demo mode (all CONFIG keys blank, so nothing is sent anywhere): home shows cards; searching a list leaves the matching
+        snacks; rating a snack without signing in (as a guest) says "Saved" and offers Next; "Haven't tried it" skips to
+        another snack and Undo comes back; the guest's profile counts the rating and has no Sign out; the + asks a guest to
+        sign in, then opens the add form; after signing in the profile still counts the rating; no JavaScript errors.
      2. Database unreachable (the Supabase address points nowhere): a list page says it couldn't load the latest ratings.
    Try it locally:  node tools/build-pages.mjs
                     npm install --no-save --no-package-lock playwright-core@1.48.2
@@ -60,7 +62,7 @@ function serve(dir) {
 }
 
 await fs.access(path.join(SITE, 'index.html')).catch(() => { console.error('No _site/: run node tools/build-pages.mjs first'); process.exit(1); });
-const blank = {SUPABASE_URL: '', SUPABASE_ANON_KEY: '', WEB3FORMS_KEY: '', GOATCOUNTER_CODE: ''};
+const blank = {SUPABASE_URL: '', SUPABASE_ANON_KEY: '', WEB3FORMS_KEY: '', GOATCOUNTER_CODE: '', TURNSTILE_SITE_KEY: ''};
 const demoDir = await copySite('demo', blank);
 const downDir = await copySite('down', {SUPABASE_URL: 'http://127.0.0.1:9', WEB3FORMS_KEY: '', GOATCOUNTER_CODE: ''});
 const demo = await serve(demoDir), down = await serve(downDir);
@@ -93,14 +95,11 @@ try {
     await page.locator('#v-category .ls-q').press('Escape');
     if (await page.locator('#v-category .list .ir:visible').count() !== 13) throw new Error('Escape did not bring the whole list back');
   });
-  await step('signing in works (demo)', async () => {
-    await page.getByRole('button', {name: 'Sign in', exact: true}).click();
-    await page.locator('#m-signin').getByRole('button', {name: /Continue with Google/}).click();
-    await page.waitForURL('**/me/');
-  });
-  await step('rating a snack says "Saved" and offers the next one', async () => {
+  await step('rating a snack without signing in says "Saved" and offers the next one', async () => {
     await page.goto(demo.base + '/uk/crisps/');
+    if (!(await page.getByRole('button', {name: 'Sign in', exact: true}).isVisible())) throw new Error('the visitor is already signed in');
     await page.locator('#v-category button.nm').first().click();
+    if (await page.locator('#m-signin').isVisible()) throw new Error('it asked to sign in');
     await page.locator('#rate-body').getByRole('button', {name: 'Love it'}).click();
     await page.locator('#rate-body .saved', {hasText: 'Saved'}).waitFor();
     const next = await page.locator('#rate-body [data-act="next"]').innerText();
@@ -117,12 +116,21 @@ try {
     await page.locator('#rate-body .skipped').getByRole('button', {name: /Undo/}).click();
     await page.locator('#rate-title', {hasText: first}).waitFor();
   });
-  await step('the + on a list opens "Add to Crisps"', async () => {
+  await step('a guest\'s profile counts the rating, with no Sign out', async () => {
     await page.keyboard.press('Escape');
+    await page.getByRole('button', {name: 'Profile'}).click();
+    await page.locator('#v-profile .guest-note').waitFor();
+    const stat = await page.locator('.stat').first().innerText();
+    if (!/^1\s+snack rated/.test(stat.trim())) throw new Error(`it says "${stat.replace(/\s+/g, ' ')}"`);
+    if (await page.locator('#v-profile [data-act="sign-out"]').count()) throw new Error('a guest has Sign out');
+  });
+  await step('the + asks a guest to sign in, then opens "Add to Crisps"', async () => {
+    await page.goto(demo.base + '/uk/crisps/');
     await page.locator('#add-fab').click();
+    await page.locator('#m-signin').getByRole('button', {name: /Continue with Google/}).click();
     await page.getByRole('dialog').filter({hasText: 'Add to Crisps'}).waitFor();
   });
-  await step('the profile counts the rating', async () => {
+  await step('after signing in, the profile still counts the rating', async () => {
     await page.goto(demo.base + '/me/');
     const stat = await page.locator('.stat').first().innerText();
     if (!/^1\s+snack rated/.test(stat.trim())) throw new Error(`it says "${stat.replace(/\s+/g, ' ')}"`);

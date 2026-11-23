@@ -104,7 +104,7 @@ for (const c of places) {
 <h1 class="page-title">Which ${esc(lowerFirst(title))} does ${esc(inPlace(c))} love most?</h1>
 <div class="meta">${c.flag} ${esc(c.name)} · ${plural(items.length, 'snack')}${total ? ' · ' + plural(total, 'rating') : ''}</div>
 ${chips}</div><div class="lp-main"><h2 class="lp-head">${rankedHead(items.length, title.toLowerCase())}</h2><div class="list">${rows}</div>
-<p class="meta">Snacks are ranked once they have ${need} ratings. Sign in to rate the ones you've tried.</p></div></div>`,
+<p class="meta">Snacks are ranked once they have ${need} ratings. Rate the ones you've tried: no account needed.</p></div></div>`,
         jsonld: itemList(title, c, items, path_),
       });
     };
@@ -201,7 +201,7 @@ await fs.writeFile(path.join(OUT, '404.html'), render({path: '/404.html', title:
 const aboutTpl = (template.match(/<template id="about-tpl">([\s\S]*?)<\/template>/) || [])[1];
 if (!aboutTpl) throw new Error('index.html changed: no about-tpl template');
 pages.push({path: '/about/', view: 'about', title: 'About TasteRank: how the snack rankings work',
-  description: `How TasteRank ranks snacks: real tasters sign in and rate once, a snack is ranked after ${need} ratings, and new snacks go live with ${settings.approval_votes} approvals.`,
+  description: `How TasteRank ranks snacks: one rating per person per snack, a snack is ranked after ${need} ratings, and new snacks go live with ${settings.approval_votes} approvals.`,
   body: aboutTpl.replaceAll('{{rank}}', need).replaceAll('{{approve}}', settings.approval_votes).trim()});
 for (const [p, title] of [['/me/', 'Your profile | TasteRank'], ['/owner/', 'Owner page | TasteRank']])
   pages.push({path: p, title, description: "What snacks does your country love most? Rate the ones you've tried on TasteRank.", robots: 'noindex'});

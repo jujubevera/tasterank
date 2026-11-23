@@ -8,7 +8,8 @@ const CONFIG={
   SUPABASE_URL:'https://odhqfbfgxdvpsdoykafy.supabase.co',
   SUPABASE_ANON_KEY:'sb_publishable_DgUNWQ4tsRpyaOrvPq-YcQ_jUr4bDm-',   // publishable key: safe to be public
   WEB3FORMS_KEY:'4637aa3c-88ac-43ec-9392-3527b640dc82',   // web3forms.com: feedback is emailed to the address this key was made for; it never appears on the site
-  GOATCOUNTER_CODE:'tasterank'   // stats at https://tasterank.goatcounter.com
+  GOATCOUNTER_CODE:'tasterank',   // stats at https://tasterank.goatcounter.com
+  TURNSTILE_SITE_KEY:'0x4AAAAAAGOlQEBlUjBGp35p'   // Cloudflare Turnstile's site key (public; widget "TasteRank guest rating", hostname tasterank.app): the bot check before a guest account is made. Empty = no check
 };
 
 /* ---------- Constants ---------- */
@@ -78,12 +79,13 @@ function withTimeout(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeou
 const LIVE=!!(CONFIG.SUPABASE_URL&&CONFIG.SUPABASE_ANON_KEY&&window.supabase);
 const sb=LIVE?window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{auth:{flowType:'pkce'}}):null;
 /* People are known only by their random user ID: TasteRank never shows or saves their Google or Facebook name, email or photo */
-const userFrom=s=>s?{id:s.user.id}:null;
+const userFrom=s=>s?{id:s.user.id,guest:!!s.user.is_anonymous}:null; // guest: rating without signing in (migration 020)
 const must=({data,error})=>{if(error)throw error;return data};
 
 const liveApi={
   async session(){return userFrom(must(await sb.auth.getSession()).session)},
   async signIn(provider){must(await sb.auth.signInWithOAuth({provider,options:{redirectTo:location.origin+'/'}}))}, // always the home address (the one Supabase allows); start() goes back to the page
+  async signInGuest(captchaToken){return userFrom(must(await sb.auth.signInAnonymously(captchaToken?{options:{captchaToken}}:undefined)).session)},
   async signOut(){await sb.auth.signOut()},
   async deleteAccount(){must(await sb.rpc('delete_me'));await sb.auth.signOut()},
   async rpc(name,args){return must(await sb.rpc(name,args||{}))}
@@ -156,7 +158,8 @@ const demoSave=d=>store.set(DEMO_KEY,d);
 store.del('tasterank-demo-v2'); // demo data from the earlier foods version
 const demoApi={
   async session(){return demoState().user},
-  async signIn(){const d=demoState();d.user={id:'demo'};demoSave(d)},
+  async signIn(){const d=demoState();d.user={id:'demo'};demoSave(d)}, // a demo guest keeps its ratings: they're already this browser's
+  async signInGuest(){const d=demoState();d.user={id:'demo',guest:true};demoSave(d);return d.user},
   async signOut(){const d=demoState();d.user=null;demoSave(d)},
   async deleteAccount(){store.del(DEMO_KEY)},
   async rpc(name,args){const f=DEMO_RPC[name];if(!f)throw new Error('Demo mode has no '+name);const st=demoState();ownDemoApply(st);return f(args||{},st)}
@@ -270,6 +273,8 @@ const DEMO_RPC={
   },
   rate_item({p_item,p_score},st){st.ratings[p_item]=p_score;demoSave(st);return Object.keys(st.ratings).length},
   unrate_item({p_item},st){delete st.ratings[p_item];demoSave(st);return Object.keys(st.ratings).length},
+  guest_handover(_,st){if(!st.user?.guest)throw new Error('Only a guest has ratings to hand over');return 'demo'},
+  claim_guest(_,st){return {moved:Object.keys(st.ratings).length,kept:0}},
   approve_item({p_item},st){
     const it=D.all().find(i=>i.id===p_item);
     if(it.withdrawn)throw new Error("It was just withdrawn, so there's nothing to approve.");
@@ -591,7 +596,7 @@ function openZoom(d){
 function zoomWrong(){
   const z=zoomCur;if(!z)return;
   if(z.pend){closeZoom();return needUser({name:'report',item:z.id,reason:'wrong_photo'})}
-  if(!me){closeZoom();return needUser({name:'wrong-photo',item:z.id,pack:z.name})}
+  if(!member()){closeZoom();return needUser({name:'wrong-photo',item:z.id,pack:z.name})}
   sendWrongPhoto(z.id,z.name);
 }
 async function sendWrongPhoto(id,name){
@@ -774,6 +779,7 @@ const ACT={
   'skip-undo':skipUndo,
   'skip-show':skipShow,
   'sheet-second':sheetSecond,
+  'rate-sign-in':()=>{const id=sheet&&sheet.it.id;closeM();if(id)askSignIn({name:'rate',item:id})},
   approve:d=>{tipAct(5);needUser({name:'approve',item:+d.id,brand:d.brand,mine:d.mine==='1'})},
   report:d=>needUser({name:'report',item:+d.id}),
   'wait-all':openWaitAll,
@@ -831,7 +837,10 @@ const AFTER={
   owner:()=>go({v:'owner'})
 };
 function needUser(a){
-  if(me)return AFTER[a.name](a);
+  if(a.name==='rate'||member()||(a.name==='profile'&&me))return AFTER[a.name](a); // anyone can rate (a guest account is made on the first face); guests have a profile too
+  askSignIn(a);
+}
+function askSignIn(a){
   store.set('tasterank-after',{...a,path:here()},true); // survives the trip to Google or Facebook and back
   signInFor(a);openM('m-signin');
 }
@@ -839,12 +848,14 @@ function needUser(a){
 function signInFor(a){
   const it=a.name==='rate'?itemFromPage(a.item):null,p=a.name==='approve'||a.name==='report'?findWaiting(a.item):null;
   const wp=a.name==='wrong-photo',rep=a.name==='report'||wp,name=it?it.pack_name:p?p.pack_name:wp?a.pack:null;
-  $('#signin-title').textContent=name?(wp?`Wrong photo on ${name}?`:rep?`Something not right with ${name}?`:`${it?'Rate':'Approve'} ${name}`):'Join TasteRank';
+  const keep=!name&&me?.guest,rated=profile?.rated||0; // a guest signing in: their ratings come with them
+  $('#signin-title').textContent=name?(wp?`Wrong photo on ${name}?`:rep?`Something not right with ${name}?`:`${it?'Rate':'Approve'} ${name}`):keep?'Keep your ratings':'Join TasteRank';
   const m=$('#signin-meta');m.hidden=!it;if(it)m.textContent=`${it.country.flag} ${it.country.short_name} · ${it.where}`;
   const f=$('#signin-faces');f.hidden=!it;if(it)f.innerHTML=FACES.map(x=>`<span class="face-btn"><span>${x.e}</span>${x.l}</span>`).join('');
   $('#signin-why').textContent=name?(rep?'Sign in first, so each person tells us once. Only TasteRank\'s owner sees what you send, and never your name.'
-      :`Every ${it?'score':'approval'} here comes from a real taster. Sign in and yours will too. Nobody sees your name.`)
-    :'Sign in to rate snacks and approve new ones.';
+      :`Every ${it?'score':'approval'} here comes from a real taster. Sign in and yours will too. Nobody sees your name.`)+(me?.guest?' Your ratings come with you.':'')
+    :keep?`Sign in and ${rated?`the ${plural(rated,'snack')} you've rated are`:'your ratings are'} saved to your account, on any device. Nobody sees your name.`
+    :'Sign in to add snacks, approve new ones and keep your ratings on any device. Rating needs no account.';
   const b=$('#signin-back');b.hidden=!name;
   if(name)b.innerHTML=`You'll come straight back here to ${it?'pick a face':rep?'tell us':'approve it'}. <button class="link" data-act="privacy">Privacy</button>`;
   $('#signin-fine').hidden=!!name&&LIVE; // its privacy line would repeat the one above; the demo note stays
@@ -865,21 +876,79 @@ async function signIn(d){
   const provider=d&&d.provider==='facebook'?'facebook':'google';
   track('sign-in',true);if(provider==='facebook')track('sign-in-facebook',true);
   store.set('tasterank-back',here(),true);
+  if(me&&me.guest)try{store.set('tasterank-handover',{code:await rpc('guest_handover'),guest:me.id},true)} // claimed when they're back (claimGuest)
+    catch(e){return oops(e)} // without the code their ratings would be left behind, so don't go yet
   try{await api.signIn(provider)}catch(e){return oops(e)}
   if(!LIVE)await afterSignIn(); // live mode leaves for Google or Facebook and comes back to start()
 }
 async function afterSignIn(){
   me=await api.session();
+  await claimGuest();
   const next=store.get('tasterank-after',true);store.del('tasterank-after',true);
   closeM();
   if(me)await Promise.all([loadProfile(),loadOwner()]);
-  renderHeader();
+  homeData=null;renderHeader();
   if(next&&next.path&&next.path!==here())history.replaceState(null,'',next.path);
   await route();
   if(me&&next&&AFTER[next.name])AFTER[next.name](next);
   else checkMoments();
 }
 async function loadProfile(){try{profile=me?await rpc('my_profile'):null}catch(e){profile=null}}
+
+/* ---------- Guest tasters (migration 020): rating needs no sign-in ----------
+   The first face someone picks makes them an invisible guest account (a Supabase anonymous sign-in), after Cloudflare
+   Turnstile's bot check, which only shows itself when it isn't sure. One rating per person per snack still holds.
+   Approving, adding, reporting and the owner page still need Google or Facebook. Signing in then moves the guest's
+   ratings into the account: guest_handover() gives a one-time code before leaving, claim_guest() uses it on return. */
+const member=()=>!!me&&!me.guest;
+let tsLoad=null,joining=null;
+function turnstileReady(){
+  if(window.turnstile)return Promise.resolve(window.turnstile);
+  if(!tsLoad)tsLoad=new Promise((ok,no)=>{const s=document.createElement('script');
+    s.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';s.async=true;
+    s.onload=()=>window.turnstile?ok(window.turnstile):no(new Error('bot check'));
+    s.onerror=()=>{tsLoad=null;s.remove();no(new Error('bot check'))};document.head.appendChild(s)});
+  return tsLoad;
+}
+async function botToken(){ // null when no site key is set (Turnstile not switched on yet)
+  if(!CONFIG.TURNSTILE_SITE_KEY)return null;
+  const ts=await withTimeout(turnstileReady(),15000),box=$('#bot-check');let id=null;
+  box.hidden=false; // stays empty unless Cloudflare wants a tap
+  try{return await withTimeout(new Promise((ok,no)=>{
+      id=ts.render(box,{sitekey:CONFIG.TURNSTILE_SITE_KEY,action:'guest',appearance:'interaction-only',
+        callback:ok,'error-callback':()=>{no(new Error('bot check'));return true},'expired-callback':()=>no(new Error('bot check')),'timeout-callback':()=>no(new Error('bot check'))})}),
+    120000)} // time for a tap, if one is asked for
+  finally{try{if(id!=null)ts.remove(id)}catch(e){}box.hidden=true;box.innerHTML=''}
+}
+function ensureGuest(){
+  if(me)return Promise.resolve(me);
+  if(!joining)joining=(async()=>{
+    const u=await api.signInGuest(await botToken());if(!u)throw new Error('No guest account');
+    moveLocal('visitor',u.id);me=u;homeData=null;track('guest-start',true);
+    await loadProfile();renderHeader();return u;
+  })().finally(()=>{joining=null});
+  return joining;
+}
+// Supabase's anonymous sign-ins switched off: rating goes back to needing a sign-in
+const guestOff=e=>e?.code==='anonymous_provider_disabled'||/anonymous sign-ins are disabled/i.test(e?.message||'');
+// Skips and the 10-rating moment are remembered per user id in this browser: they follow the person to their new id
+function moveLocal(from,to){
+  if(!LIVE||!from||!to||from===to)return;
+  const s=[...new Set([...(store.get('tasterank-skips-'+to)||[]),...(store.get('tasterank-skips-'+from)||[])])];
+  if(s.length)store.set('tasterank-skips-'+to,s.slice(-SKIP_MAX));
+  const w=store.get('tasterank-wow-'+from);if(w&&!store.get('tasterank-wow-'+to))store.set('tasterank-wow-'+to,w);
+  store.del('tasterank-skips-'+from);store.del('tasterank-wow-'+from);
+}
+// Back from Google or Facebook, signed in: the guest's ratings move into the account
+async function claimGuest(){
+  const h=store.get('tasterank-handover',true);if(!h||!me)return;
+  if(!member()){if(h.guest===me.id)store.del('tasterank-handover',true);return} // still the guest (sign-in cancelled): the code just runs out
+  store.del('tasterank-handover',true);
+  if(!h.code||h.guest===me.id)return;
+  try{const r=await rpc('claim_guest',{p_code:h.code});moveLocal(h.guest,me.id);
+    if(r&&(r.moved||r.kept)){track('guest-claimed',true);toast(r.moved?`Signed in. ${plural(r.moved,'rating')} saved to your account.`:'Signed in. Your account already had those snacks rated.')}}
+  catch(e){console.error(e);toast("Signed in, but your guest ratings couldn't be moved. They still count.")}
+}
 function renderHeader(){
   const b=$('#me-btn');
   b.innerHTML=me?'<svg aria-hidden="true"><use href="#crisp-yum"/></svg><span class="hide-sm">Profile</span>':'Sign in';
@@ -1885,23 +1954,23 @@ function chipsHtml(label,act,list,on){
 function winnerHtml(items,label,line,none,nudge,noBrand){
   const w=items.find(i=>i.ranked);
   return w?`<div class="winner"><span class="lbl">${esc(label)}</span>${noBrand?'':w.brand_snacks>=2&&page?`<a class="wbr" href="${esc(pathFor({v:'brand',cc:page.cc,brand:w.brand_id}))}" data-act="brand" data-cc="${page.cc}" data-brand="${w.brand_id}">${esc(w.brand)}</a>`:`<span class="wbr">${esc(w.brand)}</span>`}<span class="wrow"><span class="nm">${esc(splitBrand(w)[1])}</span><span class="face" aria-hidden="true">${faceFor(w.avg).e}</span><span class="num">${score1(w.avg)}</span></span><span class="cnt">${line(w)}</span></div>`
-    :`<div class="early"><b>${none}</b>Each snack needs ${settings.rank_after_ratings} ratings.${nudge?'':me?' Rate the ones you know!':' Sign in and rate the ones you know!'} <button class="link" data-act="how">How it works</button></div>`;
+    :`<div class="early"><b>${none}</b>Each snack needs ${settings.rank_after_ratings} ratings.${nudge?'':' Rate the ones you know!'} <button class="link" data-act="how">How it works</button></div>`;
 }
-/* Crispy's sign-in note (design/mockups/sign-in-nudge.html), for people who aren't signed in: on the first list or brand page
-   of a visit, every time that page loads (reloads and chip taps included). Other pages that visit say "Sign in and rate…"
-   in the No winner note instead. A visit lasts until the tab closes, so a new tab or a reopened browser brings it back.
-   "Not now" hides it for the rest of the visit. */
+/* Crispy's sign-in note (design/mockups/sign-in-nudge.html), for guests who have rated 3 or more snacks (migration 020:
+   rating needs no account, so the note is about keeping those ratings): on the first list or brand page of a visit
+   where that's true, every time that page loads (reloads and chip taps included). A visit lasts until the tab closes,
+   so a new tab or a reopened browser brings it back. "Not now" hides it for the rest of the visit. */
+const NUDGE_AT=3;
 function nudgeHere(){
-  if(me||!page)return false;
+  if(!me||!me.guest||!page||myRated()<NUDGE_AT)return false;
   const k=store.get('tasterank-nudge',true);
   if(k===null){store.set('tasterank-nudge',page.key,true);return true}
   return k===page.key;
 }
 function nudgeHtml(total){
   return `<div class="nudge" role="note"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-happy"/></svg><div>
-    ${total?"<b>Every score here is from a real taster</b><p>Everyone who rated these signed in first. That's how I keep it fair! Join them and add yours. I'll never show your name.</p>"
-      :"<b>Be the first real taster here</b><p>Everyone signs in before they rate. That's how I keep it fair! Sign in and add the first score. I'll never show your name.</p>"}
-    <div class="acts"><button class="btn btn-primary" data-act="nudge-sign-in">Sign in to rate</button><button class="link" data-act="nudge-later">Not now</button></div></div></div>`;
+    <b>Keep your ${plural(myRated(),'rating')}</b><p>You're rating as a guest, so they're saved in this browser only. Sign in and they're yours on any device. I'll never show your name.</p>
+    <div class="acts"><button class="btn btn-primary" data-act="nudge-sign-in">Sign in to keep them</button><button class="link" data-act="nudge-later">Not now</button></div></div></div>`;
 }
 /* A row leads with the snack's name (up to 2 lines, the whole name in its label). The name is the button that opens the rating sheet,
    stretched over the row; the link underneath (brand, or "#1 in Crisps") sits above it, so it's a separate tap and Tab stop. */
@@ -2207,11 +2276,13 @@ function renderSheet(){
     return;
   }
   if(sheet.editing){
-    body.innerHTML=`${skipNote()}<div class="faces">${FACES.map(f=>`<button class="face-btn${it.my_score===f.v?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${it.my_score===f.v}"><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
-      ${sheet.error?`<div class="sheet-error" role="alert"><b>Your rating didn't save.</b> Please try again.<small>${esc(sheet.error)}</small></div>`
-        :'<div class="help">Tap a face. It saves straight away.</div>'}
+    const wait=sheet.joining?' disabled':'';
+    body.innerHTML=`${skipNote()}<div class="faces">${FACES.map(f=>`<button class="face-btn${it.my_score===f.v?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${it.my_score===f.v}"${wait}><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
+      ${sheet.error?`<div class="sheet-error" role="alert"><b>Your rating didn't save.</b> ${sheet.guestFail
+          ?`We couldn't check you're a real person. Try again, or <button class="link" data-act="rate-sign-in">sign in</button> to rate.`:`Please try again.<small>${esc(sheet.error)}</small>`}</div>`
+        :`<div class="help"${sheet.joining?' role="status"':''}>${sheet.joining?'Saving…':'Tap a face. It saves straight away.'}</div>`}
       ${it.my_score?'<button class="link remove-rating" data-act="unrate">Remove my rating</button>'
-        :me?`<button class="link skip-link" data-act="skip" aria-label="Haven't tried it: show the next snack"${sheet.busy?' disabled':''}>Haven't tried it →</button>`:''}`;
+        :`<button class="link skip-link" data-act="skip" aria-label="Haven't tried it: show the next snack"${sheet.busy||sheet.joining?' disabled':''}>Haven't tried it →</button>`}`;
     return;
   }
   const f=FACES.find(x=>x.v===it.my_score),n=sheet.next;
@@ -2252,8 +2323,9 @@ function nextHtml(n,it){
    sent to next_snack as p_skip (migration 017), so Next, Keep rating and Start Rating stop offering them. Nothing about
    skips is saved in the database. A skipped snack stays in its list: tapping it there opens the sheet as usual. */
 const SKIP_MAX=300;
-const skips=()=>{if(!me)return [];const v=LIVE?store.get('tasterank-skips-'+me.id):demoState().skips;return Array.isArray(v)?v:[]};
-function skipSave(a){a=a.slice(-SKIP_MAX);if(LIVE)return store.set('tasterank-skips-'+me.id,a);const d=demoState();d.skips=a;demoSave(d)}
+const skipKey=()=>'tasterank-skips-'+(me?me.id:'visitor'); // before a first rating: 'visitor', moved to the guest's id (moveLocal)
+const skips=()=>{const v=LIVE?store.get(skipKey()):demoState().skips;return Array.isArray(v)?v:[]};
+function skipSave(a){a=a.slice(-SKIP_MAX);if(LIVE)return store.set(skipKey(),a);const d=demoState();d.skips=a;demoSave(d)}
 const skipAdd=id=>skipSave([...skips().filter(x=>x!==id),id]);
 const skipDrop=ids=>{const s=new Set(ids);skipSave(skips().filter(x=>!s.has(x)))};
 // Skipped and rated snacks on the page behind: the whole page, or only the flavour picked
@@ -2271,7 +2343,7 @@ async function nextFor(it,from){
   try{return await rpc('next_snack',{...args,p_skip:s})}catch(e){if(e&&e.code==='PGRST202')return rpc('next_snack',args);throw e}
 }
 async function skipSnack(){
-  if(!sheet||!me||sheet.it.my_score||sheet.busy)return;
+  if(!sheet||sheet.it.my_score||sheet.busy||sheet.joining)return;
   const it=sheet.it;
   skipAdd(it.id);track('skip-item',true);
   sheet.busy=true;renderSheet();
@@ -2305,8 +2377,19 @@ async function loadNext(){
   catch(e){console.error(e);if(sheet&&sheet.it.id===id){sheet.next={kind:'done'};renderSheet()}}
 }
 async function saveRating(v){
-  if(!sheet||!me)return;
+  if(!sheet||sheet.joining)return;
   const it=sheet.it,first=!it.my_score;
+  if(!me){ // the first face: become a guest taster
+    sheet.joining=true;sheet.error=null;sheet.guestFail=false;renderSheet();
+    try{await ensureGuest()}
+    catch(e){
+      console.error(e);if(!sheet)return;sheet.joining=false;
+      if(guestOff(e)){closeM();return askSignIn({name:'rate',item:it.id})} // switched off in Supabase: sign in, as before
+      sheet.error=e.message||String(e);sheet.guestFail=true;renderSheet();return;
+    }
+    if(!sheet||sheet.it.id!==it.id)return; // closed meanwhile: the guest account is ready for next time
+    sheet.joining=false;
+  }
   // a failed save stays visible in the sheet (with the reason), instead of a message that disappears
   let firstEver=false,n=0;
   try{n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n;firstEver=first&&n===1}
@@ -2506,7 +2589,7 @@ async function sendFeedback(e){
     const r=await fetch('https://api.web3forms.com/submit',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
       body:JSON.stringify({access_key:CONFIG.WEB3FORMS_KEY,subject:'TasteRank feedback',from_name:'TasteRank',
         message:`${message}\n\nSent from: ${location.href}`, // the page they were on, in the message itself so it's easy to spot
-        email:$('#fb-email').value.trim()||undefined,signed_in:me?'yes':'no',botcheck:$('#fb-bot').checked})});
+        email:$('#fb-email').value.trim()||undefined,signed_in:member()?'yes':me?'guest':'no',botcheck:$('#fb-bot').checked})});
     const j=await r.json();if(!j.success)throw new Error(j.message||'Feedback not sent');
   }catch(err){btn.disabled=false;return oops(err)}
   btn.disabled=false;track('feedback-sent',true);
@@ -2517,7 +2600,7 @@ async function sendFeedback(e){
    Only accounts on the database's owners list can use it: every owner call checks that list, so this page is a convenience, not the lock.
    It never shows who sent anything. ---------- */
 let ownerInfo=null, own=null;
-async function loadOwner(){try{ownerInfo=me?await rpc('owner_status'):null}catch(e){ownerInfo=e?.code==='PGRST202'?null:{owner:false,failed:true}}renderOwnerLink()} // null before migration 011
+async function loadOwner(){try{ownerInfo=member()?await rpc('owner_status'):null}catch(e){ownerInfo=e?.code==='PGRST202'?null:{owner:false,failed:true}}renderOwnerLink()} // null before migration 011
 function renderOwnerLink(){
   const b=$('#owner-link');if(!b)return;
   b.hidden=!ownerInfo?.owner;
@@ -2548,7 +2631,7 @@ const ownErr=e=>e.message||String(e);
 
 async function renderOwner(){
   const el=$('#v-owner'),top=`<button class="crumb" data-act="home">← Back to the site</button><h1 class="page-title">Owner page</h1>`;
-  if(!me){el.innerHTML=`${top}<div class="card empty"><p>Sign in to check additions and look after the snacks.</p><button class="btn btn-primary" data-act="own-sign-in">Sign in</button></div>`;return}
+  if(!member()){el.innerHTML=`${top}<div class="card empty"><p>Sign in to check additions and look after the snacks.</p><button class="btn btn-primary" data-act="own-sign-in">Sign in</button></div>`;return}
   if(!ownerInfo?.owner)await loadOwner();
   if(!ownerInfo?.owner){
     el.innerHTML=`<button class="crumb" data-act="home">← Back</button><div class="card empty own-empty"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#crisp-confused"/></svg>
@@ -2892,7 +2975,8 @@ async function renderProfile(){
   el.innerHTML=`
     <button class="crumb" data-act="home">← Back</button>
     <div class="card profile">
-      <div class="p-head"><span class="thumb big me-pic" aria-hidden="true"><svg><use href="#crisp-yum"/></svg></span><div><h1 class="page-title">Your profile</h1><div class="meta">Taster ID ${esc(p.taster_id)}</div></div></div>
+      <div class="p-head"><span class="thumb big me-pic" aria-hidden="true"><svg><use href="#crisp-yum"/></svg></span><div><h1 class="page-title">Your profile</h1><div class="meta">${me.guest?'Guest taster':`Taster ID ${esc(p.taster_id)}`}</div></div></div>
+      ${me.guest?`<div class="guest-note" role="note"><p><b>You're rating as a guest.</b> Your ratings count, but they're saved in this browser only. Sign in to keep them on any device, and to add or approve snacks.</p><button class="btn btn-primary" data-act="nudge-sign-in">Sign in to keep them</button></div>`:''}
       <div class="place-row"><div><div class="lab">Where you live</div><div class="val" id="place-row-val">${homeText()?esc(homeText()):'<span class="unset">Not set</span>'}</div></div><button class="link" data-act="place-change">${homeText()?'Change':'Add'}<span class="sr-only"> where you live</span></button></div>
       <div class="stats">
         <div class="stat"><b>${fmt(p.rated)}</b><span>${p.rated===1?'snack':'snacks'} rated</span></div>
@@ -2909,8 +2993,8 @@ async function renderProfile(){
     <h2 id="subs-h" tabindex="-1">Your additions</h2>
     <div id="subs-box"></div>
     <div class="profile-foot">
-      <button class="btn" data-act="sign-out">Sign out</button>
-      ${LIVE?'<button class="link quiet-link" data-act="delete-account">Delete my account</button>':'<button class="link quiet-link" data-act="reset-demo">Reset demo data</button>'}
+      ${me.guest?'':'<button class="btn" data-act="sign-out">Sign out</button>'}
+      ${LIVE?`<button class="link quiet-link" data-act="delete-account">${me.guest?'Delete my ratings':'Delete my account'}</button>`:'<button class="link quiet-link" data-act="reset-demo">Reset demo data</button>'}
     </div>`;
   mySubs=subs;drawSubs();
 }
@@ -2987,9 +3071,10 @@ async function signedOut(msg){
 }
 async function signOut(){try{await api.signOut()}catch(e){}signedOut('Signed out')}
 async function deleteAccount(){
-  if(!confirm("Delete your account, ratings and approvals? This can't be undone."))return;
+  const guest=!!me?.guest;
+  if(!confirm(guest?"Delete all your ratings? This can't be undone.":"Delete your account, ratings and approvals? This can't be undone."))return;
   try{await api.deleteAccount()}catch(e){return oops(e)}
-  signedOut('Your account has been deleted');
+  signedOut(guest?'Your ratings have been deleted':'Your account has been deleted');
 }
 async function resetDemo(){if(confirm('Reset all demo data in this browser?')){await api.deleteAccount();signedOut('Demo data reset')}}
 
@@ -3009,7 +3094,7 @@ const tipKey=()=>view==='home'?'home':page?.key||view;
 const myRated=()=>profile?profile.rated:0;
 const TIPS={ // [Crispy's face, the words, whether it links to How it works, whether it carries a Share button]
   // under a "No winner yet" note, tip 2 leaves out what the note already says (10 ratings, How it works)
-  2:()=>{const ask=me?'Know any of these? Tap a snack and pick a face.':'Know any of these? Sign in, then tap a snack and pick a face.';
+  2:()=>{const ask='Know any of these? Tap a snack and pick a face.';
     return $(`#v-${view} .early`)?['crisp-happy',ask]:['crisp-happy',`${ask} Each snack needs ${settings.rank_after_ratings} ratings to be ranked.`,true]},
   5:()=>['crisp-happy',`New snacks need ${settings.approval_votes} approvals to join the list. Know one of these? Approve it.`],
   6:()=>['crisp-joy',"Think the crowd's wrong? Share this list and settle it.",false,true]}; // its own Share button: on wide screens the page's one is in the other column
@@ -3068,7 +3153,7 @@ function renderTipsSwitch(){document.querySelectorAll('[data-act="set-tips"]').f
 function openHow(){
   const lines=[['Like for like','Every snack in a list, like Crisps or Toffee, is ranked together, country by country. Tap a flavour to compare like with like: Walkers vs Pringles in salt & vinegar crisps.'],
     ['Tap a face','Rate the ones you know. It saves straight away, and you can change it any time.'],
-    ['Fair favourites',`Every score comes from a real taster who signed in. A snack is ranked after ${settings.rank_after_ratings} ratings, so no snack becomes a favourite on a handful of votes.`],
+    ['Fair favourites',`One rating per person per snack, and a bot check keeps robots out. A snack is ranked after ${settings.rank_after_ratings} ratings, so no snack becomes a favourite on a handful of votes.`],
     ['Grow it together',`New snacks go live with ${settings.approval_votes} approvals. Missing one? Tap + and type what's on the pack.`]];
   $('#how-list').innerHTML=lines.map(([b,t],k)=>`<li><span class="n" aria-hidden="true">${k+1}</span><div><b>${esc(b)}</b><span>${esc(t)}</span></div></li>`).join('');
   track('how-it-works',true);openM('m-how');
@@ -3107,6 +3192,7 @@ async function start(){
     if(params.has('error_description'))toast(/email from external provider/i.test(params.get('error_description')) // Supabase's words when a Facebook account (made with a phone number) has no email
       ?"That account didn't share an email address, so it can't sign in here. Please try Google instead.":'Sign-in was cancelled or failed. Please try again.');
     me=await api.session();
+    await claimGuest(); // back from Google or Facebook: a guest's ratings move into the account before anything loads
     if(params.has('code')||params.has('error')){ // tidy the address bar after signing in (and Facebook's #_=_), back on the page it started from
       const back=store.get('tasterank-back',true);store.del('tasterank-back',true);
       history.replaceState(null,'',back&&back.startsWith('/')&&!back.startsWith('//')?back:location.pathname);
@@ -3125,6 +3211,7 @@ async function start(){
     const u=userFrom(session);
     if((u&&u.id)===(me&&me.id))return;
     if(!u)return signedOut('Signed out');
+    if(joining)return; // a guest account being made here: ensureGuest() sets everything up
     me=u;own=null;await Promise.all([loadProfile(),loadOwner()]);homeData=null;renderHeader();refresh();
   },0));
 }

@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–019 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–020 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -1035,5 +1035,90 @@ await las(24,`select public.report_item(${off19},'wrong_photo')`);
 ok('wrong-photo reports say where the photo came from',(await lone(2,'select public.owner_reports()')).find(x=>x.item_id===off19)?.photo_source==='off');
 ok('its check at the end runs',(await lq(mig19.slice(mig19.lastIndexOf('select public.photo_source_of')))).some(r=>r.photo==='off'));
 ok('after 019, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${cr17},1)`)));
+
+// ---- Migration 020: rate without signing in (guest tasters) ----
+console.log('\n---- Migration 020 ----');
+{ // its own block, so its names don't clash with the tests above
+const mig20=fs.readFileSync(R+'migrate-020-guest-rating.sql','utf8');
+await live.exec('alter table auth.users add column if not exists is_anonymous boolean not null default false'); // as on Supabase
+const G=40,G2=41,M=42,M2=43,G3=44,G4=45; // guests, and accounts that sign in later
+for(const [n,anon] of [[G,true],[G2,true],[M,false],[M2,false],[G3,true],[G4,true]]) await live.query('insert into auth.users(id,is_anonymous) values ($1,$2) on conflict do nothing',[U(n),anon]);
+const pre20=await lq(`select item_id,user_id,score from public.item_ratings order by 1,2`);
+try{await live.exec(mig20);await live.exec(mig20);ok('020 runs twice without errors',true)}catch(e){ok('020 runs twice without errors',false,e.message);return}
+ok('…and changes no rating',JSON.stringify(await lq(`select item_id,user_id,score from public.item_ratings order by 1,2`))===JSON.stringify(pre20));
+const liveIds=(await lq(`select id from public.items where status='live' order by id limit 4`)).map(r=>r.id);
+const [A,B,C,D]=liveIds;
+const pend20=(await lq(`select id from public.items where public.status_now(status,created_at)='pending' order by id limit 1`))[0]?.id;
+ok('(test set-up: four live snacks and one in the vote)',liveIds.length===4&&!!pend20);
+const n20=async id=>(await lq(`select count(*)::int n from public.item_ratings where item_id=${id}`))[0].n;
+const err=x=>x.err||'';
+// Who may call what
+ok('signed out: still can\'t rate, remove a rating or hand over',ldenied(await las(null,`select public.rate_item(${A},5)`))&&ldenied(await las(null,`select public.unrate_item(${A})`))&&ldenied(await las(null,`select public.guest_handover()`))&&ldenied(await las(null,`select public.claim_guest('x')`)));
+ok('nobody can call is_guest, require_rater or code_hash directly',ldenied(await las(G,`select public.is_guest('${U(G)}')`))&&ldenied(await las(M,`select public.require_rater()`))&&ldenied(await las(M,`select public.code_hash('x')`))&&ldenied(await las(null,`select public.is_guest(null)`)));
+ok('nobody can read the handover table',ldenied(await las(G,'select * from public.guest_handovers'))&&ldenied(await las(M,'select * from public.guest_handovers'))&&ldenied(await las(null,'select * from public.guest_handovers')));
+// A guest rates
+const before20=await n20(A);
+const r1=await las(G,`select public.rate_item(${A},4) n`);
+ok('a guest can rate a live snack',r1.rows?.[0]?.n===1,err(r1));
+ok('…and it counts like any other rating',await n20(A)===before20+1);
+ok('…they can change it without it counting twice',(await las(G,`select public.rate_item(${A},5) n`)).rows?.[0]?.n===1&&await n20(A)===before20+1);
+ok('…and remove it',(await las(G,`select public.unrate_item(${A}) n`)).rows?.[0]?.n===0&&await n20(A)===before20);
+ok('a guest still can\'t rate a snack in the vote',/can't be rated/.test(err(await las(G,`select public.rate_item(${pend20},5)`))));
+ok('a guest can say where they live',!(await las(G,`select public.set_home_place(101)`)).err&&(await lone(G,'select public.my_profile()')).home_place.id===101);
+ok('a guest sees their own ratings',!(await las(G,`select public.rate_item(${A},5)`)).err&&(await lone(G,'select public.my_ratings()')).some(r=>r.item_id===A));
+ok('…saved with the place they live',(await lq(`select rater_place_id from public.item_ratings where item_id=${A} and user_id='${U(G)}'`))[0].rater_place_id===101);
+// What guests can't do
+ok('a guest can\'t approve',/Please sign in first/.test(err(await las(G,`select public.approve_item(${pend20})`))));
+ok('…can\'t add a snack',/Please sign in first/.test(err(await las(G,`select public.submit_snack(1,${cr17},'Walkers','Walkers Guest Test')`))));
+ok('…can\'t add a new category',/Please sign in first/.test(err(await las(G,`select public.submit_new_category(1,'Guest crisps','X','X Guest Crisps')`))));
+ok('…can\'t withdraw anything',/Please sign in first/.test(err(await las(G,`select public.withdraw_submission('i1')`))));
+ok('…can\'t report a snack',/Please sign in first/.test(err(await las(G,`select public.report_item(${pend20},'other')`))));
+ok('…can\'t upload a photo',(await lone(G,'select public.may_upload_photo()'))===false&&!!(await las(G,`insert into storage.objects(bucket_id,name) values ('product-photos','${U(G)}/x.jpg')`)).err);
+ok('…and isn\'t the owner',(await lone(G,'select public.owner_status()')).owner===false&&/for TasteRank's owner/.test(err(await las(G,'select public.owner_queue()'))));
+ok('nothing a guest tried was saved',!(await lq(`select 1 from public.approvals where user_id='${U(G)}' union all select 1 from public.items where submitted_by='${U(G)}' union all select 1 from public.item_reports where user_id='${U(G)}' union all select 1 from public.item_requests where user_id='${U(G)}'`)).length);
+// Accounts are unchanged
+ok('accounts can still approve, report and upload',!(await las(M,`select public.approve_item(${pend20})`)).err&&!(await las(M,`select public.report_item(${pend20},'other')`)).err&&(await lone(M,'select public.may_upload_photo()'))===true&&!(await las(M,`insert into storage.objects(bucket_id,name) values ('product-photos','${U(M)}/x.jpg')`)).err);
+ok('…and rate',!(await las(M,`select public.rate_item(${B},1)`)).err);
+ok('the owner still sees the owner page',(await lone(2,'select public.owner_status()')).owner===true);
+// Handing over: the guest G has A=5 and B=3 and once rated C; the account M has B=1
+await lone(G,`select public.rate_item(${B},3)`);await lone(G,`select public.rate_item(${C},2)`);await lone(G,`select public.unrate_item(${C})`);
+ok('an account has nothing to hand over',/Only a guest/.test(err(await las(M,'select public.guest_handover()'))));
+const code=await lone(G,'select public.guest_handover()');
+ok('a guest gets a long one-time code',/^[0-9a-f]{64}$/.test(code||''),code);
+ok('…only its fingerprint is stored',!JSON.stringify(await lq('select * from public.guest_handovers')).includes(code)&&(await lq('select count(*)::int n from public.guest_handovers'))[0].n===1);
+ok('a guest can\'t claim (it needs a real sign-in)',/Please sign in first/.test(err(await las(G2,`select public.claim_guest('${code}')`))));
+ok('a wrong code moves nothing, without an error',await (async()=>{const x=await lone(M2,`select public.claim_guest('nope')`);return x.moved===0&&x.kept===0})());
+const eventsG=(await lq(`select item_id,score from public.rating_events where user_id='${U(G)}' order by id`));
+const totB=await n20(B);
+const cl=await lone(M,`select public.claim_guest('${code}')`);
+ok('signing in moves the guest\'s ratings: 1 moved, 1 kept as the account\'s own',cl.moved===1&&cl.kept===1,JSON.stringify(cl));
+const mine=Object.fromEntries((await lq(`select item_id,score from public.item_ratings where user_id='${U(M)}'`)).map(r=>[r.item_id,r.score]));
+ok('…the account now has A=5 (from the guest) and keeps its own B=1',mine[A]===5&&mine[B]===1&&!(C in mine),JSON.stringify(mine));
+ok('…B isn\'t counted twice any more',await n20(B)===totB-1);
+const evM=await lq(`select item_id,score from public.rating_events where user_id='${U(M)}' order by id`);
+ok('…the history of A and C moved too (C\'s removal included); B\'s guest history didn\'t',evM.filter(e=>e.item_id===A).length===eventsG.filter(e=>e.item_id===A).length&&evM.filter(e=>e.item_id===C).length===2&&evM.filter(e=>e.item_id===B).length===1,JSON.stringify(evM));
+ok('…the account gets the place the guest gave',(await lone(M,'select public.my_profile()')).home_place.id===101);
+ok('…and the guest account is gone, with everything left in it',!(await lq(`select 1 from auth.users where id='${U(G)}' union all select 1 from public.item_ratings where user_id='${U(G)}' union all select 1 from public.rating_events where user_id='${U(G)}' union all select 1 from public.profiles where id='${U(G)}' union all select 1 from public.guest_handovers where guest_id='${U(G)}'`)).length);
+ok('the code works once only',(await lone(M,`select public.claim_guest('${code}')`)).moved===0);
+// The other cases
+await lone(G2,`select public.rate_item(${D},4)`);
+const old2=await lone(G2,'select public.guest_handover()');const new2=await lone(G2,'select public.guest_handover()');
+ok('asking again replaces the code: the old one stops working',(await lone(M2,`select public.claim_guest('${old2}')`)).moved===0&&(await lq(`select count(*)::int n from public.guest_handovers where guest_id='${U(G2)}'`))[0].n===1);
+await lq(`update public.guest_handovers set created_at=now()-interval '61 minutes' where guest_id='${U(G2)}'`);
+ok('a code older than an hour moves nothing, and the guest keeps their rating',(await lone(M2,`select public.claim_guest('${new2}')`)).moved===0&&(await n20(D))>=1&&(await lq(`select 1 from public.item_ratings where user_id='${U(G2)}'`)).length===1);
+await lone(G3,`select public.rate_item(${D},2)`);const c3=await lone(G3,'select public.guest_handover()');
+await lq(`update auth.users set is_anonymous=false where id='${U(G3)}'`);
+ok('a code from an account that isn\'t a guest any more moves nothing and deletes nobody',(await lone(M2,`select public.claim_guest('${c3}')`)).moved===0&&(await lq(`select 1 from auth.users where id='${U(G3)}'`)).length===1);
+ok('…and that account can now do what accounts do',(await lone(G3,'select public.may_upload_photo()'))===true);
+await lone(M2,'select public.set_home_place(1)');await lone(G4,'select public.set_home_place(4)');await lone(G4,`select public.rate_item(${D},5)`);
+const c4=await lone(G4,'select public.guest_handover()');
+ok('signing into an account with nothing clashing moves everything',(await lone(M2,`select public.claim_guest('${c4}')`)).moved===1);
+ok('…but an account that has a place keeps its own',(await lone(M2,'select public.my_profile()')).home_place.id===1);
+// A guest can delete themselves
+await live.query('insert into auth.users(id,is_anonymous) values ($1,true) on conflict do nothing',[U(46)]);await lone(46,`select public.rate_item(${A},3)`);
+ok('a guest can delete their ratings with delete_me',!(await las(46,'select public.delete_me()')).err&&!(await lq(`select 1 from public.item_ratings where user_id='${U(46)}'`)).length);
+ok('its check at the end runs',(await lq(mig20.slice(mig20.lastIndexOf('select (select count(*)')))).length===1);
+ok('after 020, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${cr17},1)`)));
+}
 }
 }

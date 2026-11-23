@@ -134,5 +134,18 @@ else
   echo "SKIP  photo upload limit check (migration 016 not run yet)"
 fi
 
+# Guest tasters (migration 020). Skipped until it has been run.
+if [ "$(call guest_handover '{}' | grep -c 'PGRST202')" = "0" ]; then
+  check "signed out can't get a handover code"   "$(call guest_handover '{}')" 'permission denied'
+  check "signed out can't claim a guest's ratings" "$(call claim_guest '{"p_code":"x"}')" 'permission denied'
+  check "nobody signed out can read the handovers" "$(get 'guest_handovers?select=*&limit=1')" 'permission denied'
+  check "nobody can call the guest check"         "$(call is_guest '{"u":"00000000-0000-0000-0000-000000000000"}')" 'permission denied'
+  check "nobody can call the rater check"         "$(call require_rater '{}')" 'permission denied'
+  check "nobody can call the code fingerprint"    "$(call code_hash '{"p_code":"x"}')" 'permission denied'
+  check "signed out still can't rate"             "$(call rate_item '{"p_item":1,"p_score":5}')" 'permission denied'
+else
+  echo "SKIP  guest checks (migration 020 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }
