@@ -536,6 +536,7 @@ function openM(id){
 }
 function closeM(){
   if(!openId)return;
+  if(openId==='m-rate'&&botCancel)botCancel(); // a bot check still running in the rating sheet stops with it
   $('#'+openId).hidden=true;openId=null;sheet=null;placeUI=null;
   if(tipNow&&!tipNow.n)tipNow=null;setTimeout(updateTips,0); // after a page change this runs, so no tip is picked for the page being left
   if(lastFocus&&document.contains(lastFocus))lastFocus.focus();
@@ -901,7 +902,8 @@ async function loadProfile(){try{profile=me?await rpc('my_profile'):null}catch(e
    Approving, adding, reporting and the owner page still need Google or Facebook. Signing in then moves the guest's
    ratings into the account: guest_handover() gives a one-time code before leaving, claim_guest() uses it on return. */
 const member=()=>!!me&&!me.guest;
-let tsLoad=null,joining=null,botCancel=null;
+let tsLoad=null,joining=null,botCancel=null,botRun=null,botPass=null,botAsk=false;
+const BOT_FRESH=240000; // Cloudflare's pass lasts 5 minutes and works once: a margin for the trip to Supabase
 function turnstileReady(){
   if(window.turnstile)return Promise.resolve(window.turnstile);
   if(!tsLoad)tsLoad=new Promise((ok,no)=>{const s=document.createElement('script');
@@ -912,31 +914,57 @@ function turnstileReady(){
 }
 async function botToken(){ // null when no site key is set (Turnstile not switched on yet)
   if(!CONFIG.TURNSTILE_SITE_KEY)return null;
-  const ts=await withTimeout(turnstileReady(),15000),box=$('#bot-check');let id=null;
-  if(!box)throw new Error('bot check'); // the sheet was closed
-  box.hidden=false; // stays empty unless Cloudflare wants a tap (design/mockups/bot-check-note.html)
+  const ts=await withTimeout(turnstileReady(),15000),box=$('#bot-check');let id=null,cancel=null;
+  if(!box||!sheet)throw new Error('bot check'); // the sheet was closed
+  box.hidden=false; // stays empty-looking unless Cloudflare wants a tap (design/mockups/bot-check-note.html)
   try{return await withTimeout(new Promise((ok,no)=>{
-      botCancel=()=>no(new Error('bot check cancelled')); // another snack opened: start afresh on its first face
+      botCancel=cancel=()=>no(new Error('bot check cancelled')); // the sheet was closed, or its box redrawn away
       id=ts.render(box,{sitekey:CONFIG.TURNSTILE_SITE_KEY,action:'guest',appearance:'interaction-only',
         theme:document.documentElement.dataset.theme==='dark'?'dark':'light', // TasteRank's own setting, not the phone's
-        'before-interactive-callback':()=>sheetCheck(true),'after-interactive-callback':()=>sheetCheck(false),
+        'before-interactive-callback':()=>botAsking(true),'after-interactive-callback':()=>botAsking(false),
         callback:ok,'error-callback':()=>{no(new Error('bot check'));return true},'expired-callback':()=>no(new Error('bot check')),'timeout-callback':()=>no(new Error('bot check'))})}),
-    120000)} // time for a tap, if one is asked for
-  finally{botCancel=null;try{if(id!=null)ts.remove(id)}catch(e){}if(sheet)sheet.check=false;if(box.isConnected){box.hidden=true;box.innerHTML=''}}
+    180000)} // time to read the snack and tick, if a tap is asked for
+  finally{if(botCancel===cancel)botCancel=null;try{if(id!=null)ts.remove(id)}catch(e){}if(box.isConnected){box.hidden=true;box.innerHTML=''}botAsking(false)}
 }
-// Cloudflare wants a tap: the line above its box says so (and back to "Saving…" once ticked). Patched in place, because
-// redrawing the sheet would remove Cloudflare's box mid-check.
-const CHECK_LINE='<b>One quick check first.</b> Tick the box below and your rating saves.';
-function sheetCheck(on){
-  if(!sheet)return;sheet.check=on;
-  const h=$('#rate-body .help');if(h){h.innerHTML=on?CHECK_LINE:'Saving…';h.classList.toggle('check',on)}
+/* The check starts as soon as a visitor opens a snack to rate (renderSheet → botSync), not on their first face: Cloudflare
+   takes a few seconds to decide, and by the time a face is picked it's usually done, so the first rating saves at once.
+   One check at a time (botRun); a pass waits in botPass until the first face uses it. A check that fails on its own isn't
+   started again in that sheet (sheet.botFailed): the face tap checks afresh and shows the error if it fails again. */
+function botStart(){
+  if(!botRun){
+    botRun=botToken().then(t=>{botPass={token:t,at:Date.now()}},e=>{if(sheet&&!/cancelled/.test(e.message))sheet.botFailed=true;throw e})
+      .finally(()=>{botRun=null});
+    botRun.catch(()=>{});
+  }
+  return botRun;
+}
+const botFresh=()=>!!botPass&&Date.now()-botPass.at<BOT_FRESH;
+function botSync(){
+  if(!sheet)return;
+  if(!$('#bot-check')){if(botCancel)botCancel();return} // the sheet moved on (saved, or the end of the list): its check stops
+  if(!botRun&&!me&&!sheet.botFailed&&CONFIG.TURNSTILE_SITE_KEY&&!botFresh())botStart();
+}
+async function botTake(){ // the pass for the guest sign-in: the early one if ready, else wait for it, else check now
+  if(!CONFIG.TURNSTILE_SITE_KEY)return null;
+  if(!botRun&&!botFresh())botStart();
+  if(botRun)await botRun; // a failed check throws here: the sheet shows the error
+  const p=botPass;botPass=null;if(!p)throw new Error('bot check');
+  return p.token;
+}
+// Cloudflare wants a tap (and once it's ticked, doesn't): the line above its box says so. The box itself is never redrawn
+// (renderSheet keeps it: redrawing would restart the check), so its spacing is a class on it.
+const CHECK_FIRST='<b>One quick check first.</b> Tick the box below, then pick a face.',
+  CHECK_SAVE='<b>One quick check first.</b> Tick the box below and your rating saves.';
+function botAsking(on){
+  if(botAsk===on)return;botAsk=on;
+  $('#bot-check')?.classList.toggle('asking',on);
+  if(sheet)renderSheet();
 }
 function ensureGuest(){
   if(me)return Promise.resolve(me);
   if(!joining)joining=(async()=>{
-    const u=await api.signInGuest(await botToken());if(!u)throw new Error('No guest account');
-    moveLocal('visitor',u.id);me=u;homeData=null;track('guest-start',true);
-    await loadProfile();renderHeader();return u;
+    const u=await api.signInGuest(await botTake());if(!u)throw new Error('No guest account');
+    moveLocal('visitor',u.id);me=u;homeData=null;track('guest-start',true);renderHeader();return u; // the profile loads alongside the first save
   })().finally(()=>{joining=null});
   return joining;
 }
@@ -2266,12 +2294,12 @@ function itemFromPage(id){
 }
 async function openRate(id){
   const it=itemFromPage(id);if(!it)return;
-  if(botCancel)botCancel(); // a bot check left waiting in a closed sheet
   sheet={it,from:page.kind==='brandpage'?'brand':'list',editing:!it.my_score,next:null};
   if(it.my_score)loadNext();
   renderSheet();openM('m-rate');
 }
-function renderSheet(){
+function renderSheet(){drawSheet();botSync()}
+function drawSheet(){
   if(!sheet)return;
   const it=sheet.it,home=profile&&profile.home_place,homeCountryId=home&&(home.country_id||null);
   const u=photoUrl(it)||'',pic=$('#rate-pic'); // redrawn only for another snack or photo, so it doesn't flicker
@@ -2288,15 +2316,17 @@ function renderSheet(){
     return;
   }
   if(sheet.editing){
-    if(sheet.joining&&$('#bot-check')?.childElementCount)return; // Cloudflare's box is up: a redraw would remove it mid-check
     const wait=sheet.joining?' disabled':'',picked=v=>sheet.joining?sheet.picked===v:it.my_score===v; // the face just tapped stays lit while a guest account is made
-    body.innerHTML=`${skipNote()}<div class="faces">${FACES.map(f=>`<button class="face-btn${picked(f.v)?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${picked(f.v)}"${wait}><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
+    const asking=botAsk&&!it.my_score;
+    const html=`${skipNote()}<div class="faces">${FACES.map(f=>`<button class="face-btn${picked(f.v)?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${picked(f.v)}"${wait}><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
       ${sheet.error?`<div class="sheet-error" role="alert"><b>Your rating didn't save.</b> ${sheet.guestFail
           ?`We couldn't check you're a real person. Try again, or <button class="link" data-act="rate-sign-in">sign in</button> to rate.`:`Please try again.<small>${esc(sheet.error)}</small>`}</div>`
-        :`<div class="help${sheet.check?' check':''}"${sheet.joining?' role="status"':''}>${sheet.joining?(sheet.check?CHECK_LINE:'Saving…'):'Tap a face. It saves straight away.'}</div>`}
+        :`<div class="help${asking?' check':''}"${sheet.joining||asking?' role="status"':''}>${asking?(sheet.joining?CHECK_SAVE:CHECK_FIRST):sheet.joining?'Saving…':'Tap a face. It saves straight away.'}</div>`}
       ${it.my_score?'':'<div class="bot-check" id="bot-check" hidden></div>'}
       ${it.my_score?'<button class="link remove-rating" data-act="unrate">Remove my rating</button>'
         :`<button class="link skip-link" data-act="skip" aria-label="Haven't tried it: show the next snack"${sheet.busy||sheet.joining?' disabled':''}>Haven't tried it →</button>`}`;
+    const box=$('#bot-check');
+    if(box&&box.childElementCount&&body.contains(box)&&!it.my_score)keepBox(body,box,html);else body.innerHTML=html;
     return;
   }
   const f=FACES.find(x=>x.v===it.my_score),n=sheet.next;
@@ -2314,6 +2344,13 @@ function renderSheet(){
   if(sheet.tip4)sheet.tip4=true;
   // keep keyboard focus inside the sheet when its buttons are replaced
   if(!$('#m-rate').contains(document.activeElement)||document.activeElement===document.body)($('#rate-body .btn-primary:not([disabled])')||$('#rate-body [data-act="edit-rating"]')).focus();
+}
+// Redraw everything in the sheet around Cloudflare's box, but not the box: moving or redrawing it restarts the check
+function keepBox(body,box,html){
+  const t=document.createElement('div');t.innerHTML=html;
+  const kids=[...t.childNodes],i=kids.findIndex(n=>n.id==='bot-check');
+  [...body.childNodes].forEach(n=>{if(n!==box)n.remove()});
+  box.before(...kids.slice(0,i));box.after(...kids.slice(i+1));
 }
 /* What comes after the faces once a snack is rated (or skipped as the last one left): "Next", the end of a list, or of everything.
    With skipped snacks in the list, the words count them and offer them back (design/mockups/havent-tried.html 2a). */
@@ -2392,11 +2429,11 @@ async function loadNext(){
 }
 async function saveRating(v){
   if(!sheet||sheet.joining)return;
-  const it=sheet.it,first=!it.my_score;
+  const it=sheet.it,first=!it.my_score;let newGuest=false;
   if(!me){ // the first face: become a guest taster
     const sh=sheet;
-    sheet.joining=true;sheet.picked=v;sheet.check=false;sheet.error=null;sheet.guestFail=false;renderSheet();
-    try{await ensureGuest()}
+    sheet.joining=true;sheet.picked=v;sheet.error=null;sheet.guestFail=false;renderSheet();
+    try{await ensureGuest();newGuest=true}
     catch(e){
       console.error(e);if(sheet!==sh)return; // closed, or another snack opened meanwhile
       sheet.joining=false;
@@ -2408,7 +2445,8 @@ async function saveRating(v){
   }
   // a failed save stays visible in the sheet (with the reason), instead of a message that disappears
   let firstEver=false,n=0;
-  try{n=await rpc('rate_item',{p_item:it.id,p_score:v});if(profile)profile.rated=n;firstEver=first&&n===1}
+  try{const prof=newGuest?loadProfile():null; // a new guest's profile loads alongside the save, not before it
+    n=await rpc('rate_item',{p_item:it.id,p_score:v});if(prof){await prof;renderHeader()}if(profile)profile.rated=n;firstEver=first&&n===1}
   catch(e){console.error(e);sheet.error=e.message||String(e);renderSheet();return}
   track('rate-item',true);
   if(first&&!profile)await loadProfile();
