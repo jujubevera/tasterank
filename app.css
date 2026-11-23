@@ -758,10 +758,14 @@ a.wbr:focus-visible{outline:3px solid var(--on-winner);outline-offset:2px}
 .own-srcbox legend+*{clear:both}
 @media (min-width:520px){.own-frow #own-fphoto{flex:0 1 calc(50% - 4px)}} /* half width, like the two above, once its longest label fits */
 
-/* Guest tasters (migration 020): the note on a guest's profile, and Cloudflare's bot check in the rating sheet (empty unless it wants a tap) */
+/* Guest tasters (migration 020): the note on a guest's profile, and Cloudflare's bot check in the rating sheet (empty unless it wants a tap;
+   then the line above it says so: design/mockups/bot-check-note.html) */
 .guest-note{background:var(--hint);border-radius:16px;padding:14px;margin-top:16px}
 .guest-note p{margin:0 0 10px;font-size:14.5px;color:var(--muted);line-height:1.45}
 .guest-note b{color:var(--ink)}
 .guest-note .btn{min-height:40px;padding:7px 16px;font-size:14.5px}
 .bot-check{display:flex;justify-content:center}
-.bot-check:not(:empty){margin-top:14px}
+.bot-check:not(:empty){margin-top:12px}
+.bot-check:not(:empty)+.skip-link{margin-top:6px}
+.help.check{font-size:14px;line-height:1.4}
+.help.check b{color:var(--ink);font-weight:800}

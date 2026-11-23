@@ -901,7 +901,7 @@ async function loadProfile(){try{profile=me?await rpc('my_profile'):null}catch(e
    Approving, adding, reporting and the owner page still need Google or Facebook. Signing in then moves the guest's
    ratings into the account: guest_handover() gives a one-time code before leaving, claim_guest() uses it on return. */
 const member=()=>!!me&&!me.guest;
-let tsLoad=null,joining=null;
+let tsLoad=null,joining=null,botCancel=null;
 function turnstileReady(){
   if(window.turnstile)return Promise.resolve(window.turnstile);
   if(!tsLoad)tsLoad=new Promise((ok,no)=>{const s=document.createElement('script');
@@ -913,12 +913,23 @@ function turnstileReady(){
 async function botToken(){ // null when no site key is set (Turnstile not switched on yet)
   if(!CONFIG.TURNSTILE_SITE_KEY)return null;
   const ts=await withTimeout(turnstileReady(),15000),box=$('#bot-check');let id=null;
-  box.hidden=false; // stays empty unless Cloudflare wants a tap
+  if(!box)throw new Error('bot check'); // the sheet was closed
+  box.hidden=false; // stays empty unless Cloudflare wants a tap (design/mockups/bot-check-note.html)
   try{return await withTimeout(new Promise((ok,no)=>{
+      botCancel=()=>no(new Error('bot check cancelled')); // another snack opened: start afresh on its first face
       id=ts.render(box,{sitekey:CONFIG.TURNSTILE_SITE_KEY,action:'guest',appearance:'interaction-only',
+        theme:document.documentElement.dataset.theme==='dark'?'dark':'light', // TasteRank's own setting, not the phone's
+        'before-interactive-callback':()=>sheetCheck(true),'after-interactive-callback':()=>sheetCheck(false),
         callback:ok,'error-callback':()=>{no(new Error('bot check'));return true},'expired-callback':()=>no(new Error('bot check')),'timeout-callback':()=>no(new Error('bot check'))})}),
     120000)} // time for a tap, if one is asked for
-  finally{try{if(id!=null)ts.remove(id)}catch(e){}box.hidden=true;box.innerHTML=''}
+  finally{botCancel=null;try{if(id!=null)ts.remove(id)}catch(e){}if(sheet)sheet.check=false;if(box.isConnected){box.hidden=true;box.innerHTML=''}}
+}
+// Cloudflare wants a tap: the line above its box says so (and back to "Saving…" once ticked). Patched in place, because
+// redrawing the sheet would remove Cloudflare's box mid-check.
+const CHECK_LINE='<b>One quick check first.</b> Tick the box below and your rating saves.';
+function sheetCheck(on){
+  if(!sheet)return;sheet.check=on;
+  const h=$('#rate-body .help');if(h){h.innerHTML=on?CHECK_LINE:'Saving…';h.classList.toggle('check',on)}
 }
 function ensureGuest(){
   if(me)return Promise.resolve(me);
@@ -2255,6 +2266,7 @@ function itemFromPage(id){
 }
 async function openRate(id){
   const it=itemFromPage(id);if(!it)return;
+  if(botCancel)botCancel(); // a bot check left waiting in a closed sheet
   sheet={it,from:page.kind==='brandpage'?'brand':'list',editing:!it.my_score,next:null};
   if(it.my_score)loadNext();
   renderSheet();openM('m-rate');
@@ -2276,11 +2288,13 @@ function renderSheet(){
     return;
   }
   if(sheet.editing){
-    const wait=sheet.joining?' disabled':'';
-    body.innerHTML=`${skipNote()}<div class="faces">${FACES.map(f=>`<button class="face-btn${it.my_score===f.v?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${it.my_score===f.v}"${wait}><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
+    if(sheet.joining&&$('#bot-check')?.childElementCount)return; // Cloudflare's box is up: a redraw would remove it mid-check
+    const wait=sheet.joining?' disabled':'',picked=v=>sheet.joining?sheet.picked===v:it.my_score===v; // the face just tapped stays lit while a guest account is made
+    body.innerHTML=`${skipNote()}<div class="faces">${FACES.map(f=>`<button class="face-btn${picked(f.v)?' on':''}" data-act="face" data-v="${f.v}" aria-pressed="${picked(f.v)}"${wait}><span aria-hidden="true">${f.e}</span>${f.l}</button>`).join('')}</div>
       ${sheet.error?`<div class="sheet-error" role="alert"><b>Your rating didn't save.</b> ${sheet.guestFail
           ?`We couldn't check you're a real person. Try again, or <button class="link" data-act="rate-sign-in">sign in</button> to rate.`:`Please try again.<small>${esc(sheet.error)}</small>`}</div>`
-        :`<div class="help"${sheet.joining?' role="status"':''}>${sheet.joining?'Saving…':'Tap a face. It saves straight away.'}</div>`}
+        :`<div class="help${sheet.check?' check':''}"${sheet.joining?' role="status"':''}>${sheet.joining?(sheet.check?CHECK_LINE:'Saving…'):'Tap a face. It saves straight away.'}</div>`}
+      ${it.my_score?'':'<div class="bot-check" id="bot-check" hidden></div>'}
       ${it.my_score?'<button class="link remove-rating" data-act="unrate">Remove my rating</button>'
         :`<button class="link skip-link" data-act="skip" aria-label="Haven't tried it: show the next snack"${sheet.busy||sheet.joining?' disabled':''}>Haven't tried it →</button>`}`;
     return;
@@ -2380,14 +2394,16 @@ async function saveRating(v){
   if(!sheet||sheet.joining)return;
   const it=sheet.it,first=!it.my_score;
   if(!me){ // the first face: become a guest taster
-    sheet.joining=true;sheet.error=null;sheet.guestFail=false;renderSheet();
+    const sh=sheet;
+    sheet.joining=true;sheet.picked=v;sheet.check=false;sheet.error=null;sheet.guestFail=false;renderSheet();
     try{await ensureGuest()}
     catch(e){
-      console.error(e);if(!sheet)return;sheet.joining=false;
+      console.error(e);if(sheet!==sh)return; // closed, or another snack opened meanwhile
+      sheet.joining=false;
       if(guestOff(e)){closeM();return askSignIn({name:'rate',item:it.id})} // switched off in Supabase: sign in, as before
       sheet.error=e.message||String(e);sheet.guestFail=true;renderSheet();return;
     }
-    if(!sheet||sheet.it.id!==it.id)return; // closed meanwhile: the guest account is ready for next time
+    if(sheet!==sh)return; // closed meanwhile: the guest account is ready for next time
     sheet.joining=false;
   }
   // a failed save stays visible in the sheet (with the reason), instead of a message that disappears
