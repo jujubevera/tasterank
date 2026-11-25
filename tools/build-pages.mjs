@@ -198,11 +198,16 @@ await fs.writeFile(path.join(OUT, 'index.html'), withLinks(template, homeBlock))
 await fs.writeFile(path.join(OUT, '404.html'), render({path: '/404.html', title: 'TasteRank: the snacks each country loves most, rated by real tasters', description: "What snacks does your country love most? Rate the ones you've tried on TasteRank.", robots: 'noindex'}).replace(/<link rel="canonical"[^>]*>\n/, ''));
 // Pages only the signed-in app shows: real addresses so a reload works, kept out of search results
 // About: the words from index.html's <template id="about-tpl">, the same ones the app shows
+// …with the Wikimedia Commons credits, as app.js's creditsHtml writes them (migration 021; before it's run, none)
+const credits = await rpc('photo_credits').catch(e => { if (!/PGRST202|404/.test(e.message)) throw e; return []; });
+const creditsHtml = !credits.length ? '' : `<p>Photos from <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia Commons</a>:</p>
+  <ul class="ab-cr">${credits.map(c => `<li>${esc(c.pack_name)}: ${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener">${licNb(c.credit)}</a>` : licNb(c.credit)}</li>`).join('')}</ul>`;
+function licNb(t) { return esc(t).replace(/\bCC BY-SA (\d\.\d)/g, 'CC&nbsp;BY&#8209;SA&nbsp;$1').replace(/\bCC BY (\d\.\d)/g, 'CC&nbsp;BY&nbsp;$1'); } // as app.js
 const aboutTpl = (template.match(/<template id="about-tpl">([\s\S]*?)<\/template>/) || [])[1];
 if (!aboutTpl) throw new Error('index.html changed: no about-tpl template');
 pages.push({path: '/about/', view: 'about', title: 'About TasteRank: how the snack rankings work',
   description: `How TasteRank ranks snacks: one rating per person per snack, a snack is ranked after ${need} ratings, and new snacks go live with ${settings.approval_votes} approvals.`,
-  body: aboutTpl.replaceAll('{{rank}}', need).replaceAll('{{approve}}', settings.approval_votes).trim()});
+  body: aboutTpl.replaceAll('{{rank}}', need).replaceAll('{{approve}}', settings.approval_votes).replaceAll('{{credits}}', creditsHtml).trim()});
 for (const [p, title] of [['/me/', 'Your profile | TasteRank'], ['/owner/', 'Owner page | TasteRank']])
   pages.push({path: p, title, description: "What snacks does your country love most? Rate the ones you've tried on TasteRank.", robots: 'noindex'});
 // Home by brand: indexed, with a link to every brand page (otherwise brand pages are reachable only from list rows)

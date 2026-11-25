@@ -129,7 +129,7 @@ const DEMO={
     {id:5,c:1,p:2,v:2,b:'M&S',pack:'M&S Double Devon Toffees',r:[0,0,1,2,1]},
     {id:6,c:1,p:2,v:2,b:"Walker's Nonsuch",pack:"Walker's Nonsuch Original Creamy Toffee",r:[0,0,1,1,0]},
     {id:7,c:1,p:2,v:2,b:'Thorntons',pack:'Thorntons Special Toffee',img:OFF+'501/634/614/2729/front_en.5.400.jpg',r:[0,0,0,2,1]},
-    {id:8,c:1,p:3,v:4,b:'Walkers',pack:'Walkers Salt & Vinegar Crisps',img:OFF+'57522241/front_en.12.400.jpg',r:[1,1,3,10,30]},
+    {id:8,c:1,p:3,v:4,b:'Walkers',pack:'Walkers Salt & Vinegar Crisps',img:OFF+'57522241/front_en.12.400.jpg',r:[1,1,3,10,30],guests:12}, // guests: how many sample ratings came from guests (owner page)
     {id:9,c:1,p:3,v:4,b:'Hula Hoops',pack:'Hula Hoops Salt & Vinegar',img:OFF+'500/023/713/9523/front_en.3.400.jpg',r:[1,2,5,10,6]},
     {id:10,c:1,p:3,v:4,b:'KETTLE',pack:'KETTLE Chips Sea Salt & Balsamic Vinegar of Modena',img:OFF+'501/776/443/0092/front_en.3.400.jpg',r:[1,1,3,8,20]},
     {id:11,c:1,p:3,v:4,b:"Jacob's",pack:"Jacob's Crinklys Salt & Vinegar 30% Less Fat",r:[0,1,2,2,1]},
@@ -273,6 +273,7 @@ const DEMO_RPC={
   },
   rate_item({p_item,p_score},st){st.ratings[p_item]=p_score;demoSave(st);return Object.keys(st.ratings).length},
   unrate_item({p_item},st){delete st.ratings[p_item];demoSave(st);return Object.keys(st.ratings).length},
+  photo_credits(){return D.all().filter(i=>!i.withdrawn&&D.photoSrc(i)==='commons').sort((a,b)=>a.pack.localeCompare(b.pack)||a.id-b.id).map(i=>({item_id:i.id,pack_name:i.pack,credit:i.credit,link:i.clink||null}))}, // as migration 021
   guest_handover(_,st){if(!st.user?.guest)throw new Error('Only a guest has ratings to hand over');return 'demo'},
   claim_guest(_,st){return {moved:Object.keys(st.ratings).length,kept:0}},
   approve_item({p_item},st){
@@ -384,6 +385,7 @@ const DEMO_RPC={
       const total=r.reduce((a,b)=>a+b,0),approvals=D.approvals(i,st);
       return {id:i.id,pack_name:i.pack,brand:i.b,brand_id:D.brandId(i.b),product_id:i.p,product:p.name,category_id:p.category_id,emoji:p.emoji,variant_id:i.v,flavour:v.name,is_other:!!v.is_other,
         country_id:i.c,status:i.hidden?'hidden':i.closed?'closed':approvals>=n||!i.pending?'live':'pending',hidden_from:i.hidden_from||null,ratings:total,
+        guest_ratings:(i.guests||0)+(st.ratings[i.id]&&st.user&&st.user.guest?1:0),
         avg:total?Math.round(r.reduce((s,x,k)=>s+x*(k+1),0)/total*100)/100:null,approvals,days_left:i.days_left??30,image_url:i.img||null,image_path:null,barcode:i.barcode||null,
         photo_source:D.photoSrc(i),photo_credit:i.credit||null,photo_link:i.clink||null};
     }).sort((a,b)=>b.id-a.id);
@@ -800,6 +802,7 @@ const ACT={
   feedback:()=>{showSettings(false);track('feedback-open',true);openM('m-feedback')},
   privacy:()=>{showSettings(false);openM('m-privacy')},
   about:()=>{showSettings(false);go({v:'about'})},
+  'photo-credits':async()=>{await go({v:'about'});await photoCredits();$('#ab-credits')?.scrollIntoView({block:'center'})}, // the footer's "Wikimedia Commons"
   'rate-random':()=>rateRandom(),
   settings:()=>showSettings($('#settings-pop').hidden),
   'set-theme':d=>setTheme(d.theme),
@@ -2676,6 +2679,9 @@ const ownInCat=x=>ownInSub(x)&&(!own.fphoto||photoSrc(x)===own.fphoto); // …an
 const PHOTO_SRC={off:'Open Food Facts',commons:'Wikimedia Commons',you:'Your photo',taster:"A taster's photo",upload:'Uploaded photo',none:'No photo'};
 const PHOTO_PICK=[['off','Open Food Facts'],['commons','Wikimedia Commons'],['you','Your photos'],['taster',"Tasters' photos"],['upload','Uploaded photos'],['none','No photo']];
 const photoSrc=x=>x.photo_source||(x.image_url?'off':x.image_path?'upload':'none');
+// "12 ratings, 3 from guests": one person can rate again from a private window as a new guest, so a snack with
+// mostly guest ratings is worth a look (migration 021; before it's run, guest_ratings is missing and nothing is added)
+const ownRatings=x=>plural(x.ratings,'rating')+(x.guest_ratings?`, ${x.guest_ratings===x.ratings?(x.ratings===1?'from a guest':'all from guests'):`${x.guest_ratings} from guests`}`:'');
 const srcTag=k=>`<span class="src src-${k}"><i aria-hidden="true"></i>${esc(PHOTO_SRC[k]||k)}</span>`;
 const offPage=x=>{const c=x.barcode||((x.image_url||'').match(/\/products\/([\d/]+)\/[^/]+$/)||[])[1]?.replace(/\//g,'');return c?`https://world.openfoodfacts.org/product/${encodeURIComponent(c)}`:null};
 const ownCats=()=>own.cat.categories.filter(c=>c.visible);
@@ -2838,7 +2844,7 @@ function ownListHtml(){
   return `<div class="list">${l.map(x=>{
     const pl=own.country?null:placeBy('id',x.country_id);
     const more=x.status==='pending'?`${x.approvals} of ${n} approvals`:x.status==='closed'?`closed, ${x.approvals} of ${n} approvals`
-      :x.status==='hidden'?`${plural(x.ratings,'rating')} kept`:x.ratings?plural(x.ratings,'rating'):'no ratings yet';
+      :x.status==='hidden'?`${ownRatings(x)} kept`:x.ratings?ownRatings(x):'no ratings yet';
     return `<button class="ir own-row${x.status==='hidden'?' hid':''}" data-act="own-open" data-id="${x.id}">${thumb(x,'sm')}
       <span class="in"><span class="bn">${esc(x.pack_name)}</span><span class="pk">${pl?pl.flag+' ':''}${esc(x.product)} · ${esc(x.brand)} · ${more}</span>${srcTag(photoSrc(x))}</span>${ownPill(x.status)}</button>`}).join('')}</div>`;
 }
@@ -2854,9 +2860,9 @@ async function ownOpenSnack(id){
 function ownDrawSheet(){$('#owner-body').innerHTML=own.edit?ownSnackSheet():own.sub?ownSubSheet():''}
 function ownStatusLine(x){
   const n=settings.approval_votes;
-  return x.status==='live'?`Live · ${x.ratings?plural(x.ratings,'rating')+(x.avg!=null?` · average ${score1(x.avg)}`:''):'no ratings yet'}`
+  return x.status==='live'?`Live · ${x.ratings?ownRatings(x)+(x.avg!=null?` · average ${score1(x.avg)}`:''):'no ratings yet'}`
     :x.status==='pending'?`In the vote · ${x.approvals} of ${n} approvals · closes in ${plural(x.days_left,'day')}`
-    :x.status==='closed'?`Closed · ${x.approvals} of ${n} approvals`:`Hidden · ${plural(x.ratings,'rating')} kept`;
+    :x.status==='closed'?`Closed · ${x.approvals} of ${n} approvals`:`Hidden · ${ownRatings(x)} kept`;
 }
 function ownSnackSheet(){
   const e=own.edit,pl=placeBy('id',e.country_id)||{},prods=own.cat.products.filter(p=>p.category_id===e.cat),cur=e.newSub?null:ownProduct(e.sub);
@@ -2904,6 +2910,7 @@ async function ownSave(){
     await rpc('owner_save_snack',{p_item:e.id,p_pack_name:e.pack_name,p_brand_name:e.brand,p_country:e.country_id,p_category:e.cat,p_subcategory:sub,p_flavour:e.flavour||null,p_photo:photo,
       ...(mark?{p_photo_source:commons?'commons':'own',p_photo_credit:commons?e.credit.trim():null,p_photo_link:commons?e.clink.trim()||null:null}:{})}); // migration 019
     if(e.fromReport)await rpc('owner_resolve_report',{p_item:e.id,p_action:'clear'}).catch(console.error);
+    creditsP=null; // a Commons credit may have changed: About asks again
     closeM();toast(e.fromReport?'Saved, and its reports are cleared':'Saved');ownRefresh();
   }catch(err){e.busy=false;e.error=ownErr(err);ownDrawSheet()}
 }
@@ -3055,11 +3062,21 @@ async function renderProfile(){
 }
 /* ---------- About (design/prompts/07-desktop-about.md): TasteRank first, then Crispy. The words live in index.html's
    <template id="about-tpl">, so tools/build-pages.mjs can write the same page for search engines. ---------- */
-const aboutFill=h=>h.replaceAll('{{rank}}',settings.rank_after_ratings).replaceAll('{{approve}}',settings.approval_votes);
+const aboutFill=h=>h.replaceAll('{{rank}}',settings.rank_after_ratings).replaceAll('{{approve}}',settings.approval_votes).replaceAll('{{credits}}','');
 function renderAbout(){
   $('#v-about').innerHTML=aboutFill($('#about-tpl').innerHTML);
   track('about-view',true);
+  return photoCredits().then(l=>{const el=$('#ab-credits');if(el)el.innerHTML=creditsHtml(l)});
 }
+/* Photos from Wikimedia Commons, credited on About as CC BY-SA asks: the snack, the photographer and licence, and the photo's
+   Commons page (photo_credits(), migration 021; tools/build-pages.mjs writes the same list into the built /about/ page).
+   The owner types the credit when marking an upload as from Commons. Before 021 is run, the list is just empty. */
+let creditsP=null;
+const photoCredits=()=>creditsP||(creditsP=rpc('photo_credits').catch(e=>{creditsP=null;if(e?.code!=='PGRST202')console.error(e);return []}));
+const creditsHtml=l=>!l||!l.length?'':`<p>Photos from <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia Commons</a>:</p>
+  <ul class="ab-cr">${l.map(c=>`<li>${esc(c.pack_name)}: ${c.link?`<a href="${esc(c.link)}" target="_blank" rel="noopener">${licNb(c.credit)}</a>`:licNb(c.credit)}</li>`).join('')}</ul>`;
+// "CC BY-SA 2.0" stays on one line on a phone (tools/build-pages.mjs has the same)
+const licNb=t=>esc(t).replace(/\bCC BY-SA (\d\.\d)/g,'CC&nbsp;BY&#8209;SA&nbsp;$1').replace(/\bCC BY (\d\.\d)/g,'CC&nbsp;BY&nbsp;$1');
 /* "Start Rating" on About: a random list in the visitor's country (bigger lists more likely), then a random snack in it they
    haven't rated, straight into the rating sheet. Signed out, the sign-in pop-up names that snack and comes back to it. */
 async function rateRandom(){

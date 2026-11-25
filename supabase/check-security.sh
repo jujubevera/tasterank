@@ -147,5 +147,14 @@ else
   echo "SKIP  guest checks (migration 020 not run yet)"
 fi
 
+# Commons credits and guest counts (migration 021). Skipped until it has been run.
+if [ "$(call photo_credits '{}' | grep -c 'PGRST202')" = "0" ]; then
+  check "the Commons credits are a public list"     "$(call photo_credits '{}')" '^\['
+  check "…showing no photo path or uploader"        "$(call photo_credits '{}' | grep -c 'image_path\|submitted_by\|user_id' | sed 's/^0$/clean/')" '^clean$'
+  check "signed out can't see the owner's snacks"   "$(call owner_snacks '{}')" 'permission denied'
+else
+  echo "SKIP  credit checks (migration 021 not run yet)"
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "All checks passed." || { echo "$fails check(s) failed."; exit 1; }

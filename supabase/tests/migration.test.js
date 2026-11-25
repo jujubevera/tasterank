@@ -1,4 +1,4 @@
-// Tests supabase/setup.sql and migrations 002–020 on an in-memory Postgres with a small Supabase stand-in.
+// Tests supabase/setup.sql and migrations 002–021 on an in-memory Postgres with a small Supabase stand-in.
 // Part 1 checks 002 and 003; part 2 (at the bottom) starts a fresh database and checks 004–008.
 // Nothing touches the live database. Run from this folder:
 //   npm install --no-save @electric-sql/pglite@0.2.17 && node migration.test.js
@@ -1119,6 +1119,41 @@ await live.query('insert into auth.users(id,is_anonymous) values ($1,true) on co
 ok('a guest can delete their ratings with delete_me',!(await las(46,'select public.delete_me()')).err&&!(await lq(`select 1 from public.item_ratings where user_id='${U(46)}'`)).length);
 ok('its check at the end runs',(await lq(mig20.slice(mig20.lastIndexOf('select (select count(*)')))).length===1);
 ok('after 020, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0&&!!(await lone(null,`select public.category_page(${cr17},1)`)));
+}
+// ---- Migration 021: Commons credits on About, guest ratings on the owner page ----
+console.log('\n---- Migration 021 ----');
+{
+const mig21=fs.readFileSync(R+'migrate-021-credits-guest-count.sql','utf8');
+try{await live.exec(mig21);await live.exec(mig21);ok('021 runs twice without errors',true)}catch(e){ok('021 runs twice without errors',false,e.message);return}
+const err=x=>x.err||'';
+const base21=(await lone(null,'select public.photo_credits()'))||[];
+ok('signed out, anyone can read the Commons credits',Array.isArray(base21));
+const [P1,P2]=(await lq(`select id from public.items where status='live' and image_url is null order by id limit 2`)).map(r=>r.id);
+ok('(test set-up: two live snacks without an Open Food Facts photo)',!!P1&&!!P2);
+await lq(`update public.items set image_path='${U(2)}/c1.jpg',photo_source='commons',photo_credit='Sam Jones, CC BY-SA 4.0',photo_link='https://commons.wikimedia.org/wiki/File:C1.jpg' where id=${P1}`);
+await lq(`update public.items set image_path='${U(2)}/c2.jpg',photo_source='commons',photo_credit='Ann Lee, CC BY-SA 2.0',photo_link=null where id=${P2}`);
+const cr21=await lone(null,'select public.photo_credits()');
+const c1=cr21.find(x=>x.item_id===P1),c2=cr21.find(x=>x.item_id===P2);
+ok('a Commons photo is listed with its credit and Commons page',c1&&c1.credit==='Sam Jones, CC BY-SA 4.0'&&c1.link==='https://commons.wikimedia.org/wiki/File:C1.jpg'&&!!c1.pack_name,JSON.stringify(c1));
+ok('…one without a Commons page is listed too',c2&&c2.credit==='Ann Lee, CC BY-SA 2.0'&&c2.link===null,JSON.stringify(c2));
+ok('…and only the name, credit and page are shown (no photo path, no uploader)',Object.keys(c1).sort().join()==='credit,item_id,link,pack_name');
+ok('signed in, the same list',(await lone(3,'select public.photo_credits()')).length===cr21.length);
+await lq(`update public.items set status='withdrawn' where id=${P2}`);
+ok('a withdrawn snack\'s photo isn\'t listed',!(await lone(null,'select public.photo_credits()')).some(x=>x.item_id===P2));
+await lq(`update public.items set status='live' where id=${P2}`);
+await lq(`update public.items set image_path=null,photo_source=null,photo_credit=null,photo_link=null where id=${P2}`);
+ok('a photo that isn\'t from Commons any more drops off the list',!(await lone(null,'select public.photo_credits()')).some(x=>x.item_id===P2));
+// Guest ratings on the owner page
+for(const [n,anon] of [[47,true],[48,false]]) await live.query('insert into auth.users(id,is_anonymous) values ($1,$2) on conflict do nothing',[U(n),anon]);
+const sn0=(await lone(2,`select public.owner_snacks(null,${P1})`))[0];
+await lone(47,`select public.rate_item(${P1},5)`);await lone(48,`select public.rate_item(${P1},4)`);
+const sn1=(await lone(2,`select public.owner_snacks(null,${P1})`))[0];
+ok('the owner sees how many ratings came from guests',sn1.guest_ratings===sn0.guest_ratings+1&&sn1.ratings===sn0.ratings+2,JSON.stringify([sn0.ratings,sn0.guest_ratings,sn1.ratings,sn1.guest_ratings]));
+ok('…every snack has the count, 0 when no guest rated it',(await lone(2,'select public.owner_snacks(null)')).every(x=>Number.isInteger(x.guest_ratings)));
+ok('…and owner_snacks still keeps the photo source from 019',sn1.photo_source==='commons'&&sn1.photo_credit==='Sam Jones, CC BY-SA 4.0');
+ok('nobody else can call owner_snacks',ldenied(await las(null,'select public.owner_snacks(null)'))&&/for TasteRank's owner/.test(err(await las(3,'select public.owner_snacks(null)')))&&/for TasteRank's owner/.test(err(await las(47,'select public.owner_snacks(null)'))));
+ok('its check at the end runs',(await lq(mig21.slice(mig21.lastIndexOf('select jsonb_array_length')))).length===1);
+ok('after 021, the pages still load',(await lone(null,'select jsonb_array_length(public.home_categories(1))'))>0);
 }
 }
 }
